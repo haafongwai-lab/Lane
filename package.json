@@ -1,0 +1,21 @@
+{
+  "name": "lane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small Windows-local gateway for WorkBuddy, Claude Desktop, and Codex.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/cli.js serve",
+    "serve": "node src/cli.js serve",
+    "test": "node --test",
+    "doctor": "node src/cli.js doctor",
+    "connect:claude": "node src/cli.js connect claude-desktop",
+    "connect:codex": "node src/cli.js connect codex"
+  },
+  "dependencies": {
+    "@magpie-community/opencode-workbuddy-auth": "0.1.28"
+  }
+}
