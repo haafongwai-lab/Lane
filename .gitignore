@@ -1,6 +1,9 @@
 node_modules/
 dist/
+build-tmp/
+deliver/
 .lane/
+.workbuddy-ai/
 coverage/
 *.log
 .env

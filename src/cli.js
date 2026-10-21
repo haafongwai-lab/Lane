@@ -3,11 +3,11 @@ import { DEFAULT_HOST, DEFAULT_PORT, parseAddress } from "./config.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
-import { clearAuth } from "./auth-store.js";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
 import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
 import { createControlCenter } from "./control-center.js";
+import { checkinOverview, readCheckin, runCheckins, updateSettings } from "./checkin.js";
 
 function usage() {
   console.log(`Usage:
@@ -20,7 +20,14 @@ function usage() {
   lane autostart install [--addr 127.0.0.1:3426]
   lane autostart uninstall
   lane login
-  lane logout`);
+  lane logout
+  lane accounts
+  lane use <account>
+  lane enable <account> | lane disable <account>
+  lane forget <account>
+  lane checkin [--all]
+  lane checkin on | off
+  lane checkin at <HH:MM>`);
 }
 
 function argValue(args, name) {
@@ -32,7 +39,7 @@ async function serve(args) {
   const { host, port } = parseAddress(argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`);
   const provider = new WorkBuddyProvider();
   await provider.init();
-  const control = createControlCenter({ port, host });
+  const control = createControlCenter({ port, host, checkins: true });
   const server = createServer({ provider, control });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -40,7 +47,10 @@ async function serve(args) {
   });
   console.log(`lane listening on http://${host}:${port}`);
   console.log("provider: workbuddy");
-  const stop = () => server.close(() => process.exit(0));
+  const stop = () => {
+    control.stop();
+    server.close(() => process.exit(0));
+  };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
 }
@@ -54,6 +64,9 @@ async function doctor() {
     node: process.version,
     defaultAddress: `http://${DEFAULT_HOST}:${DEFAULT_PORT}`,
     signedIn: await provider.signedIn(),
+    activeId: await provider.activeId(),
+    accounts: await provider.accounts(),
+    checkin: await checkinOverview(provider),
     claudeDesktop: {
       modeConfig: claude.modeConfig,
       profileConfig: claude.library
@@ -66,16 +79,115 @@ async function doctor() {
 
 async function login() {
   const provider = new WorkBuddyProvider();
+  await provider.init();
   const result = await provider.authorize();
   console.log(`Open this URL and sign in:\n${result.url}\n`);
   console.log(result.instructions || "Waiting for sign-in...");
   const auth = await provider.finishSignIn(result);
-  console.log(JSON.stringify({ ok: true, account: auth.accountId, uid: auth.uid }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    account: auth.accountId,
+    uid: auth.uid,
+    id: auth.id,
+    activeId: await provider.activeId()
+  }, null, 2));
 }
 
 async function logout() {
-  await clearAuth();
-  console.log(JSON.stringify({ ok: true, signedOut: true }, null, 2));
+  const provider = await new WorkBuddyProvider().init();
+  const id = await provider.activeId();
+  if (!id) {
+    console.log(JSON.stringify({ ok: true, signedOut: false, reason: "no account" }, null, 2));
+    return;
+  }
+  await provider.forget(id);
+  console.log(JSON.stringify({
+    ok: true,
+    signedOut: true,
+    removed: id,
+    activeId: await provider.activeId()
+  }, null, 2));
+}
+
+async function accounts() {
+  const provider = await new WorkBuddyProvider().init();
+  const list = await provider.accounts();
+  const activeId = await provider.activeId();
+  const checkin = await checkinOverview(provider);
+  console.log(JSON.stringify({
+    activeId,
+    accounts: list.map((account) => ({
+      ...account,
+      active: account.id === activeId,
+      checkin: checkin.accounts.find((item) => item.id === account.id) || null
+    }))
+  }, null, 2));
+}
+
+async function use(id) {
+  if (!id) throw new Error("lane use <account>");
+  const provider = await new WorkBuddyProvider().init();
+  const account = await provider.activate(matchAccount(await provider.accounts(), id));
+  console.log(JSON.stringify({ ok: true, activeId: account.id, label: account.label }, null, 2));
+}
+
+async function toggle(id, enabled) {
+  if (!id) throw new Error(`lane ${enabled ? "enable" : "disable"} <account>`);
+  const provider = await new WorkBuddyProvider().init();
+  const account = await provider.setEnabled(matchAccount(await provider.accounts(), id), enabled);
+  console.log(JSON.stringify({
+    ok: true,
+    account: account.id,
+    label: account.label,
+    enabled: account.enabled,
+    activeId: await provider.activeId()
+  }, null, 2));
+}
+
+async function forget(id) {
+  if (!id) throw new Error("lane forget <account>");
+  const provider = await new WorkBuddyProvider().init();
+  const result = await provider.forget(matchAccount(await provider.accounts(), id));
+  console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+}
+
+// An account can be named by its full id, its label, or a unique prefix.
+function matchAccount(list, needle) {
+  const wanted = String(needle).toLowerCase();
+  const exact = list.find((account) => account.id.toLowerCase() === wanted);
+  if (exact) return exact.id;
+  const byLabel = list.filter((account) => account.label.toLowerCase() === wanted);
+  if (byLabel.length === 1) return byLabel[0].id;
+  const prefix = list.filter((account) => account.id.toLowerCase().startsWith(wanted));
+  if (prefix.length === 1) return prefix[0].id;
+  throw new Error(
+    prefix.length > 1
+      ? `account "${needle}" is ambiguous: ${prefix.map((item) => item.id).join(", ")}`
+      : `unknown account: ${needle}`
+  );
+}
+
+async function checkin(args) {
+  const provider = await new WorkBuddyProvider().init();
+  const [action, value] = args;
+  if (action === "on" || action === "off") {
+    console.log(JSON.stringify(await updateSettings({ enabled: action === "on" }), null, 2));
+    return;
+  }
+  if (action === "at") {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(value || "");
+    if (!match) throw new Error("lane checkin at <HH:MM>");
+    console.log(JSON.stringify(await updateSettings({
+      hour: Number(match[1]),
+      minute: Number(match[2])
+    }), null, 2));
+    return;
+  }
+  const run = await runCheckins({ provider, force: true });
+  console.log(JSON.stringify({
+    settings: (await readCheckin()).settings,
+    results: run.results
+  }, null, 2));
 }
 
 async function main() {
@@ -107,6 +219,12 @@ async function main() {
   }
   if (command === "login") return login();
   if (command === "logout") return logout();
+  if (command === "accounts") return accounts();
+  if (command === "use") return use(target);
+  if (command === "enable") return toggle(target, true);
+  if (command === "disable") return toggle(target, false);
+  if (command === "forget") return forget(target);
+  if (command === "checkin") return checkin(args.slice(1));
   usage();
   process.exitCode = 2;
 }

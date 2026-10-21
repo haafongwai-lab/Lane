@@ -13,7 +13,7 @@
     "serve": "node src/cli.js serve",
     "desktop": "electron desktop/main.js",
     "desktop:smoke": "electron desktop/main.js --smoke-test",
-    "test": "node --test",
+    "test": "node --test \"test/*.test.js\"",
     "doctor": "node src/cli.js doctor",
     "connect:claude": "node src/cli.js connect claude-desktop",
     "connect:codex": "node src/cli.js connect codex",
@@ -44,11 +44,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "desktop/assets/lane.ico"

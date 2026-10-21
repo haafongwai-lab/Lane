@@ -18,6 +18,7 @@
         <p>工作台</p>
         <button class="nav" data-view="agents"><span>Agent 接入</span></button>
         <button class="nav active" data-view="routing"><span>路由</span></button>
+        <button class="nav" data-view="accounts"><span>账号</span></button>
         <button class="nav" data-view="models"><span>模型</span></button>
         <p>系统</p>
         <button class="nav" data-view="activity"><i>≡</i><span>请求记录</span></button>
@@ -137,6 +138,50 @@
 
       </section>
 
+      <section class="view" id="view-accounts">
+        <div class="heading-row">
+          <div><div class="eyebrow">WORKBUDDY 账号</div><h1>多个账号，一个出口</h1><p class="sub">所有账号同时保持登录，只有当前账号承载请求；关掉的账号保留登录，不再参与路由与签到。</p></div>
+          <div class="heading-actions">
+            <button class="primary" id="add-account">添加账号</button>
+            <button class="ghost" id="refresh-accounts">↻ 刷新</button>
+          </div>
+        </div>
+
+        <div class="accounts-grid">
+          <article class="panel accounts-panel">
+            <div class="panel-head"><div><span class="overline">账号列表</span><h3>已登录账号</h3></div><span class="soft-label" id="account-count">0 个</span></div>
+            <div class="account-list" id="account-list"><div class="empty">还没有账号。点「添加账号」登录 WorkBuddy。</div></div>
+            <p class="accounts-foot" id="accounts-foot"></p>
+          </article>
+
+          <article class="panel checkin-card">
+            <div class="panel-head">
+              <div><span class="overline">每日签到</span><h3>自动领取积分</h3></div>
+              <label class="switch"><input type="checkbox" id="checkin-enabled"><span></span></label>
+            </div>
+            <p class="setting-copy">到点为每个开启的账号签到一次；当天已签到会跳过，失败半小时后重试。</p>
+
+            <div class="checkin-time">
+              <span>签到时间</span>
+              <div class="time-field">
+                <input type="number" id="checkin-hour" min="0" max="23" step="1" inputmode="numeric">
+                <b>:</b>
+                <input type="number" id="checkin-minute" min="0" max="59" step="1" inputmode="numeric">
+              </div>
+              <button class="text-button" id="checkin-save">保存</button>
+            </div>
+
+            <div class="checkin-progress" id="checkin-progress">
+              <div class="checkin-progress-head"><span>今日进度</span><b id="checkin-ratio">—</b></div>
+              <div class="checkin-meter"><i id="checkin-fill"></i></div>
+            </div>
+
+            <div class="checkin-list" id="checkin-list" hidden></div>
+            <button class="outline wide" id="checkin-now">立即签到</button>
+          </article>
+        </div>
+      </section>
+
       <section class="view" id="view-models">
         <div class="heading-row">
           <div><div class="eyebrow">模型目录</div><h1>WorkBuddy 可用模型</h1><p class="sub">目录随账号更新，Codex 会自动读取。</p></div>
@@ -161,30 +206,21 @@
 
       <section class="view" id="view-settings">
         <div class="heading-row">
-          <div><div class="eyebrow">设置</div><h1>安静地待在后台</h1><p class="sub">保持网关运行，但不占据任务栏。</p></div>
+          <div><div class="eyebrow">设置</div><h1>安静地待在后台</h1><p class="sub">保持网关运行，但不占据任务栏。账号与签到在「账号」页管理。</p></div>
         </div>
         <div class="settings-grid">
           <article class="panel">
             <div class="panel-head"><div><span class="overline">启动</span><h3>登录时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
-            <p class="setting-copy">Windows 登录后自动启动 Lane。关闭窗口后仍驻留系统托盘。</p>
-            <div class="setting-row"><span>数据目录</span><code id="data-path">%LOCALAPPDATA%\lane</code><button class="text-button" id="open-data">打开</button></div>
-            <div class="setting-row"><span>运行日志</span><code id="log-name">lane.log</code><button class="text-button" id="open-log">打开</button></div>
+            <p class="setting-copy">Windows 登录后自动启动 Lane。关闭窗口后仍驻留系统托盘，托盘菜单的「退出」才会真正停止网关。</p>
+            <div class="setting-row"><span>网关</span><code id="gateway-address">127.0.0.1:3426</code></div>
+            <div class="setting-row"><span>常驻方式</span><code>系统托盘 · 无窗口</code></div>
           </article>
 
           <article class="panel">
-            <div class="panel-head"><div><span class="overline">WorkBuddy</span><h3>账号</h3></div><span class="account-dot"></span></div>
-            <div class="account-card"><div class="account-avatar"><img src="assets/workbuddy-official.svg" alt=""></div><div><b id="settings-account">未登录</b><span id="settings-domain">登录后即可发请求</span></div></div>
-            <div class="credit-card" id="credit-card" hidden>
-              <div class="credit-head">
-                <span>积分</span>
-                <span class="credit-plan" id="credit-plan">—</span>
-              </div>
-              <div class="credit-amount"><strong id="credit-used">—</strong><span id="credit-limit"></span></div>
-              <div class="credit-bar"><i id="credit-fill"></i></div>
-              <div class="credit-foot"><span id="credit-left"></span><span id="credit-runsout"></span></div>
-            </div>
-            <button class="outline wide" id="settings-signin">登录 WorkBuddy</button>
-            <button class="danger-link" id="signout">退出当前账号</button>
+            <div class="panel-head"><div><span class="overline">数据</span><h3>本机存放</h3></div></div>
+            <p class="setting-copy">账号、签到记录与请求日志只保存在本机，不上传。</p>
+            <div class="setting-row"><span>数据目录</span><code id="data-path">%LOCALAPPDATA%\lane</code><button class="text-button" id="open-data">打开</button></div>
+            <div class="setting-row"><span>运行日志</span><code id="log-name">lane.log</code><button class="text-button" id="open-log">打开</button></div>
           </article>
         </div>
 

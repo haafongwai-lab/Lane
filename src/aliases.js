@@ -14,10 +14,6 @@ export function claudeEffortAlias(id) {
   return `mythos-lane-${digest(id)}`;
 }
 
-export function codexAlias(id) {
-  return `lane/${id}`;
-}
-
 export function withAliases(models, agent) {
   return models.map((model) => ({
     ...model,

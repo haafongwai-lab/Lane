@@ -3,7 +3,7 @@ import path from "node:path";
 import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
-export function claudeLocalAppData(env = process.env) {
+function claudeLocalAppData(env = process.env) {
   if (env.LANE_CLAUDE_LOCALAPPDATA) return path.resolve(env.LANE_CLAUDE_LOCALAPPDATA);
   return (
     env.LOCALAPPDATA ||

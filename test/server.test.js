@@ -297,3 +297,91 @@ test("Claude Desktop's effort request is fitted to the model's levels", async ()
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("account routes switch, switch off, remove and check in", async () => {
+  const calls = [];
+  const control = {
+    accounts: async () => ({
+      accounts: [{ id: "uid-1", label: "first", enabled: true }],
+      activeId: "uid-1"
+    }),
+    activate: async (id) => {
+      calls.push(["activate", id]);
+      return { id };
+    },
+    setEnabled: async (id, enabled) => {
+      calls.push(["enabled", id, enabled]);
+      return { id, enabled };
+    },
+    removeAccount: async (id) => {
+      calls.push(["remove", id]);
+      return { removed: true, activeId: "" };
+    },
+    checkin: async (id) => {
+      calls.push(["checkin", id]);
+      return { results: [{ id, status: "done" }] };
+    },
+    checkinOverview: async () => ({
+      settings: { enabled: true, hour: 9, minute: 0 },
+      today: "2026-10-22",
+      accounts: []
+    }),
+    checkinSettings: async (patch) => {
+      calls.push(["settings", patch]);
+      return { settings: { enabled: true, hour: 8, minute: 5 } };
+    }
+  };
+  const server = createServer({ control });
+  const base = await listen(server);
+  const post = (pathname, body) => fetch(`${base}${pathname}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  try {
+    const listed = await fetch(`${base}/lane/accounts`);
+    assert.equal(listed.status, 200);
+    assert.equal((await listed.json()).activeId, "uid-1");
+
+    assert.equal((await post("/lane/accounts/uid-1/activate")).status, 200);
+    assert.equal((await post("/lane/accounts/uid-1/enabled", { enabled: false })).status, 200);
+    assert.equal((await post("/lane/accounts/uid-1/remove")).status, 200);
+    assert.equal((await post("/lane/accounts/uid-1/checkin")).status, 200);
+    // A team account's id carries an "@", so it arrives URL-encoded.
+    assert.equal((await post("/lane/accounts/uid-1%40ent-9/activate")).status, 200);
+    assert.equal((await post("/lane/checkin")).status, 200);
+    assert.equal((await post("/lane/checkin/settings", { hour: 8, minute: 5 })).status, 200);
+
+    assert.deepEqual(calls, [
+      ["activate", "uid-1"],
+      ["enabled", "uid-1", false],
+      ["remove", "uid-1"],
+      ["checkin", "uid-1"],
+      ["activate", "uid-1@ent-9"],
+      ["checkin", ""],
+      ["settings", { hour: 8, minute: 5 }]
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("switching an account needs an explicit boolean", async () => {
+  const control = {
+    setEnabled: async () => {
+      throw new Error("should not be called");
+    }
+  };
+  const server = createServer({ control });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/lane/accounts/uid-1/enabled`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: "yes" })
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

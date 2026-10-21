@@ -13,12 +13,6 @@ export function errorJSON(res, status, message, type = "invalid_request_error") 
   json(res, status, { error: { message, type } });
 }
 
-export function bearerKey(req) {
-  const header = req.headers.authorization || "";
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? match[1].trim() : "";
-}
-
 export function readJSONBody(req, limit = 8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;

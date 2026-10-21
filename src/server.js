@@ -261,9 +261,59 @@ async function controlRoute(req, res, url, control) {
       json(res, 200, { data: control.activity() });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/lane/accounts") {
+      json(res, 200, await control.accounts());
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/lane/sign-in") {
       const result = await control.signIn();
       json(res, 200, result);
+      return;
+    }
+    // /lane/accounts/<id>/<action> — the id is a uid, so it is decoded as
+    // one path segment rather than split on its punctuation.
+    const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (segments[0] === "lane" && segments[1] === "accounts" && segments.length === 4) {
+      const [, , id, action] = segments;
+      if (req.method !== "POST") {
+        errorJSON(res, 405, "use POST for account actions", "invalid_request_error");
+        return;
+      }
+      if (action === "activate") {
+        json(res, 200, { account: await control.activate(id) });
+        return;
+      }
+      if (action === "enabled") {
+        const body = await readJSONBody(req);
+        if (typeof body?.enabled !== "boolean") {
+          errorJSON(res, 400, "enabled must be a boolean", "invalid_request_error");
+          return;
+        }
+        json(res, 200, { account: await control.setEnabled(id, body.enabled) });
+        return;
+      }
+      if (action === "remove") {
+        json(res, 200, await control.removeAccount(id));
+        return;
+      }
+      if (action === "checkin") {
+        json(res, 200, await control.checkin(id));
+        return;
+      }
+      errorJSON(res, 404, "unknown account action", "not_found");
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/lane/checkin") {
+      json(res, 200, await control.checkinOverview());
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/checkin") {
+      json(res, 200, await control.checkin(""));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/checkin/settings") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.checkinSettings(body || {}));
       return;
     }
     if (req.method === "POST" && url.pathname === "/lane/sign-out") {

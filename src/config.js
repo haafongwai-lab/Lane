@@ -27,12 +27,6 @@ function windowsLocalAppData() {
   return path.join(os.homedir(), "AppData", "Local");
 }
 
-export function codexHome(env = process.env) {
-  return env.CODEX_HOME
-    ? path.resolve(env.CODEX_HOME)
-    : path.join(env.USERPROFILE || os.homedir(), ".codex");
-}
-
 export function parseAddress(value) {
   const raw = value || `${DEFAULT_HOST}:${DEFAULT_PORT}`;
   const match = /^(.+):(\d+)$/.exec(raw);

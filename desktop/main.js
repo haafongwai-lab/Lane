@@ -38,11 +38,18 @@ async function startGateway() {
       alreadyRunning = await healthy();
     } catch {}
     if (alreadyRunning) {
+      // Another Lane owns the gateway, so it also owns the daily check-in.
       control = createControlCenter({
         port: PORT,
         host: HOST,
+        checkins: false,
         onSignIn: (result, error) => {
-          window?.webContents.send("lane:signin", { result, error: error?.message || "" });
+          // The plugin's authorize result holds a callback, which cannot cross
+          // the IPC boundary; only the URL is any use to the window.
+          window?.webContents.send("lane:signin", {
+            result: result ? { url: result.url || "" } : null,
+            error: error?.message || ""
+          });
         }
       });
       return;
@@ -65,8 +72,12 @@ async function startGateway() {
     control = createControlCenter({
       port: PORT,
       host: HOST,
+      checkins: true,
       onSignIn: (result, error) => {
-        window?.webContents.send("lane:signin", { result, error: error?.message || "" });
+        window?.webContents.send("lane:signin", {
+          result: result ? { url: result.url || "" } : null,
+          error: error?.message || ""
+        });
       }
     });
     server = createServer({ provider, control });
@@ -220,9 +231,22 @@ ipcMain.handle("lane:signin", async () => {
   await startGateway();
   return control.signIn();
 });
-ipcMain.handle("lane:signout", async () => {
+// Account actions run against whichever Lane owns the gateway, so the list
+// stays the same whether this window started it or joined one.
+ipcMain.handle("lane:account", async (_event, { action, id, enabled }) => {
   await startGateway();
-  return control.signOut();
+  if (action === "activate") return control.activate(id);
+  if (action === "enabled") return control.setEnabled(id, Boolean(enabled));
+  if (action === "remove") return control.removeAccount(id);
+  throw new Error(`unknown account action: ${action}`);
+});
+ipcMain.handle("lane:checkin", async (_event, { id }) => {
+  await startGateway();
+  return control.checkin(id || "");
+});
+ipcMain.handle("lane:checkin-settings", async (_event, patch) => {
+  await startGateway();
+  return control.checkinSettings(patch || {});
 });
 ipcMain.handle("lane:open", async (_event, target) => {
   if (target === "data") return shell.openPath(dataDir());
@@ -230,8 +254,6 @@ ipcMain.handle("lane:open", async (_event, target) => {
     const file = ownsGateway ? path.join(dataDir(), "desktop.log") : path.join(dataDir(), "lane.log");
     return shell.openPath(file);
   }
-  if (target === "models") return shell.openExternal(`${GATEWAY}/v1/models`);
-  if (target === "error-log") return shell.openPath(path.join(dataDir(), "lane-error.log"));
   return "";
 });
 ipcMain.handle("lane:open-url", async (_event, url) => {
@@ -305,7 +327,7 @@ app.whenReady().then(async () => {
           path.join(previewDir, "desktop-preview.png"),
           image.toPNG()
         );
-        for (const view of ["agents", "models", "settings"]) {
+        for (const view of ["agents", "accounts", "models", "settings"]) {
           await window.webContents.executeJavaScript(
             `document.querySelector('.nav[data-view="${view}"]')?.click()`
           );

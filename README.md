@@ -27,6 +27,42 @@ plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
 or a background updater. Those are magpie capabilities that this project does
 not need for the single-provider, Windows-local use case.
 
+## Accounts
+
+WorkBuddy accepts several accounts at once. Each one that signs in is kept in
+`%LOCALAPPDATA%\lane\accounts.json` with its own tokens, and one of them is
+the route:
+
+- **Switch** makes another account carry requests. The previous one stays
+  signed in and idle.
+- **Switch off** keeps the sign-in but takes the account out of the route and
+  out of the daily check-in. Switching off the active account hands the route
+  to the next account that is on.
+- **Remove** deletes the tokens Lane stored for that account.
+
+The account's uid names it, so signing the same account in again refreshes its
+entry instead of adding a second one. A team account is a separate entry from
+the same person's personal account, because it carries a different enterprise.
+
+The single account Lane used before is imported once, and
+`workbuddy-auth.json` keeps mirroring whichever account is active.
+
+## Daily check-in
+
+Each account has a daily check-in that grants credits. Lane claims it with the
+same two calls WorkBuddy's own client makes:
+
+```
+POST /v2/billing/meter/checkin-status   today's check-in
+POST /v2/billing/meter/daily-checkin    claim it
+```
+
+By default the check-in runs at 09:00 local time for every account that is
+switched on, and only from the process that owns the gateway. An account
+already checked in today is skipped without a request; a failure is retried
+thirty minutes later. The time and the on/off switch live in the desktop app's
+**账号** view, and in `%LOCALAPPDATA%\lane\checkin.json`.
+
 ## Desktop app
 
 Run the desktop control panel from source:
@@ -60,6 +96,22 @@ npm test
 npm run serve
 npm run doctor
 ```
+
+### Accounts and check-in
+
+```powershell
+node src/cli.js accounts            # every account, which one is active
+node src/cli.js login               # add an account
+node src/cli.js use <account>       # switch the route
+node src/cli.js disable <account>   # keep the sign-in, leave the route
+node src/cli.js enable <account>
+node src/cli.js forget <account>    # remove the stored tokens
+node src/cli.js checkin             # claim today, for every enabled account
+node src/cli.js checkin off         # stop the daily check-in
+node src/cli.js checkin at 08:30    # move it
+```
+
+`<account>` is the full id, the account label, or a unique prefix of either.
 
 ### First run
 
