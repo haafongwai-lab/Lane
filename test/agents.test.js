@@ -8,6 +8,7 @@ import {
   connectClaudeDesktop,
   disconnectClaudeDesktop
 } from "../src/agents/claude-desktop.js";
+import { installWindowsTask } from "../src/windows-task.js";
 
 async function temp() {
   return fs.mkdtemp(path.join(os.tmpdir(), "lane-test-"));
@@ -32,6 +33,7 @@ test("Codex connect is reversible", async () => {
   assert.match(wired, /^model_catalog_json = "lane-models.json"/m);
   assert.match(wired, /\[model_providers\.lane\]/);
   assert.match(wired, /base_url = "http:\/\/127\.0\.0\.1:3426\/v1"/);
+  assert.match(wired, /supports_websockets = false/);
   assert.equal(
     JSON.parse(await fs.readFile(path.join(root, "codex", "lane-models.json"), "utf8")).models[0].slug,
     "auto"
@@ -66,4 +68,31 @@ test("Claude Desktop connect writes and restores its own 3p profile", async () =
     await fs.readFile(path.join(root, "local", "Claude", "claude_desktop_config.json"), "utf8")
   );
   assert.equal(restored.deploymentMode, undefined);
+});
+
+test("Windows autostart writes a task runner in Lane's own data directory", async () => {
+  if (process.platform !== "win32") return;
+  const root = await temp();
+  let invocation;
+  const result = await installWindowsTask({
+    env: { LANE_DATA_DIR: path.join(root, "data") },
+    port: 4123,
+    node: "C:\\Program Files\\nodejs\\node.exe",
+    script: path.join(root, "src", "cli.js"),
+    runTask: async (command, args) => {
+      invocation = { command, args };
+      return "";
+    }
+  });
+  assert.equal(invocation.command, "schtasks.exe");
+  assert.ok(invocation.args.includes("Lane Gateway"));
+  assert.ok(invocation.args.includes("/XML"));
+  const runner = await fs.readFile(result.runner, "utf8");
+  assert.match(runner, /--addr 127\.0\.0\.1:4123/);
+  assert.ok(runner.includes(`>> "${path.join(root, "data", "lane.log")}"`));
+  assert.doesNotMatch(runner, /%LOCALAPPDATA%/);
+  const xml = await fs.readFile(path.join(root, "data", "lane-task.xml"), "utf16le");
+  assert.match(xml, /<LogonTrigger>/);
+  assert.match(xml, /<RunLevel>LeastPrivilege<\/RunLevel>/);
+  assert.ok(xml.includes(result.runner.replaceAll("&", "&amp;")));
 });

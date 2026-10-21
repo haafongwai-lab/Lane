@@ -13,6 +13,7 @@ function providerTable(gateway) {
     `base_url = "${gateway}/v1"`,
     `wire_api = "responses"`,
     `requires_openai_auth = false`,
+    `supports_websockets = false`,
     ""
   ].join("\n");
 }

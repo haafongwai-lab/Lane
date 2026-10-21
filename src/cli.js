@@ -1,21 +1,23 @@
 import { createServer } from "./server.js";
 import { DEFAULT_HOST, DEFAULT_PORT, parseAddress } from "./config.js";
-import { FallbackProvider } from "./provider.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
-import { writeAuth } from "./auth-store.js";
+import { clearAuth } from "./auth-store.js";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
+import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
 
 function usage() {
   console.log(`Usage:
   lane serve [--addr 127.0.0.1:3426]
   lane doctor
-  lane connect claude-desktop
+  lane connect claude-desktop [--addr 127.0.0.1:3426]
   lane disconnect claude-desktop
-  lane connect codex
+  lane connect codex [--addr 127.0.0.1:3426]
   lane disconnect codex
+  lane autostart install [--addr 127.0.0.1:3426]
+  lane autostart uninstall
   lane login
   lane logout`);
 }
@@ -35,7 +37,7 @@ async function serve(args) {
     server.listen(port, host, resolve);
   });
   console.log(`lane listening on http://${host}:${port}`);
-  console.log("provider: workbuddy (fallback until the plugin is wired)");
+  console.log("provider: workbuddy");
   const stop = () => server.close(() => process.exit(0));
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
@@ -70,21 +72,37 @@ async function login() {
 }
 
 async function logout() {
-  await writeAuth(null);
+  await clearAuth();
   console.log(JSON.stringify({ ok: true, signedOut: true }, null, 2));
 }
 
 async function main() {
-  const [command, target] = process.argv.slice(2);
-  if (command === "serve") return serve(process.argv.slice(3));
+  const args = process.argv.slice(2);
+  const [command, target] = args;
+  const address = argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`;
+  const gateway = parseAddress(address);
+  if (command === "serve") return serve(args.slice(1));
   if (command === "doctor") return doctor();
-  if (command === "connect" && target === "claude-desktop") return connectClaudeDesktop();
+  if (command === "connect" && target === "claude-desktop") {
+    return connectClaudeDesktop({ gateway: `http://${gateway.host}:${gateway.port}` });
+  }
   if (command === "disconnect" && target === "claude-desktop") return disconnectClaudeDesktop();
   if (command === "connect" && target === "codex") {
     const provider = await new WorkBuddyProvider().init();
-    return connectCodex({ providerModels: () => provider.listModels() });
+    const result = await connectCodex({
+      gateway: `http://${gateway.host}:${gateway.port}`,
+      providerModels: () => provider.listModels()
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return result;
   }
   if (command === "disconnect" && target === "codex") return disconnectCodex();
+  if (command === "autostart" && target === "install") {
+    return installWindowsTask({ port: gateway.port });
+  }
+  if (command === "autostart" && target === "uninstall") {
+    return uninstallWindowsTask();
+  }
   if (command === "login") return login();
   if (command === "logout") return logout();
   usage();

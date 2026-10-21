@@ -15,6 +15,8 @@ directory, use its port, or control its processes.
 - OpenAI `GET /v1/models` and `POST /v1/chat/completions`
 - Anthropic `POST /v1/messages` with streaming and tool-call translation
 - OpenAI Responses `POST /v1/responses` with streaming and tool-call translation
+- Streamed tool calls for both Claude `tool_use` and Codex `function_call`
+- Non-stream clients also work: Lane gathers WorkBuddy's required SSE reply
 - Stable Claude-facing aliases for WorkBuddy model ids
 - WorkBuddy sign-in, token persistence, refresh, model discovery and request
   handling through the community plugin
@@ -68,6 +70,17 @@ node src/cli.js disconnect codex
 Disconnect restores the values Lane stored before its first write. It does
 not remove unrelated settings.
 
+To start Lane automatically when this Windows user signs in:
+
+```powershell
+node src/cli.js autostart install
+node src/cli.js autostart uninstall
+```
+
+This creates a per-user Scheduled Task named `Lane Gateway`; it does not
+install a Windows service or require administrator access. Logs go to
+`%LOCALAPPDATA%\lane\lane.log`.
+
 `connect` and `disconnect` commands write only the keys Lane owns. A copy of
 the previous values is kept under Lane's own data directory.
 
@@ -89,18 +102,21 @@ WorkBuddy only accepts streamed Chat Completions. Lane forces streaming
 upstream and presents either a normal JSON response or an SSE stream to the
 client, depending on what that client asked for.
 
+The Codex provider entry sets `supports_websockets = false`. Codex therefore
+uses HTTP Responses instead of trying the unsupported WebSocket transport.
+
 ## Known limits
 
-- The Codex Responses WebSocket is not implemented. HTTP Responses is
-  supported and is what a custom `model_provider` uses first.
+- The Codex Responses WebSocket is not implemented. Lane wires Codex to HTTP
+  Responses explicitly, so normal Codex turns do not use that transport.
 - WorkBuddy's own API can refuse a system prompt or wording it does not
   recognize. The community plugin handles known cases and returns its error
   text; Lane passes that text through.
 - Claude Desktop's model picker only accepts Anthropic-looking ids. Lane
   therefore exposes `anthropic/lane-<stable-hash>` aliases and displays the
   real WorkBuddy model name beside them.
-- No automatic Windows service is installed yet. Start `lane serve` from a
-  terminal or add a shortcut/task after the basic flow works.
+- Autostart runs only after the user signs in. Lane does not install a
+  system-wide Windows service.
 
 ## WorkBuddy plugin
 
@@ -111,3 +127,4 @@ model discovery, headers, and request fixes stay in one maintained place.
 
 The plugin is not copied into this repository. If it is missing, Lane still
 reports the missing dependency clearly; `npm install` restores it.
+See `THIRD_PARTY_NOTICES.md`.

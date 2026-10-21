@@ -89,10 +89,16 @@ test("Anthropic and Responses endpoints translate through a fake provider", asyn
       return [{ id: "auto", name: "Auto" }];
     },
     async chat() {
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: "translated" }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }
-      }), { headers: { "content-type": "application/json" } });
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([
+        chunk({ content: "translated" }),
+        chunk({}, "stop"),
+        "data: [DONE]\n\n"
+      ].join(""), {
+        headers: { "content-type": "text/event-stream" }
+      });
     }
   };
   const server = createServer({ provider });
@@ -117,6 +123,90 @@ test("Anthropic and Responses endpoints translate through a fake provider", asyn
     });
     assert.equal(responses.status, 200);
     assert.equal((await responses.json()).output[0].content[0].text, "translated");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("non-stream protocol requests gather WorkBuddy's SSE response", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "auto", name: "Auto" }];
+    },
+    async chat() {
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"hello"}}]}',
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}',
+        "data: [DONE]",
+        ""
+      ].join("\n\n"), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const anthropic = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        max_tokens: 10,
+        messages: [{ role: "user", content: "hello" }]
+      })
+    });
+    assert.equal(anthropic.status, 200);
+    assert.equal((await anthropic.json()).content[0].text, "hello");
+
+    const responses = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", input: "hello" })
+    });
+    assert.equal(responses.status, 200);
+    assert.equal((await responses.json()).output[0].content[0].text, "hello");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a stream failure after headers stays inside the SSE protocol", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "auto", name: "Auto" }];
+    },
+    async chat() {
+      let sent = false;
+      const body = new ReadableStream({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(new TextEncoder().encode(
+              'data: {"choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n'
+            ));
+            return;
+          }
+          controller.error(new Error("upstream disconnected"));
+        }
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", input: "hello", stream: true })
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.match(text, /"type":"response\.output_text\.delta"/);
+    assert.match(text, /"type":"error"/);
+    assert.match(text, /upstream disconnected/);
+
+    const health = await fetch(`${base}/healthz`);
+    assert.equal(health.status, 200);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

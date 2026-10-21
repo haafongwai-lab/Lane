@@ -3,3 +3,4 @@ dist/
 .lane/
 coverage/
 *.log
+.env

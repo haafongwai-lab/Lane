@@ -2,8 +2,18 @@ import http from "node:http";
 import { readJSONBody, json, errorJSON } from "./errors.js";
 import { modelList } from "./models.js";
 import { FallbackProvider } from "./provider.js";
-import { anthropicToChat, chatToAnthropic, anthropicStreamFromChat } from "./translate/anthropic.js";
-import { responsesToChat, chatToResponses, responsesStreamFromChat } from "./translate/responses.js";
+import {
+  anthropicToChat,
+  anthropicStreamFromChat,
+  anthropicStreamError,
+  anthropicMessageFromStream
+} from "./translate/anthropic.js";
+import {
+  responsesToChat,
+  responsesStreamFromChat,
+  responsesStreamError,
+  responsesObjectFromStream
+} from "./translate/responses.js";
 import { randomUUID } from "node:crypto";
 import { withAliases, resolveModel } from "./aliases.js";
 import { SSEDecoder } from "./translate/stream.js";
@@ -86,8 +96,19 @@ export function createApp({ provider = new FallbackProvider() } = {}) {
           id,
           model: body.model,
           stream: Boolean(body.stream),
-          convert: (payload) => chatToResponses(payload, body.model, id),
-          streamConvert: (text, state) => responsesStreamFromChat(text, state, body.model)
+          convert: (payload) => responsesObjectFromStream(
+            `data: ${JSON.stringify(payload)}`,
+            { id },
+            body.model
+          ),
+          gather: (text, state) => responsesObjectFromStream(text, state, body.model),
+          streamConvert: (text, state) => responsesStreamFromChat(text, state, body.model),
+          streamError: responsesStreamError,
+          finish: (state) => responsesStreamFromChat(
+            'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+            state,
+            body.model
+          )
         });
         return;
       }
@@ -101,8 +122,19 @@ export function createApp({ provider = new FallbackProvider() } = {}) {
           id,
           model: body.model,
           stream: Boolean(body.stream),
-          convert: (payload) => chatToAnthropic(payload, body.model, id),
-          streamConvert: (text, state) => anthropicStreamFromChat(text, state, body.model)
+          convert: (payload) => anthropicMessageFromStream(
+            `data: ${JSON.stringify(payload)}`,
+            { id },
+            body.model
+          ),
+          gather: (text, state) => anthropicMessageFromStream(text, state, body.model),
+          streamConvert: (text, state) => anthropicStreamFromChat(text, state, body.model),
+          streamError: anthropicStreamError,
+          finish: (state) => anthropicStreamFromChat(
+            'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+            state,
+            body.model
+          )
         });
         return;
       }
@@ -132,6 +164,7 @@ async function proxyChat(res, provider, body) {
 
 async function proxyProtocol(res, provider, chat, options) {
   try {
+    const state = { id: options.id };
     const upstream = await provider.chat({ ...chat, stream: true });
     if (!upstream.ok) {
       const text = await upstream.text();
@@ -144,7 +177,6 @@ async function proxyProtocol(res, provider, chat, options) {
         "cache-control": "no-cache",
         connection: "keep-alive"
       });
-      const state = { id: options.id };
       const decoder = new SSEDecoder();
       for await (const chunk of upstream.body || []) {
         const converted = options.streamConvert(decoder.push(chunk), state);
@@ -152,14 +184,32 @@ async function proxyProtocol(res, provider, chat, options) {
       }
       const tail = options.streamConvert(decoder.finish(), state);
       if (tail) res.write(tail);
+      if (!state.started) throw new Error("upstream stream ended without a response");
+      if (!state.finished) {
+        const ending = options.finish(state);
+        if (ending) res.write(ending);
+      }
       res.end();
       return;
     }
-    const payload = await upstream.json();
-    json(res, 200, options.convert(payload));
+    const raw = await upstream.text();
+    if (isSSE(raw)) json(res, 200, options.gather(raw, state));
+    else json(res, 200, options.convert(JSON.parse(raw)));
   } catch (error) {
+    if (res.headersSent) {
+      if (!res.writableEnded) {
+        const failure = options.streamError?.(error);
+        if (failure) res.write(failure);
+        res.end();
+      }
+      return;
+    }
     unavailable(res, error);
   }
+}
+
+function isSSE(text) {
+  return /(?:^|\n)data:/.test(text);
 }
 
 async function relay(res, upstream, fallbackStatus) {

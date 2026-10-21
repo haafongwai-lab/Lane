@@ -1,4 +1,4 @@
-import { dataURLOf, contentParts, textOf, sseData } from "./common.js";
+import { dataURLOf, contentParts, textOf, sseData, parseSSEData } from "./common.js";
 
 export function anthropicToChat(body) {
   const messages = [];
@@ -131,47 +131,30 @@ function anthropicStop(reason) {
 
 export function anthropicStreamFromChat(chunkText, state, model) {
   const out = [];
-  const lines = chunkText.split(/\r?\n/);
-  for (const raw of lines) {
-    if (!raw.startsWith("data:")) continue;
-    const data = raw.slice(5).trim();
-    if (!data || data === "[DONE]") continue;
-    let payload;
-    try {
-      payload = JSON.parse(data);
-    } catch {
-      continue;
+  for (const payload of parseSSEData(chunkText)) {
+    if (payload.error) {
+      throw upstreamStreamError(payload.error);
     }
     const choice = payload.choices?.[0];
     if (!choice) continue;
     const delta = choice.delta || {};
     if (!state.started) {
-      state.started = true;
-      out.push(sseData({
-        type: "message_start",
-        message: {
-          id: `msg_${state.id}`,
-          type: "message",
-          role: "assistant",
-          model,
-          content: [],
-          stop_reason: null,
-          stop_sequence: null,
-          usage: { input_tokens: payload.usage?.prompt_tokens || 0, output_tokens: 0 }
-        }
-      }));
-      out.push(sseData({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }));
+      startAnthropic(out, state, model, payload.usage);
     }
     if (delta.content) {
+      openAnthropicText(out, state);
       out.push(sseData({
         type: "content_block_delta",
-        index: 0,
+        index: state.block,
         delta: { type: "text_delta", text: delta.content }
       }));
     }
+    for (const call of delta.tool_calls || []) {
+      openAnthropicTool(out, state, call);
+    }
     if (choice.finish_reason && !state.finished) {
       state.finished = true;
-      out.push(sseData({ type: "content_block_stop", index: 0 }));
+      closeAnthropicBlock(out, state);
       out.push(sseData({
         type: "message_delta",
         delta: { stop_reason: anthropicStop(choice.finish_reason), stop_sequence: null },
@@ -181,4 +164,169 @@ export function anthropicStreamFromChat(chunkText, state, model) {
     }
   }
   return out.join("");
+}
+
+export function anthropicStreamError(error) {
+  const message = typeof error === "string" ? error : error?.message || "upstream stream failed";
+  return `event: error\ndata: ${JSON.stringify({
+    type: "error",
+    error: { type: "api_error", message }
+  })}\n\n`;
+}
+
+export function anthropicMessageFromStream(chunkText, state, model) {
+  const events = parseSSEData(chunkText);
+  if (events.some((payload) => !payload.choices && payload?.type === "message")) {
+    return events.find((payload) => payload?.type === "message");
+  }
+  const message = {
+    id: `msg_${state.id}`,
+    type: "message",
+    role: "assistant",
+    model,
+    content: [],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 0, output_tokens: 0 }
+  };
+  let block = null;
+  let blockArgs = "";
+  const flush = () => {
+    if (!block) return;
+    if (block.type === "tool_use") {
+      try {
+        block.input = JSON.parse(blockArgs || "{}");
+      } catch {
+        block.input = {};
+      }
+    }
+    message.content.push(block);
+    block = null;
+    blockArgs = "";
+  };
+  for (const payload of events) {
+    if (payload.error) {
+      throw upstreamStreamError(payload.error);
+    }
+    const choice = payload.choices?.[0];
+    if (!choice) continue;
+    if (payload.usage) {
+      message.usage.input_tokens = payload.usage.prompt_tokens || message.usage.input_tokens;
+      message.usage.output_tokens = payload.usage.completion_tokens || message.usage.output_tokens;
+    }
+    const delta = choice.delta || {};
+    if (delta.content) {
+      if (!block || block.type !== "text") {
+        flush();
+        block = { type: "text", text: "" };
+      }
+      block.text += delta.content;
+    }
+    for (const call of delta.tool_calls || []) {
+      if (!block || block.type !== "tool_use" || block._index !== call.index) {
+        flush();
+        block = {
+          type: "tool_use",
+          id: call.id || `toolu_${state.id}_${call.index || 0}`,
+          name: call.function?.name || "tool",
+          input: {}
+        };
+        block._index = call.index ?? 0;
+      }
+      if (call.id) block.id = call.id;
+      if (call.function?.name) block.name = call.function.name;
+      blockArgs += call.function?.arguments || "";
+    }
+    if (choice.finish_reason) {
+      message.stop_reason = anthropicStop(choice.finish_reason);
+    }
+  }
+  flush();
+  for (const item of message.content) delete item._index;
+  if (!message.content.length) message.content.push({ type: "text", text: "" });
+  return message;
+}
+
+function startAnthropic(out, state, model, usage) {
+  state.started = true;
+  state.block = -1;
+  state.openType = "";
+  state.toolBlocks = new Map();
+  out.push(sseData({
+    type: "message_start",
+    message: {
+      id: `msg_${state.id}`,
+      type: "message",
+      role: "assistant",
+      model,
+      content: [],
+      stop_reason: null,
+      stop_sequence: null,
+      usage: { input_tokens: usage?.prompt_tokens || 0, output_tokens: 0 }
+    }
+  }));
+}
+
+function openAnthropicText(out, state) {
+  if (state.openType === "text") return;
+  closeAnthropicBlock(out, state);
+  state.block += 1;
+  state.openType = "text";
+  out.push(sseData({
+    type: "content_block_start",
+    index: state.block,
+    content_block: { type: "text", text: "" }
+  }));
+}
+
+function openAnthropicTool(out, state, call) {
+  const index = call.index ?? 0;
+  let block = state.toolBlocks.get(index);
+  if (!block) {
+    closeAnthropicBlock(out, state);
+    state.block += 1;
+    block = {
+      index: state.block,
+      id: call.id || `toolu_${state.id}_${index}`,
+      name: call.function?.name || "tool",
+      args: false
+    };
+    state.toolBlocks.set(index, block);
+    state.openType = "tool";
+    state.openTool = block;
+    out.push(sseData({
+      type: "content_block_start",
+      index: block.index,
+      content_block: { type: "tool_use", id: block.id, name: block.name, input: {} }
+    }));
+  }
+  if (call.function?.arguments) {
+    block.args = true;
+    out.push(sseData({
+      type: "content_block_delta",
+      index: block.index,
+      delta: { type: "input_json_delta", partial_json: call.function.arguments }
+    }));
+  }
+}
+
+function closeAnthropicBlock(out, state) {
+  if (state.openType === "tool" && state.openTool && !state.openTool.args) {
+    out.push(sseData({
+      type: "content_block_delta",
+      index: state.openTool.index,
+      delta: { type: "input_json_delta", partial_json: "{}" }
+    }));
+  }
+  if (state.openType) {
+    const index = state.openType === "tool" ? state.openTool.index : state.block;
+    out.push(sseData({ type: "content_block_stop", index }));
+  }
+  state.openType = "";
+  state.openTool = null;
+}
+
+function upstreamStreamError(error) {
+  const message = typeof error === "string" ? error : error?.message || "upstream stream failed";
+  return Object.assign(new Error(message), { status: 502 });
 }

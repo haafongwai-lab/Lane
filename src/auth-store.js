@@ -14,6 +14,10 @@ export async function readAuth(env = process.env) {
 }
 
 export async function writeAuth(auth, env = process.env) {
+  if (auth == null) {
+    await clearAuth(env);
+    return;
+  }
   const target = authFile(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const temp = `${target}.${process.pid}.tmp`;

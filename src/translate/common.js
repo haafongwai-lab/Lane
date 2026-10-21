@@ -24,3 +24,16 @@ export function contentParts(content) {
 export function sseData(event) {
   return `data: ${typeof event === "string" ? event : JSON.stringify(event)}\n\n`;
 }
+
+export function parseSSEData(text) {
+  const events = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    if (!raw.startsWith("data:")) continue;
+    const data = raw.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    try {
+      events.push(JSON.parse(data));
+    } catch {}
+  }
+  return events;
+}
