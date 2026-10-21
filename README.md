@@ -1,6 +1,6 @@
 # Lane
 
-Lane is a small, Windows-local gateway for one provider and two agents:
+Lane is a small, Windows-local desktop gateway for one provider and two agents:
 
 - Provider: WorkBuddy
 - Agents: Claude Desktop and Codex
@@ -22,10 +22,35 @@ directory, use its port, or control its processes.
   handling through the community plugin
 - Reversible Claude Desktop and Codex wiring
 
-The gateway intentionally does not implement a GUI, plugin marketplace,
-multi-provider routing, WSL, cloud sync, sessions, usage analytics or
-background updater. Those are magpie capabilities that this project does not
-need for the single-provider, Windows-local use case.
+The desktop app keeps the scope intentionally small. It does not implement a
+plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
+or a background updater. Those are magpie capabilities that this project does
+not need for the single-provider, Windows-local use case.
+
+## Desktop app
+
+Run the desktop control panel from source:
+
+```powershell
+npm run desktop
+```
+
+It shows the live route from Codex or Claude Desktop through Lane to
+WorkBuddy, starts and stops the local gateway, manages WorkBuddy sign-in,
+connects/disconnects both agents, lists models, and keeps recent request
+timing and token usage locally. Closing the window keeps Lane in the system
+tray; choose **Exit** in the tray to stop the gateway.
+
+Build the Windows installer and portable executable:
+
+```powershell
+npm run build
+```
+
+The outputs are:
+
+- `dist\Lane Setup 0.1.0.exe` - per-user installer
+- `dist\Lane 0.1.0.exe` - portable executable
 
 ## Commands
 
@@ -77,9 +102,10 @@ node src/cli.js autostart install
 node src/cli.js autostart uninstall
 ```
 
-This creates a per-user Scheduled Task named `Lane Gateway`; it does not
-install a Windows service or require administrator access. Logs go to
-`%LOCALAPPDATA%\lane\lane.log`.
+This creates a per-user shortcut named `Lane Gateway` in the current user's
+Startup folder. It does not install a Windows service, register a Scheduled
+Task, or require administrator access. Logs go to
+`%LOCALAPPDATA%\lane\lane.log` and `%LOCALAPPDATA%\lane\lane-error.log`.
 
 `connect` and `disconnect` commands write only the keys Lane owns. A copy of
 the previous values is kept under Lane's own data directory.

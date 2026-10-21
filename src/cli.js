@@ -7,6 +7,7 @@ import { clearAuth } from "./auth-store.js";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
 import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
+import { createControlCenter } from "./control-center.js";
 
 function usage() {
   console.log(`Usage:
@@ -31,7 +32,8 @@ async function serve(args) {
   const { host, port } = parseAddress(argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`);
   const provider = new WorkBuddyProvider();
   await provider.init();
-  const server = createServer({ provider });
+  const control = createControlCenter({ port, host });
+  const server = createServer({ provider, control });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);

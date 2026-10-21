@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Lane</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-copy"><b>Lane</b><span>轻量本地网关</span></div>
+      </div>
+
+      <nav>
+        <p>工作台</p>
+        <button class="nav" data-view="agents"><span>Agent 接入</span></button>
+        <button class="nav active" data-view="routing"><span>路由</span></button>
+        <button class="nav" data-view="models"><span>模型</span></button>
+        <p>系统</p>
+        <button class="nav" data-view="activity"><i>≡</i><span>请求记录</span></button>
+        <button class="nav" data-view="settings"><i>⚙</i><span>设置</span></button>
+      </nav>
+
+      <div class="side-status">
+        <div class="status-line"><span class="dot" id="side-dot"></span><span id="side-status">正在连接</span></div>
+        <small>127.0.0.1:3426</small>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section class="view active" id="view-routing">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow"><span class="live-dot"></span> 本地链路</div>
+            <h1>一条链路，清晰好用</h1>
+            <p class="sub">Codex 与 Claude Desktop 共用一个 WorkBuddy 出口。</p>
+          </div>
+          <div class="heading-actions">
+            <button class="ghost" id="test-route">测试链路</button>
+            <button class="ghost" id="refresh-route">↻ 刷新</button>
+          </div>
+        </div>
+
+        <article class="route-card">
+          <div class="card-top">
+            <div class="route-title">
+              <span class="overline">当前路由</span>
+              <h2><em id="route-model-label"></em></h2>
+            </div>
+            <div class="route-meta"><span class="dot" id="route-live-dot"></span><span id="route-live">实时</span><span class="divider"></span><span id="route-count">0 个请求</span></div>
+          </div>
+
+          <div class="route-canvas">
+            <div class="canvas-grid"></div>
+            <div class="flow-line left"></div>
+            <div class="flow-line right"></div>
+            <div class="flow-pulse out"></div>
+            <div class="flow-pulse back"></div>
+            <div class="route-node client-node" id="client-node">
+              <span class="node-label">AGENT</span>
+              <div class="agent-logos">
+                <div class="node-logo codex-logo" id="client-codex-logo"><img src="assets/codex-official.svg" alt=""></div>
+                <div class="node-logo claude-logo" id="client-claude-logo"><img src="assets/claude-official.svg" alt=""></div>
+              </div>
+              <strong id="client-name">Codex</strong>
+              <span id="client-model">等待请求</span>
+              <div class="node-state"><i></i><span id="client-state">未接入</span></div>
+            </div>
+
+            <div class="route-node lane-node">
+              <span class="node-kicker">LOCAL GATEWAY</span>
+              <div class="lane-emblem"><img src="assets/lane-glyph.png" alt=""></div>
+              <strong class="wordmark">Lane</strong>
+              <span>127.0.0.1:3426</span>
+              <div class="node-state"><i></i><span id="lane-state">运行中</span></div>
+            </div>
+
+            <div class="route-node provider-node">
+              <span class="node-label">PROVIDER</span>
+              <div class="node-logo wb-logo"><img src="assets/workbuddy-official.svg" alt=""></div>
+              <strong id="account-name">WorkBuddy</strong>
+              <span id="account-plan">本地账号</span>
+              <span class="node-credits" id="account-credits">积分 —</span>
+              <div class="node-state"><i></i><span id="provider-state">未登录</span></div>
+            </div>
+          </div>
+        </article>
+
+        <div class="two-column">
+          <article class="panel health-panel">
+            <div class="panel-head"><div><span class="overline">运行状态</span><h3>本机服务</h3></div><span class="health-badge">运行正常</span></div>
+            <div class="health-grid">
+              <div><span>网关</span><strong>127.0.0.1:3426</strong><small>HTTP Responses</small></div>
+              <div><span>账号</span><strong id="health-account">—</strong><small id="health-domain">WorkBuddy</small></div>
+              <div><span>Codex</span><strong id="health-codex">未接入</strong><small>自动写入配置</small></div>
+              <div><span>Claude</span><strong id="health-claude">未接入</strong><small>独立 3p 配置</small></div>
+            </div>
+            <button class="outline wide" id="quick-signin">登录 / 检查 WorkBuddy</button>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-agents">
+        <div class="heading-row">
+          <div><div class="eyebrow">AGENT 接入</div><h1>连接你的常用客户端</h1><p class="sub">只修改 Lane 自己的配置项，随时可以恢复。</p></div>
+          <button class="ghost" id="refresh-agents">↻ 检查状态</button>
+        </div>
+
+        <div class="agent-grid">
+          <article class="agent-card">
+            <div class="agent-title">
+              <div class="agent-icon codex"><img src="assets/codex-official.svg" alt=""></div>
+              <div><h2>Codex</h2><p>OpenAI Responses</p></div>
+              <span class="connection-state" id="codex-connect-state">未接入</span>
+            </div>
+            <div class="agent-detail"><span>模型</span><b>Hy3 · WorkBuddy</b></div>
+            <div class="agent-detail"><span>网关</span><code>127.0.0.1:3426/v1</code></div>
+            <p class="agent-note">写入 Codex Provider 和模型目录。接入后新建会话。</p>
+            <div class="card-actions"><button class="primary" id="codex-connect">接入 Codex</button><button class="ghost" id="codex-disconnect">断开</button></div>
+          </article>
+
+          <article class="agent-card">
+            <div class="agent-title">
+              <div class="agent-icon claude"><img src="assets/claude-official.svg" alt=""></div>
+              <div><h2>Claude Desktop</h2><p>Anthropic Messages</p></div>
+              <span class="connection-state" id="claude-connect-state">未接入</span>
+            </div>
+            <div class="agent-detail"><span>模式</span><b>3p Gateway Profile</b></div>
+            <div class="agent-detail"><span>网关</span><code>127.0.0.1:3426</code></div>
+            <p class="agent-note">写入独立的 Lane 3p 配置，不影响其他设置。</p>
+            <div class="card-actions"><button class="primary" id="claude-connect">接入 Claude</button><button class="ghost" id="claude-disconnect">断开</button></div>
+          </article>
+        </div>
+
+      </section>
+
+      <section class="view" id="view-models">
+        <div class="heading-row">
+          <div><div class="eyebrow">模型目录</div><h1>WorkBuddy 可用模型</h1><p class="sub">目录随账号更新，Codex 会自动读取。</p></div>
+          <button class="ghost" id="refresh-models">↻ 刷新</button>
+        </div>
+        <article class="panel models-panel">
+          <div class="model-head"><span>模型</span><span>上下文</span><span>积分倍率</span><span>来源</span><span>状态</span></div>
+          <div id="model-list"><div class="empty">正在读取模型…</div></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-activity">
+        <div class="heading-row">
+          <div><div class="eyebrow">请求记录</div><h1>最近的请求</h1><p class="sub">记录只保存在本机，不包含完整提示词。</p></div>
+          <button class="ghost" id="refresh-activity">↻ 刷新</button>
+        </div>
+        <article class="panel activity-panel">
+          <div class="activity-head"><span>时间</span><span>来源</span><span>模型</span><span>状态</span><span>耗时</span><span>Token</span></div>
+          <div id="activity-list"><div class="empty">还没有请求。先用 Codex 发起一轮对话。</div></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="heading-row">
+          <div><div class="eyebrow">设置</div><h1>安静地待在后台</h1><p class="sub">保持网关运行，但不占据任务栏。</p></div>
+        </div>
+        <div class="settings-grid">
+          <article class="panel">
+            <div class="panel-head"><div><span class="overline">启动</span><h3>登录时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
+            <p class="setting-copy">Windows 登录后自动启动 Lane。关闭窗口后仍驻留系统托盘。</p>
+            <div class="setting-row"><span>数据目录</span><code id="data-path">%LOCALAPPDATA%\lane</code><button class="text-button" id="open-data">打开</button></div>
+            <div class="setting-row"><span>运行日志</span><code id="log-name">lane.log</code><button class="text-button" id="open-log">打开</button></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="overline">WorkBuddy</span><h3>账号</h3></div><span class="account-dot"></span></div>
+            <div class="account-card"><div class="account-avatar"><img src="assets/workbuddy-official.svg" alt=""></div><div><b id="settings-account">未登录</b><span id="settings-domain">登录后即可发请求</span></div></div>
+            <div class="credit-card" id="credit-card" hidden>
+              <div class="credit-head">
+                <span>积分</span>
+                <span class="credit-plan" id="credit-plan">—</span>
+              </div>
+              <div class="credit-amount"><strong id="credit-used">—</strong><span id="credit-limit"></span></div>
+              <div class="credit-bar"><i id="credit-fill"></i></div>
+              <div class="credit-foot"><span id="credit-left"></span><span id="credit-runsout"></span></div>
+            </div>
+            <button class="outline wide" id="settings-signin">登录 WorkBuddy</button>
+            <button class="danger-link" id="signout">退出当前账号</button>
+          </article>
+        </div>
+
+        <article class="panel about-panel">
+          <div><span class="overline">LANE DESKTOP</span><h3>只做需要的事</h3><p>WorkBuddy、Codex 与 Claude Desktop 的本地路由。</p></div>
+          <button class="ghost" id="quit-app">退出 Lane</button>
+        </article>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

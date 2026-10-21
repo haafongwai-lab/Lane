@@ -74,7 +74,7 @@ export function anthropicToChat(body) {
       }));
   }
   if (body.tool_choice) out.tool_choice = toolChoice(body.tool_choice);
-  const effort = body.output_config?.effort || body.thinking?.effort;
+  const effort = body.laneEffort || body.output_config?.effort || body.thinking?.effort;
   if (effort && effort !== "none") out.reasoning_effort = effort;
   return out;
 }
@@ -135,6 +135,7 @@ export function anthropicStreamFromChat(chunkText, state, model) {
     if (payload.error) {
       throw upstreamStreamError(payload.error);
     }
+    if (payload.usage) state.usage = payload.usage;
     const choice = payload.choices?.[0];
     if (!choice) continue;
     const delta = choice.delta || {};

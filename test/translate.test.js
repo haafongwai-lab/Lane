@@ -49,6 +49,15 @@ test("Responses input becomes Chat Completions messages", () => {
   assert.equal(out.messages[1].content, "hello");
 });
 
+test("Responses requests keep the selected reasoning effort", () => {
+  const out = responsesToChat({
+    model: "hy3",
+    input: "hello",
+    reasoning: { effort: "high" }
+  });
+  assert.equal(out.reasoning_effort, "high");
+});
+
 test("Chat Completions become a Responses object", () => {
   const out = chatToResponses({
     choices: [{ message: { content: "hi" }, finish_reason: "stop" }],
@@ -100,6 +109,7 @@ test("Anthropic stream translates tool calls and closes every block", () => {
     [0, 1]
   );
   assert.equal(events.at(-1).type, "message_stop");
+  assert.deepEqual(state.usage, { prompt_tokens: 7, completion_tokens: 5, total_tokens: 12 });
 });
 
 test("Anthropic stream keeps parallel tool calls as separate blocks", () => {
@@ -149,6 +159,7 @@ test("Responses stream translates tool calls with done events", () => {
   assert.ok(events.some((event) => event.type === "response.output_item.done" && event.item.type === "function_call"));
   assert.equal(events.at(-1).type, "response.completed");
   assert.equal(events.at(-1).response.output.length, 2);
+  assert.deepEqual(state.usage, { prompt_tokens: 7, completion_tokens: 5, total_tokens: 12 });
 });
 
 test("Responses stream keeps parallel calls and message indexes after a tool", () => {

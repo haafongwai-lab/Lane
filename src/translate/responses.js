@@ -119,6 +119,7 @@ export function responsesStreamFromChat(chunkText, state, model) {
         : payload.error.message || "upstream stream failed";
       throw Object.assign(new Error(message), { status: 502 });
     }
+    if (payload.usage) state.usage = payload.usage;
     const choice = payload.choices?.[0];
     if (!choice) continue;
     const delta = choice.delta || {};

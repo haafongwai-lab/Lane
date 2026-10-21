@@ -211,3 +211,89 @@ test("a stream failure after headers stays inside the SSE protocol", async () =>
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("Claude Desktop's User-Agent is served Anthropic-shaped ids", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "hy3", name: "Hy3" }];
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const desktop = await fetch(`${base}/v1/models`, {
+      headers: { "user-agent": "Mozilla/5.0 Chrome/140.0.0.0 Claude/2.7032.0" }
+    });
+    const body = await desktop.json();
+    assert.match(body.data[0].id, /^anthropic\/lane-/);
+    assert.equal(body.data[0].real_id, "hy3");
+
+    const others = await (await fetch(`${base}/v1/models`)).json();
+    assert.equal(others.data[0].id, "hy3");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("count_tokens answers with a local estimate", async () => {
+  const server = createServer();
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/messages/count_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "hy3",
+        messages: [{ role: "user", content: "12345678" }]
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).input_tokens, 2);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("Claude Desktop's effort request is fitted to the model's levels", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "hy3", name: "Hy3", efforts: ["low", "high"] }];
+    },
+    async chat(body) {
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([
+        chunk({ content: body.reasoning_effort }),
+        chunk({}, "stop"),
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const digest = (id) =>
+    import("node:crypto").then(({ createHash }) =>
+      createHash("sha256").update(id).digest("hex").slice(0, 10)
+    );
+  const alias = `mythos-lane-${await digest("hy3")}`;
+  try {
+    for (const [asked, want] of [["low", "low"], ["max", "high"], ["medium", "high"]]) {
+      const response = await fetch(`${base}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: alias,
+          max_tokens: 100,
+          output_config: { effort: asked },
+          messages: [{ role: "user", content: "hi" }]
+        })
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.content[0].text, want);
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A small Windows-local gateway for WorkBuddy, Claude Desktop, and Codex.",
+  "main": "desktop/main.js",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -10,12 +11,55 @@
   "scripts": {
     "start": "node src/cli.js serve",
     "serve": "node src/cli.js serve",
+    "desktop": "electron desktop/main.js",
+    "desktop:smoke": "electron desktop/main.js --smoke-test",
     "test": "node --test",
     "doctor": "node src/cli.js doctor",
     "connect:claude": "node src/cli.js connect claude-desktop",
-    "connect:codex": "node src/cli.js connect codex"
+    "connect:codex": "node src/cli.js connect codex",
+    "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/make-icons.ps1",
+    "build": "npm run icons && electron-builder --win --x64"
   },
   "dependencies": {
     "@magpie-community/opencode-workbuddy-auth": "0.1.28"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.lane.desktop",
+    "productName": "Lane",
+    "asar": true,
+    "files": [
+      "desktop/**/*",
+      "src/**/*",
+      "node_modules/@magpie-community/opencode-workbuddy-auth/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "desktop/assets/lane.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lane"
+    }
   }
 }

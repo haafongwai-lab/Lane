@@ -1,41 +1,114 @@
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import os from "node:os";
 import { dataDir } from "./config.js";
 
-const TASK_NAME = "Lane Gateway";
+const SHORTCUT_NAME = "Lane Gateway.lnk";
 
 export async function installWindowsTask({
   env = process.env,
   port = 3426,
-  node = process.execPath,
+  node = resolveNode(env),
   script = path.resolve("src/cli.js"),
+  desktopExe = "",
   runTask = run
 } = {}) {
   assertWindows();
   const root = dataDir(env);
-  const runner = path.join(root, "lane-task.cmd");
-  const log = path.join(root, "lane.log");
+  const startup = startupDir(env);
+  const shortcut = path.join(startup, SHORTCUT_NAME);
+  const runner = path.join(root, "lane-start.ps1");
+  const installedShortcut = path.join(startup, "Lane.lnk");
+  const projectRoot = path.dirname(path.dirname(script));
+  const desktopCandidates = desktopCandidatesFor(env, projectRoot, desktopExe);
+  const installedDesktop = desktopCandidates.find((candidate) => existsSync(candidate));
+  let desktopPath = desktopExe && !installedDesktop ? desktopExe : installedDesktop || desktopCandidates[0];
+  if (/[\\/]dist[\\/]win-unpacked[\\/]Lane\.exe$/i.test(desktopPath)) {
+    desktopPath = desktopExe || desktopPath;
+  }
   await fs.mkdir(root, { recursive: true });
+  await fs.mkdir(startup, { recursive: true });
   await fs.writeFile(
     runner,
     [
-      "@echo off",
-      `cd /d "${path.dirname(script)}"`,
-      `"${node}" "${script}" serve --addr 127.0.0.1:${port} >> "${log}" 2>&1`,
+      "$env:LANE_DATA_DIR = " + quotePowerShell(root),
+      "$root = " + quotePowerShell(path.dirname(path.dirname(script))),
+      "Set-Location -LiteralPath $root",
+      "$arguments = " + quotePowerShell(`"${script}" serve --addr 127.0.0.1:${port}`),
+      "$desktop = " + quotePowerShell(desktopPath),
+      "$node = " + quotePowerShell(node),
+      "$log = " + quotePowerShell(path.join(root, "lane.log")),
+      "$errorLog = " + quotePowerShell(path.join(root, "lane-error.log")),
+      "if (Test-Path -LiteralPath $desktop) {",
+      "  $process = Start-Process -FilePath $desktop -ArgumentList '--hidden' -WorkingDirectory (Split-Path -Parent $desktop) -WindowStyle Hidden -PassThru",
+      "} else {",
+      "  $process = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $errorLog -PassThru",
+      "}",
+      "$process.Id | Set-Content -LiteralPath " + quotePowerShell(path.join(root, "lane.pid")),
       ""
     ].join("\r\n")
   );
-  const xml = xmlPath(root);
-  await fs.writeFile(xml, taskXML(runner), "utf16le");
-  await runTask("schtasks.exe", ["/Create", "/TN", TASK_NAME, "/XML", xml, "/F"]);
-  return { installed: true, task: TASK_NAME, runner, port };
+  await runTask(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-Command",
+      "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(" +
+        quotePowerShell(shortcut) + ");" +
+        "$s.TargetPath=" + quotePowerShell(
+          path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+        ) + ";" +
+        "$s.Arguments=" + quotePowerShell(
+          `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${runner}"`
+        ) + ";" +
+        "$s.WorkingDirectory=" + quotePowerShell(root) + ";" +
+        "$s.WindowStyle=7;$s.Save()"
+    ]
+  );
+  if (desktopExe && existsSync(desktopExe)) {
+    await runTask(
+      "powershell.exe",
+      [
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(" +
+          quotePowerShell(installedShortcut) + ");" +
+          "$s.TargetPath=" + quotePowerShell(desktopExe) + ";" +
+          "$s.Arguments='--hidden';" +
+          "$s.WorkingDirectory=" + quotePowerShell(path.dirname(desktopExe)) + ";" +
+          "$s.WindowStyle=7;$s.Save()"
+      ]
+    );
+  }
+  return { installed: true, shortcut, runner, port };
 }
 
-export async function uninstallWindowsTask() {
+function desktopCandidatesFor(env, projectRoot, desktopExe) {
+  return [
+    desktopExe,
+    path.join(projectRoot, "dist", "win-unpacked", "Lane.exe"),
+    path.join(path.dirname(process.execPath), "Lane.exe"),
+    "C:\\Program Files\\Lane\\Lane.exe",
+    path.join(env.LOCALAPPDATA || "", "Programs", "Lane", "Lane.exe")
+  ].filter(Boolean);
+}
+
+function resolveNode(env) {
+  const candidates = [
+    "C:\\Program Files\\nodejs\\node.exe",
+    env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Programs", "nodejs", "node.exe") : "",
+    path.join(os.homedir(), ".cache", "codex-runtimes", "codex-primary-runtime", "dependencies", "node", "bin", "node.exe")
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate)) || process.execPath;
+}
+
+export async function uninstallWindowsTask({ env = process.env } = {}) {
   assertWindows();
-  await run("schtasks.exe", ["/Delete", "/TN", TASK_NAME, "/F"]);
-  return { installed: false, task: TASK_NAME };
+  await fs.rm(path.join(startupDir(env), SHORTCUT_NAME), { force: true });
+  await fs.rm(path.join(startupDir(env), "Lane.lnk"), { force: true });
+  return { installed: false };
 }
 
 function assertWindows() {
@@ -65,56 +138,14 @@ function run(command, args) {
   });
 }
 
-function xmlPath(root) {
-  return path.join(root, "lane-task.xml");
+function startupDir(env) {
+  return path.join(
+    env.APPDATA || path.join(env.USERPROFILE || process.env.USERPROFILE || "", "AppData", "Roaming"),
+    "Microsoft", "Windows", "Start Menu", "Programs", "Startup"
+  );
 }
 
-function taskXML(runner) {
-  const user = escapeXML(process.env.USERDOMAIN && process.env.USERNAME
-    ? `${process.env.USERDOMAIN}\\${process.env.USERNAME}`
-    : process.env.USERNAME || "");
-  return `<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>Starts the Lane gateway after this user signs in.</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>${user}</UserId>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>${user}</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Enabled>true</Enabled>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>${escapeXML(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe"))}</Command>
-      <Arguments>/d /s /c "${escapeXML(runner)}"</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-`;
+function quotePowerShell(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function escapeXML(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}

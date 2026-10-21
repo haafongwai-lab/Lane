@@ -15,12 +15,20 @@ export function fallbackModels() {
 export function modelList(models = fallbackModels()) {
   return {
     object: "list",
-    data: models.map((model) => ({
-      ...model,
-      id: model.id,
-      object: "model",
-      owned_by: model.owned_by || "workbuddy",
-      display_name: model.name || model.id
-    }))
+    data: models.map((model) => {
+      const efforts = Array.isArray(model.efforts) ? model.efforts : [];
+      return {
+        ...model,
+        id: model.id,
+        object: "model",
+        owned_by: model.owned_by || "workbuddy",
+        display_name: model.name || model.id,
+        ...(efforts.length ? {
+          reasoning: true,
+          supported_reasoning_levels: efforts.map((effort) => ({ effort })),
+          reasoning_levels: efforts
+        } : {})
+      };
+    })
   };
 }

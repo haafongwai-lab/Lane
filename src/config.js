@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 3426;
@@ -9,9 +10,21 @@ export function dataDir(env = process.env) {
   const base =
     env.LOCALAPPDATA ||
     (process.platform === "win32"
-      ? path.join(os.homedir(), "AppData", "Local")
+      ? windowsLocalAppData()
       : path.join(os.homedir(), ".local", "share"));
   return path.join(base, "lane");
+}
+
+function windowsLocalAppData() {
+  try {
+    const known = execFileSync(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Environment]::GetEnvironmentVariable('LOCALAPPDATA','User')"],
+      { encoding: "utf8", windowsHide: true, timeout: 3000 }
+    ).trim();
+    if (known) return known;
+  } catch {}
+  return path.join(os.homedir(), "AppData", "Local");
 }
 
 export function codexHome(env = process.env) {
