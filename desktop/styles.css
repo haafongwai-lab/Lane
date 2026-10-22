@@ -354,6 +354,20 @@ h1 {
 .claude-logo { overflow: hidden; background: #fff; }
 .claude-logo img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .hidden { display: none !important; }
+.client-node strong.compact { font-size: 13px; letter-spacing: -.2px; }
+/* ZCode ships a white Z on a black plate; Lane's surface is light, so the
+   plate is dropped and the Z kept as dark ink, like the other two logos. */
+/* ZCode's own icon is a dark rounded plate, so it is shown as it is rather
+   than clipped into the circle the other logos sit in. The plate carries its
+   own margin, so it is scaled up to fill the box it is given. */
+.zcode-logo { background: transparent; overflow: visible; }
+.zcode-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  transform: scale(1.32);
+}
 .codex-logo { overflow: hidden; background: #fff; }
 .codex-logo img, .agent-icon.codex img {
   width: 100%;
@@ -395,13 +409,13 @@ h1 {
   font-size: 8px;
   font-weight: 650;
 }
-.health-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; margin: 19px 0 9px; }
+.health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px 12px; margin: 19px 0 9px; }
 .health-grid div { min-width: 0; padding-left: 10px; border-left: 1px solid #dcdfd8; }
 .health-grid span, .health-grid small { display: block; color: var(--faint); font-size: 9px; }
 .health-grid strong { display: block; margin: 2px 0; overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .health-grid small { font-size: 8px; }
 
-.agent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .agent-card { padding: 24px; }
 .agent-title { display: flex; align-items: center; gap: 12px; }
 .agent-title h2 { font: 600 18px/1.3 var(--font-display); letter-spacing: -.35px; }
@@ -410,6 +424,16 @@ h1 {
 .agent-icon.codex { background: #fff; }
 .agent-icon.claude { padding: 7px; background: #f2e9dd; }
 .agent-icon.claude img { width: 100%; height: 100%; display: block; object-fit: contain; }
+/* The card's icon box matches the others; ZCode's plate is scaled to fill
+   it the way its own window shows it. */
+.agent-icon.zcode { background: transparent; overflow: visible; }
+.agent-icon.zcode img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  transform: scale(1.32);
+}
 .connection-state { margin-left: auto; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 9px; }
 .connection-state.on { border-color: #d2e3d6; color: #46785a; background: #edf5ef; }
 .agent-detail { display: flex; justify-content: space-between; gap: 10px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--line-soft); font-size: 10px; }
@@ -736,6 +760,7 @@ h1 {
   .view { padding-right: 20px; padding-left: 20px; }
   .heading-row { align-items: flex-start; flex-direction: column; gap: 17px; }
   .two-column, .settings-grid, .agent-grid { grid-template-columns: 1fr; }
+  .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .route-canvas {
     --canvas-pad-top: 25px;
     --canvas-pad-bottom: 95px;
@@ -774,6 +799,44 @@ h1 {
 }
 .accounts-panel { display: flex; flex-direction: column; min-width: 0; }
 .account-list { margin-top: 10px; }
+/* A sign-in that never landed stays visible here, not just in a toast. */
+.accounts-error {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid #e8d3cd;
+  border-radius: var(--radius-sm);
+  color: #8b4035;
+  background: var(--red-bg);
+  font-size: 10.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.add-account { position: relative; }
+.add-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 228px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 26px rgba(40, 42, 36, .12);
+}
+.add-menu[hidden] { display: none; }
+.add-menu button {
+  width: 100%;
+  display: block;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+}
+.add-menu button:hover { background: #f3f4ef; }
+.add-menu b { display: block; color: var(--ink); font-size: 11px; font-weight: 650; }
+.add-menu small { display: block; margin-top: 2px; color: var(--faint); font-size: 9px; }
 .accounts-panel .soft-label:empty { display: none; }
 .accounts-foot:empty { display: none; }
 .accounts-foot {

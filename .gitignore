@@ -1,6 +1,9 @@
 node_modules/
 dist/
 build-tmp/
+# ad-hoc electron-builder output directories used when dist/ was locked
+build-*/
+.electron-dist/
 deliver/
 .lane/
 .workbuddy-ai/

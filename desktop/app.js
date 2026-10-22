@@ -118,6 +118,7 @@ function render() {
   const last = recent[0];
   const codexOn = agents?.codex?.connected;
   const claudeOn = agents?.claudeDesktop?.connected;
+  const zcodeOn = agents?.zcode?.connected;
 
   $("#side-dot").className = "dot ok";
   $("#side-status").textContent = snapshot.starting
@@ -129,7 +130,7 @@ function render() {
   // The rail only animates while a request is on the wire, so the motion
   // always means something is happening rather than looping for decoration.
   $(".route-canvas").classList.toggle("busy", running.length > 0);
-  renderRouteAgent(last, { codexOn, claudeOn });
+  renderRouteAgent(last, { codexOn, claudeOn, zcodeOn });
   $("#lane-state").textContent = "运行中";
   $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
   $("#provider-state").previousElementSibling.classList.toggle("off", !signedIn);
@@ -145,6 +146,10 @@ function render() {
   $("#claude-connect-state").classList.toggle("on", claudeOn);
   $("#codex-connect").textContent = codexOn ? "重新接入 Codex" : "接入 Codex";
   $("#claude-connect").textContent = claudeOn ? "重新接入 Claude" : "接入 Claude";
+  $("#health-zcode").textContent = zcodeOn ? "已接入" : "未接入";
+  $("#zcode-connect-state").textContent = zcodeOn ? "已接入" : "未接入";
+  $("#zcode-connect-state").classList.toggle("on", zcodeOn);
+  $("#zcode-connect").textContent = zcodeOn ? "重新接入 ZCode" : "接入 ZCode";
   $("#gateway-address").textContent = (snapshot.gateway || "http://127.0.0.1:3426").replace(/^https?:\/\//, "");
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
@@ -168,6 +173,12 @@ function renderAccounts() {
   const accounts = snapshot.accounts || [];
   const activeId = snapshot.activeId || "";
   $("#account-count").textContent = accounts.length ? `${accounts.length} 个` : "";
+  // A sign-in that failed leaves a line here: the toast is gone after three
+  // seconds, and a missing account otherwise looks like nothing happened.
+  const failed = snapshot.signInError || "";
+  const errorNode = $("#accounts-error");
+  errorNode.hidden = !failed;
+  errorNode.textContent = failed ? `上次登录未完成：${failed}` : "";
   const list = $("#account-list");
   const foot = $("#accounts-foot");
   if (!accounts.length) {
@@ -186,7 +197,8 @@ function renderAccounts() {
     const active = account.id === activeId;
     const tags = [
       active ? '<em class="tag-on">当前</em>' : "",
-      account.enterpriseId ? '<em class="tag-soft">企业</em>' : ""
+      account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
+      account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : ""
     ].filter(Boolean).join("");
     return `
     <div class="account-row${active ? " active" : ""}${account.enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
@@ -268,13 +280,26 @@ async function accountAction(action, id, options = {}) {
 
 // The route's agent slot shows whichever agent sent the latest request,
 // falling back to the connected one, and the workflow lists both.
-function renderRouteAgent(last, { codexOn, claudeOn }) {
-  const both = codexOn && claudeOn;
-  const none = !codexOn && !claudeOn;
-  $("#client-codex-logo").classList.toggle("hidden", !codexOn);
-  $("#client-claude-logo").classList.toggle("hidden", !claudeOn);
-  const name = both ? "Codex + Claude" : codexOn ? "Codex" : claudeOn ? "Claude Desktop" : "无智能体接入";
-  $("#client-name").textContent = name;
+function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn }) {
+  // The AGENT node shows every client that is wired, so the route reads the
+  // same whether one, two or all of them are in use.
+  const clients = [
+    { on: codexOn, logo: "#client-codex-logo", short: "Codex", full: "Codex" },
+    { on: claudeOn, logo: "#client-claude-logo", short: "Claude", full: "Claude Desktop" },
+    { on: zcodeOn, logo: "#client-zcode-logo", short: "ZCode", full: "ZCode" }
+  ];
+  const live = clients.filter((client) => client.on);
+  for (const client of clients) {
+    $(client.logo).classList.toggle("hidden", !client.on);
+  }
+  const none = live.length === 0;
+  const label = none
+    ? "无智能体接入"
+    : live.length === 1 ? live[0].full : live.map((client) => client.short).join(" + ");
+  $("#client-name").textContent = label;
+  // Three names are long enough to wrap in the narrow column; a smaller size
+  // keeps the node on one line and level with its neighbours.
+  $("#client-name").classList.toggle("compact", live.length >= 3);
   // "工作模型" only while a request is on the wire, else a quiet hint.
   const working = last?.status === "running";
   $("#client-model").textContent = working
@@ -332,7 +357,7 @@ async function loadUsage() {
   }
 }
 
-const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude Desktop", openai: "OpenAI 兼容" };
+const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude Desktop", zcode: "ZCode", openai: "OpenAI 兼容" };
 
 function agentLabel(agent) {
   return AGENT_LABELS[agent] || agent || "未知来源";
@@ -520,11 +545,11 @@ async function command(command, options = {}, success = "操作完成") {
   }
 }
 
-async function signIn() {
+async function signIn(site = "workbuddy") {
   try {
-    const result = await window.lane.signIn();
+    const result = await window.lane.signIn({ site });
     if (result.url) await window.lane.openURL(result.url);
-    toast("已打开 WorkBuddy 登录页，完成后会自动更新状态");
+    toast(`已打开 ${site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"} 登录页，完成后会自动更新状态`);
   } catch (error) {
     toast(`登录失败：${error.message}`, true);
   }
@@ -548,8 +573,24 @@ $("#codex-connect").addEventListener("click", () => command("connect", { agent: 
 $("#codex-disconnect").addEventListener("click", () => command("disconnect", { agent: "codex" }, "Codex 已断开"));
 $("#claude-connect").addEventListener("click", () => command("connect", { agent: "claude-desktop" }, "Claude Desktop 已接入，请重启客户端"));
 $("#claude-disconnect").addEventListener("click", () => command("disconnect", { agent: "claude-desktop" }, "Claude Desktop 已断开"));
-$("#quick-signin").addEventListener("click", signIn);
-$("#add-account").addEventListener("click", signIn);
+$("#zcode-connect").addEventListener("click", () => command("connect", { agent: "zcode" }, "ZCode 已接入，请重启客户端"));
+$("#zcode-disconnect").addEventListener("click", () => command("disconnect", { agent: "zcode" }, "ZCode 已断开"));
+$("#quick-signin").addEventListener("click", () => signIn());
+// Two builds, two sign-in pages: the menu picks which one this account joins.
+$("#add-account").addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("#add-menu");
+  menu.hidden = !menu.hidden;
+});
+$("#add-menu").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-site]");
+  if (!button) return;
+  $("#add-menu").hidden = true;
+  signIn(button.dataset.site);
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".add-account")) $("#add-menu").hidden = true;
+});
 $("#refresh-accounts").addEventListener("click", () => refresh());
 $("#account-list").addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-act]");

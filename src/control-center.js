@@ -8,6 +8,7 @@ import {
   connectClaudeDesktop,
   disconnectClaudeDesktop
 } from "./agents/claude-desktop.js";
+import { connectZcode, disconnectZcode, zcodePaths } from "./agents/zcode.js";
 import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
 import { summary as usageSummary, RANGES } from "./usage.js";
@@ -25,7 +26,9 @@ export function createControlCenter({
   const journal = new RequestJournal({ dir: root });
   const gateway = `http://${host}:${port}`;
   let provider;
-  let signInPending = null;
+  // Keyed by site: the two builds sign in independently, and a pending
+  // domestic sign-in must not answer an overseas request.
+  const signInPending = new Map();
   let signInError = "";
   let scheduler = null;
 
@@ -138,10 +141,14 @@ export function createControlCenter({
           claudeDesktop: {
             connected: Boolean(state["claude-desktop"]?.connected),
             modeConfig: claudePaths(env).modeConfig
+          },
+          zcode: {
+            connected: Boolean(state.zcode?.connected),
+            configPath: zcodePaths(env).config
           }
         },
         autostart,
-        signInPending: Boolean(signInPending),
+        signInPending: signInPending.size > 0,
         signInError,
         recent: journal.recent()
       };
@@ -159,27 +166,35 @@ export function createControlCenter({
      * Signing in always adds an account: an existing one is refreshed, a new
      * one joins the list. It becomes the route only when nothing else is.
      */
-    async signIn() {
-      if (signInPending) return { pending: true, url: signInPending.url };
+    async signIn(options = {}) {
+      const site = options.site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
+      // One sign-in per build. A pending domestic sign-in used to swallow an
+      // overseas request and hand back its own URL, so choosing WorkBuddy AI
+      // opened the domestic page and no overseas account was ever written.
+      const pending = signInPending.get(site);
+      if (pending) return { pending: true, url: pending.url, site };
       const instance = await getProvider();
-      const result = await instance.authorize();
-      signInPending = result;
+      const result = await instance.authorize(site);
+      signInPending.set(site, result);
       signInError = "";
       onSignIn(result);
       result.callback()
         .then(async (auth) => {
           if (auth?.type !== "success") throw new Error(auth?.error || "WorkBuddy sign-in failed");
-          return instance.finishSignIn(result);
+          return instance.finishSignIn(result, site);
         })
         // The window refreshes its status on this second call; the account
         // itself is read from that status, so only clear the error here.
         .then(() => { onSignIn(null, null); })
         .catch((error) => {
           signInError = error?.message || "WorkBuddy sign-in failed";
+          // Both the window and the log get it: a sign-in that never lands
+          // is otherwise a toast nobody can read afterwards.
+          console.error(`WorkBuddy sign-in (${site}) failed: ${signInError}`);
           onSignIn(null, error);
         })
-        .finally(() => { signInPending = null; });
-      return { pending: true, url: result.url, instructions: result.instructions || "" };
+        .finally(() => { signInPending.delete(site); });
+      return { pending: true, url: result.url, site, instructions: result.instructions || "" };
     },
 
     async activate(id) {
@@ -246,12 +261,21 @@ export function createControlCenter({
       if (agent === "claude-desktop") {
         return connectClaudeDesktop({ env, gateway });
       }
+      if (agent === "zcode") {
+        const instance = await getProvider();
+        return connectZcode({
+          env,
+          gateway,
+          providerModels: () => instance.listModels()
+        });
+      }
       throw new Error(`unknown agent: ${agent}`);
     },
 
     async disconnect(agent) {
       if (agent === "codex") return disconnectCodex({ env });
       if (agent === "claude-desktop") return disconnectClaudeDesktop({ env });
+      if (agent === "zcode") return disconnectZcode({ env });
       throw new Error(`unknown agent: ${agent}`);
     },
 

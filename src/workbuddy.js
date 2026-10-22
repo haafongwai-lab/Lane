@@ -9,8 +9,10 @@ import {
   removeAccount,
   activeAccount,
   publicAccount,
-  accountIdOf
+  accountIdOf,
+  normalizeSite
 } from "./accounts.js";
+import { prepareChat, restoreToolNames } from "./sanitize.js";
 
 const require = createRequire(import.meta.url);
 const PACKAGE = "@magpie-community/opencode-workbuddy-auth";
@@ -30,17 +32,35 @@ export class WorkBuddyProvider {
     this.factory = factory;
     this.state = { version: 1, activeId: "", accounts: [] };
     this.sessions = new Map();
-    this.anonymous = null;
+    this.anonymous = new Map();
     // Hooks with no account behind them: only the static model catalogue
     // and the sign-in flow need them.
     this.hooks = hooks;
     this.models = [];
     this.ready = false;
+    // One plugin per site: the domestic build and the international build are
+    // separate packages with separate endpoints and separate catalogues.
+    this.factories = new Map();
+  }
+
+  /**
+   * The plugin factory for one site. An injected factory (tests, the desktop
+   * shell) stands in for every site.
+   */
+  async factoryFor(site) {
+    const key = normalizeSite(site);
+    if (this.factory) return this.factory;
+    if (this.factories.has(key)) return this.factories.get(key);
+    const factory = await loadFactory(key);
+    this.factories.set(key, factory);
+    return factory;
   }
 
   async init() {
     if (this.ready) return this;
-    this.factory = this.factory || (await loadFactory());
+    // The plugin is loaded per site in factoryFor(), not here: caching the
+    // domestic build as a shared factory would send an international sign-in
+    // to the domestic login page.
     await this.reload();
     this.ready = true;
     return this;
@@ -77,8 +97,9 @@ export class WorkBuddyProvider {
     if (existing) return existing;
     const account = this.state.accounts.find((item) => item.id === target);
     if (!account) return null;
+    const factory = await this.factoryFor(account.site);
     const session = { id: target, auth: account.auth, hooks: null, loader: null };
-    session.hooks = await this.factory({
+    session.hooks = await factory({
       client: {
         auth: {
           set: async ({ body }) => {
@@ -103,15 +124,16 @@ export class WorkBuddyProvider {
     return session && session.auth ? session : null;
   }
 
-  async anonymousHooks() {
+  async anonymousHooks(site = "workbuddy") {
     if (this.hooks) return this.hooks;
-    if (!this.anonymous) {
-      this.anonymous = await this.factory({
-        client: { auth: { set: async () => {} } }
-      });
-    }
-    this.hooks = this.anonymous;
-    return this.anonymous;
+    const key = normalizeSite(site);
+    if (this.anonymous.has(key)) return this.anonymous.get(key);
+    const factory = await this.factoryFor(key);
+    const hooks = await factory({
+      client: { auth: { set: async () => {} } }
+    });
+    this.anonymous.set(key, hooks);
+    return hooks;
   }
 
   async loaderFor(session) {
@@ -209,15 +231,35 @@ export class WorkBuddyProvider {
     if (!session) throw new Error("WorkBuddy is not signed in");
     await this.refreshIfNeeded(session);
     const loader = await this.loaderFor(session);
+    // WorkBuddy refuses a chat whose prompt carries another client's words,
+    // and refuses tool shapes its models cannot take. The plugin knows both
+    // lists; this is the same preparation it applies to its own requests.
+    const prepared = await prepareChat({ ...body, stream: true });
     const response = await loader.fetch(`${loader.baseURL}/chat/completions`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         accept: body.stream ? "text/event-stream" : "application/json"
       },
-      body: JSON.stringify({ ...body, stream: true })
+      body: JSON.stringify(prepared.body)
     });
-    return response;
+    // A refusal names no client and no word, so the only way to find the
+    // offending wording is to keep what was actually sent. This runs only on
+    // a refusal, and only the system prompt's head is kept.
+    if (response.status === 400) {
+      const text = await response.clone().text().catch(() => "");
+      if (/unapproved channel|illegal api invocation/i.test(text)) {
+        const system = (prepared.body?.messages || [])
+          .filter((message) => message?.role === "system")
+          .map((message) => typeof message.content === "string"
+            ? message.content
+            : (message.content || []).map((part) => part?.text || "").join(""))
+          .join("\n")
+          .slice(0, 600);
+        console.error(`WorkBuddy refused a prompt. System prompt head:\n${system}`);
+      }
+    }
+    return restoreToolNames(response, prepared.names);
   }
 
   async activate(id) {
@@ -243,23 +285,24 @@ export class WorkBuddyProvider {
     return result;
   }
 
-  async authorize() {
+  async authorize(site = "workbuddy") {
     await this.init();
-    const hooks = await this.anonymousHooks();
+    const key = normalizeSite(site);
+    const hooks = await this.anonymousHooks(key);
     const method = hooks.auth.methods?.find((item) => item.label?.includes("browser"));
     if (!method) throw new Error("WorkBuddy plugin has no browser sign-in method");
     // The plugin returns an OpenCode auth object already
     // ({url, instructions, callback}); authorize() itself is not a callback.
     const result = await method.authorize();
     if (!result?.url) throw new Error("WorkBuddy plugin returned no browser URL");
-    return result;
+    return { ...result, site: key };
   }
 
   /**
    * A finished sign-in always adds an account. The first one becomes the
    * route; a later one joins the list switched on but idle.
    */
-  async finishSignIn(result) {
+  async finishSignIn(result, site = result?.site || "workbuddy") {
     const auth = await result.callback();
     if (auth?.type !== "success") {
       throw new Error(auth?.error || "WorkBuddy sign-in failed");
@@ -278,14 +321,29 @@ export class WorkBuddyProvider {
     };
     const id = accountIdOf(stored);
     if (!id) throw new Error("WorkBuddy sign-in returned no account id");
-    await upsertAccount(stored, this.env, { activate: !this.state.activeId });
+    const key = normalizeSite(site);
+    await upsertAccount(stored, this.env, { activate: !this.state.activeId, site: key });
     this.sessions.delete(id);
     this.state = await loadAccounts(this.env);
-    return { ...stored, id };
+    return { ...stored, id, site: key };
+  }
+
+  /** Which site an account belongs to; unknown or legacy accounts are domestic. */
+  async siteOf(id) {
+    await this.init();
+    const target = id || this.state.activeId;
+    const account = this.state.accounts.find((item) => item.id === target);
+    return normalizeSite(account?.site);
   }
 }
 
-async function loadFactory() {
+/** The plugin export that serves one site. */
+const SITE_EXPORTS = {
+  workbuddy: "WorkBuddyAuthPlugin",
+  "workbuddy-ai": "WorkBuddyAIAuthPlugin"
+};
+
+async function loadFactory(site = "workbuddy") {
   let entry;
   try {
     entry = await import(pathToFileURL(require.resolve(PACKAGE)).href);
@@ -294,7 +352,13 @@ async function loadFactory() {
       `WorkBuddy plugin is not installed. Run npm install. (${error.message})`
     );
   }
-  return entry.WorkBuddyAuthPlugin;
+  const key = normalizeSite(site);
+  const name = SITE_EXPORTS[key];
+  const factory = entry[name];
+  if (typeof factory !== "function") {
+    throw new Error(`WorkBuddy plugin does not export ${name}`);
+  }
+  return factory;
 }
 
 function modelDetails(id, value = {}) {

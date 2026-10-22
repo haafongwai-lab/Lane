@@ -3,6 +3,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, parseAddress } from "./config.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
+import { connectZcode, disconnectZcode } from "./agents/zcode.js";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
 import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
@@ -17,9 +18,11 @@ function usage() {
   lane disconnect claude-desktop
   lane connect codex [--addr 127.0.0.1:3426]
   lane disconnect codex
+  lane connect zcode [--addr 127.0.0.1:3426]
+  lane disconnect zcode
   lane autostart install [--addr 127.0.0.1:3426]
   lane autostart uninstall
-  lane login
+  lane login [--site workbuddy|workbuddy-ai]
   lane logout
   lane accounts
   lane use <account>
@@ -77,13 +80,14 @@ async function doctor() {
   }, null, 2));
 }
 
-async function login() {
+async function login(options = {}) {
+  const site = options.site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
   const provider = new WorkBuddyProvider();
   await provider.init();
-  const result = await provider.authorize();
+  const result = await provider.authorize(site);
   console.log(`Open this URL and sign in:\n${result.url}\n`);
   console.log(result.instructions || "Waiting for sign-in...");
-  const auth = await provider.finishSignIn(result);
+  const auth = await provider.finishSignIn(result, site);
   console.log(JSON.stringify({
     ok: true,
     account: auth.accountId,
@@ -211,13 +215,23 @@ async function main() {
     return result;
   }
   if (command === "disconnect" && target === "codex") return disconnectCodex();
+  if (command === "connect" && target === "zcode") {
+    const provider = await new WorkBuddyProvider().init();
+    const result = await connectZcode({
+      gateway: `http://${gateway.host}:${gateway.port}`,
+      providerModels: () => provider.listModels()
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+  if (command === "disconnect" && target === "zcode") return disconnectZcode();
   if (command === "autostart" && target === "install") {
     return installWindowsTask({ port: gateway.port });
   }
   if (command === "autostart" && target === "uninstall") {
     return uninstallWindowsTask();
   }
-  if (command === "login") return login();
+  if (command === "login") return login({ site: argValue(args, "--site") });
   if (command === "logout") return logout();
   if (command === "accounts") return accounts();
   if (command === "use") return use(target);

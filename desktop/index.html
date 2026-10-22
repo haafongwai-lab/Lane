@@ -34,7 +34,7 @@
           <div>
             <div class="eyebrow"><span class="live-dot"></span> 本地链路</div>
             <h1>一条链路，清晰好用</h1>
-            <p class="sub">Codex 与 Claude Desktop 共用一个 WorkBuddy 出口。</p>
+            <p class="sub">Codex、Claude Desktop 与 ZCode 共用一个 WorkBuddy 出口。</p>
           </div>
           <div class="heading-actions">
             <button class="ghost" id="test-route">测试链路</button>
@@ -68,6 +68,7 @@
               <div class="agent-logos">
                 <div class="node-logo codex-logo" id="client-codex-logo"><img src="assets/codex-official.svg" alt=""></div>
                 <div class="node-logo claude-logo" id="client-claude-logo"><img src="assets/claude-official.svg" alt=""></div>
+                <div class="node-logo zcode-logo" id="client-zcode-logo"><img src="assets/zcode-official-256.png" alt=""></div>
               </div>
               <strong id="client-name">Codex</strong>
               <span id="client-model">等待请求</span>
@@ -101,6 +102,7 @@
               <div><span>账号</span><strong id="health-account">—</strong><small id="health-domain">WorkBuddy</small></div>
               <div><span>Codex</span><strong id="health-codex">未接入</strong><small>自动写入配置</small></div>
               <div><span>Claude</span><strong id="health-claude">未接入</strong><small>独立 3p 配置</small></div>
+              <div><span>ZCode</span><strong id="health-zcode">未接入</strong><small>provider 规则</small></div>
             </div>
             <button class="outline wide" id="quick-signin">登录 / 检查 WorkBuddy</button>
           </article>
@@ -137,6 +139,19 @@
             <p class="agent-note">写入独立的 Lane 3p 配置，不影响其他设置。</p>
             <div class="card-actions"><button class="primary" id="claude-connect">接入 Claude</button><button class="ghost" id="claude-disconnect">断开</button></div>
           </article>
+
+
+          <article class="agent-card">
+            <div class="agent-title">
+              <div class="agent-icon zcode"><img src="assets/zcode-official-256.png" alt=""></div>
+              <div><h2>ZCode</h2><p>Anthropic Messages</p></div>
+              <span class="connection-state" id="zcode-connect-state">未接入</span>
+            </div>
+            <div class="agent-detail"><span>方式</span><b>自定义提供方</b></div>
+            <div class="agent-detail"><span>配置</span><code>~/.zcode/v2/provider_config.json</code></div>
+            <p class="agent-note">写入 lane 提供方并把它的模型清单指向网关，其余提供方与设置保持不变。</p>
+            <div class="card-actions"><button class="primary" id="zcode-connect">接入 ZCode</button><button class="ghost" id="zcode-disconnect">断开</button></div>
+          </article>
         </div>
 
       </section>
@@ -145,7 +160,13 @@
         <div class="heading-row">
           <div><div class="eyebrow">WORKBUDDY 账号</div><h1>多个账号，一个出口</h1><p class="sub">所有账号同时保持登录，只有当前账号承载请求；关掉的账号保留登录，不再参与路由与签到。</p></div>
           <div class="heading-actions">
-            <button class="primary" id="add-account">添加账号</button>
+            <div class="add-account">
+              <button class="primary" id="add-account">添加账号</button>
+              <div class="add-menu" id="add-menu" hidden>
+                <button data-site="workbuddy"><b>WorkBuddy</b><small>国内版 · copilot.tencent.com</small></button>
+                <button data-site="workbuddy-ai"><b>WorkBuddy AI</b><small>海外版 · www.workbuddy.ai</small></button>
+              </div>
+            </div>
             <button class="ghost" id="refresh-accounts">↻ 刷新</button>
           </div>
         </div>
@@ -153,6 +174,7 @@
         <div class="accounts-grid">
           <article class="panel accounts-panel">
             <div class="panel-head"><div><span class="overline">账号列表</span><h3>已登录账号</h3></div><span class="soft-label" id="account-count">0 个</span></div>
+            <p class="accounts-error" id="accounts-error" hidden></p>
             <div class="account-list" id="account-list"><div class="empty">还没有账号。点「添加账号」登录 WorkBuddy。</div></div>
             <p class="accounts-foot" id="accounts-foot"></p>
           </article>
@@ -187,7 +209,7 @@
 
       <section class="view" id="view-models">
         <div class="heading-row">
-          <div><div class="eyebrow">模型目录</div><h1>WorkBuddy 可用模型</h1><p class="sub">目录随账号更新，Codex 会自动读取。</p></div>
+          <div><div class="eyebrow">模型目录</div><h1>WorkBuddy 可用模型</h1><p class="sub">模型随账号更新，自动读取。</p></div>
           <button class="ghost" id="refresh-models">↻ 刷新</button>
         </div>
         <article class="panel models-panel">

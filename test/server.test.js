@@ -412,3 +412,102 @@ test("switching an account needs an explicit boolean", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a chat completion that asks for no stream gets a plain answer", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        id: "c1", model: "auto", created: 1,
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([
+        ": heartbeat\n",
+        chunk({ content: "Hello" }),
+        chunk({ content: " there" }),
+        chunk({}, "stop"),
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") || "", /application\/json/);
+    const body = await res.json();
+    assert.equal(body.object, "chat.completion");
+    assert.equal(body.choices[0].message.content, "Hello there");
+    assert.equal(body.choices[0].finish_reason, "stop");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a chat completion that asks for a stream keeps the upstream events", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        id: "c1", model: "auto", created: 1,
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([
+        ": heartbeat\n",
+        chunk({ content: "Hi" }),
+        chunk({}, "stop"),
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }], stream: true })
+    });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.match(text, /"content":"Hi"/);
+    assert.match(text, /"finish_reason":"stop"/);
+    assert.match(text, /data: \[DONE\]/);
+    // The heartbeat is not an OpenAI event, and a client that parses strictly
+    // must not see it.
+    assert.doesNotMatch(text, /heartbeat/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a refused chat reaches the client as an error, not an empty body", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      return new Response('{"error":{"message":"Illegal API invocation"}}', {
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error.message, /Illegal API invocation/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

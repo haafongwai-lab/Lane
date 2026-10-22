@@ -17,6 +17,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { withAliases, resolveModel, nearestEffort } from "./aliases.js";
 import { SSEDecoder } from "./translate/stream.js";
+import { parseSSEData } from "./translate/common.js";
 
 const NAME = "lane";
 const VERSION = "0.1.0";
@@ -90,11 +91,18 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         }
         const requested = body.model;
         body.model = await mappedModel(provider, requested, "openai");
+        // A client that sends a request Lane cannot satisfy in one piece
+        // (a body over the limit, a shape the upstream refuses) is easier to
+        // help when the body that actually arrived is on record.
+        if (process.env.LANE_TRACE_REQUEST === "1") {
+          console.error(`chat request from ${req.socket.remoteAddress}: ${JSON.stringify(body).slice(0, 2000)}`);
+        }
         await proxyChat(res, provider, body, {
           control,
           agent: "openai",
           requested,
           endpoint: url.pathname,
+          model: body.model,
           rate: await modelRate(provider, body.model)
         });
         return;
@@ -257,8 +265,31 @@ async function proxyChat(res, provider, body, options = {}) {
   });
   try {
     const upstream = await provider.chat(body);
-    options.control?.journal.finish(record?.id, { status: "complete" });
-    await relay(res, upstream, 200);
+    // The upstream status is the request's outcome: a chat WorkBuddy refuses
+    // arrives here as a Response with ok === false, and recording it as
+    // "complete" hid the refusal from the journal and the activity list.
+    if (!upstream?.ok) {
+      // The body is read here and the text is sent on, because reading a
+      // response locks its stream: a second read finds it locked and the
+      // client gets nothing at all instead of the error.
+      const text = await upstream.text().catch(() => "");
+      options.control?.journal.finish(record?.id, {
+        status: "error",
+        error: text || `upstream returned ${upstream?.status || "no response"}`
+      });
+      json(res, upstream?.status || 502, {
+        error: {
+          message: text || `upstream returned ${upstream?.status || "no response"}`,
+          type: "upstream_error"
+        }
+      });
+      return;
+    }
+    await relayChat(res, upstream, body, {
+      control: options.control,
+      record,
+      model: options.model
+    });
   } catch (error) {
     options.control?.journal.finish(record?.id, {
       status: "error",
@@ -266,6 +297,85 @@ async function proxyChat(res, provider, body, options = {}) {
     });
     unavailable(res, error);
   }
+}
+
+/**
+ * The OpenAI-compatible path. WorkBuddy only ever answers with a stream, so
+ * the stream is read here: the client's own answer is assembled from it, the
+ * tokens are counted, and the parts that are not OpenAI events — the
+ * heartbeat comment, for one — never reach a client that would choke on
+ * them.
+ *
+ * A client that asked for a plain answer gets one; a client that asked for a
+ * stream gets the same events in the same order.
+ */
+async function relayChat(res, upstream, body, options = {}) {
+  const record = options.record;
+  const journal = options.control?.journal;
+  const wantsStream = body?.stream === true;
+  const decoder = new SSEDecoder();
+  const events = [];
+  let usage = null;
+  let firstText = false;
+
+  // The response head waits: a client that asked for a plain answer gets
+  // JSON, and one that asked for a stream gets events, so the head is only
+  // written once the shape is known.
+  if (wantsStream) {
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive"
+    });
+  }
+
+  const collect = (event) => {
+    if (!event || typeof event !== "object") return;
+    if (event.usage) usage = event.usage;
+    const choice = Array.isArray(event.choices) ? event.choices[0] : null;
+    if (!choice) return;
+    const text = choice.delta?.content ?? choice.message?.content ?? "";
+    if (text && !firstText) {
+      firstText = true;
+      journal?.note(record?.id, { firstTextMs: Date.now() - (record?.startedAt || Date.now()) });
+    }
+    events.push(event);
+  };
+
+  for await (const chunk of upstream.body || []) {
+    for (const event of parseSSEData(decoder.push(chunk))) collect(event);
+  }
+  for (const event of parseSSEData(decoder.finish())) collect(event);
+
+  if (wantsStream) {
+    for (const event of events) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } else {
+    // A plain answer is assembled from the same events a streamed one would
+    // have carried, so both see the same text.
+    const content = events.map((event) => event.choices?.[0]?.delta?.content || "").join("");
+    const reasoning = events.map((event) => event.choices?.[0]?.delta?.reasoning_content || "").join("");
+    const finish = events
+      .map((event) => event.choices?.[0]?.finish_reason)
+      .filter(Boolean)
+      .pop() || "stop";
+    json(res, 200, {
+      id: events[0]?.id || `chatcmpl-${randomUUID().replaceAll("-", "")}`,
+      object: "chat.completion",
+      created: events[0]?.created || Math.floor(Date.now() / 1000),
+      model: events[0]?.model || options.model || body.model,
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content, ...(reasoning ? { reasoning_content: reasoning } : {}) },
+        finish_reason: finish
+      }],
+      usage: usage || null
+    });
+  }
+
+  if (usage) journal?.usage(record?.id, usage);
+  journal?.finish(record?.id, { status: "complete" });
 }
 
 async function controlRoute(req, res, url, control) {
@@ -292,7 +402,8 @@ async function controlRoute(req, res, url, control) {
       return;
     }
     if (req.method === "POST" && url.pathname === "/lane/sign-in") {
-      const result = await control.signIn();
+      const body = await readJSONBody(req);
+      const result = await control.signIn({ site: body?.site });
       json(res, 200, result);
       return;
     }

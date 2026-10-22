@@ -1,0 +1,141 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { connectZcode, disconnectZcode, zcodePaths } from "../src/agents/zcode.js";
+
+async function temp() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lane-zcode-"));
+  return {
+    root,
+    env: {
+      LANE_DATA_DIR: path.join(root, "data"),
+      ZCODE_HOME: path.join(root, ".zcode")
+    }
+  };
+}
+
+async function readConfig(env) {
+  return JSON.parse(await fs.readFile(zcodePaths(env).config, "utf8"));
+}
+
+const MODELS = [
+  { id: "auto", name: "Auto", context: 256000, efforts: ["low", "high"] },
+  { id: "hy3", name: "Hy3", context: 192000, efforts: ["low", "high"] }
+];
+
+test("connect writes a self-sufficient lane provider and puts it first in the order", async () => {
+  const { env } = await temp();
+  const result = await connectZcode({
+    env,
+    gateway: "http://127.0.0.1:3426",
+    providerModels: async () => MODELS
+  });
+  assert.equal(result.connected, true);
+
+  const doc = await readConfig(env);
+  const rule = doc.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  assert.ok(rule, "the lane rule exists");
+  assert.equal(rule.providerName, "Lane");
+  assert.equal(rule.enabled, true);
+  assert.equal(rule.config.group, "standard-personal");
+  assert.deepEqual(rule.config.access, { type: "api-key", apiKey: "lane" });
+  assert.deepEqual(rule.config.api, {
+    type: "anthropic-messages",
+    baseUrl: "http://127.0.0.1:3426"
+  });
+  assert.deepEqual(rule.config.personalModelIds, ["auto", "hy3"]);
+  assert.deepEqual(rule.config.modelOrder, ["auto", "hy3"]);
+  assert.equal(doc.config.providerOrder[0], "lane");
+});
+
+test("the user's other providers survive a connect and a disconnect", async () => {
+  const { env, root } = await temp();
+  const config = zcodePaths(env).config;
+  await fs.mkdir(path.dirname(config), { recursive: true });
+  const original = {
+    schemaVersion: 1,
+    config: {
+      providerOrder: ["deepseek"],
+      providerConfigRules: {
+        providerRules: [{
+          providerId: "deepseek",
+          templateId: "deepseek",
+          providerName: "DeepSeek",
+          enabled: true,
+          config: {
+            group: "standard-personal",
+            access: { type: "api-key", apiKey: "sk-user-key" },
+            personalModelIds: [],
+            modelOrder: ["deepseek-flash"]
+          }
+        }]
+      },
+      someFutureField: { keep: true }
+    }
+  };
+  await fs.writeFile(config, JSON.stringify(original, null, 2));
+
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  const after = await readConfig(env);
+  const deepseek = after.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "deepseek");
+  assert.deepEqual(deepseek, original.config.providerConfigRules.providerRules[0],
+    "the deepseek rule is byte-equal");
+  assert.deepEqual(after.config.someFutureField, { keep: true }, "unknown fields are kept");
+  assert.ok(after.config.providerOrder.includes("deepseek"));
+
+  await disconnectZcode({ env });
+  const restored = await readConfig(env);
+  assert.deepEqual(restored, original, "disconnect puts the document back");
+});
+
+test("reconnecting updates the lane rule instead of adding a second one", async () => {
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  await connectZcode({
+    env,
+    gateway: "http://127.0.0.1:3427",
+    providerModels: async () => [{ id: "hy3", name: "Hy3", context: 192000 }]
+  });
+  const doc = await readConfig(env);
+  const lanes = doc.config.providerConfigRules.providerRules
+    .filter((item) => item.providerId === "lane");
+  assert.equal(lanes.length, 1);
+  assert.equal(lanes[0].config.api.baseUrl, "http://127.0.0.1:3427");
+  assert.deepEqual(lanes[0].config.personalModelIds, ["hy3"]);
+  assert.equal(doc.config.providerOrder.filter((id) => id === "lane").length, 1);
+});
+
+test("a connect with no readable model list still declares Lane's own catalogue", async () => {
+  const { env } = await temp();
+  await connectZcode({
+    env,
+    gateway: "http://127.0.0.1:3426",
+    providerModels: async () => { throw new Error("not signed in"); }
+  });
+  const doc = await readConfig(env);
+  const rule = doc.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  assert.ok(rule.config.personalModelIds.length > 0, "the fallback catalogue is written");
+});
+
+test("disconnect with no prior connect is a no-op", async () => {
+  const { env } = await temp();
+  const result = await disconnectZcode({ env });
+  assert.deepEqual(result, { agent: "zcode", connected: false, changed: false });
+});
+
+test("a config file that is not JSON is reported, not overwritten", async () => {
+  const { env } = await temp();
+  const config = zcodePaths(env).config;
+  await fs.mkdir(path.dirname(config), { recursive: true });
+  await fs.writeFile(config, "{ not json");
+  await assert.rejects(
+    () => connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS }),
+    /not valid JSON/
+  );
+  assert.equal(await fs.readFile(config, "utf8"), "{ not json", "the file is untouched");
+});

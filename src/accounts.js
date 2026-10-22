@@ -60,8 +60,13 @@ export async function readAccounts(env = process.env) {
   }
   try {
     const parsed = JSON.parse(raw);
+    // An account written before sites existed carries no `site`; give it the
+    // domestic default on the way in, so every reader sees one and a later
+    // write persists it instead of dropping the field again.
     const accounts = Array.isArray(parsed?.accounts)
-      ? parsed.accounts.filter((item) => item && item.id && item.auth)
+      ? parsed.accounts
+        .filter((item) => item && item.id && item.auth)
+        .map((item) => ({ ...item, site: normalizeSite(item.site) }))
       : [];
     // An explicitly empty route is meaningful (every account switched off),
     // so only a missing field falls back to the first account.
@@ -103,6 +108,7 @@ export async function loadAccounts(env = process.env) {
       accountId: legacy.accountId || "",
       enterpriseId: legacy.enterpriseId || "",
       domain: legacy.domain || "",
+      site: "workbuddy",
       enabled: true,
       addedAt: new Date().toISOString(),
       lastUsedAt: new Date().toISOString(),
@@ -121,7 +127,7 @@ export function activeAccount(state) {
  * The first account, or one signed in while nothing is active, becomes the
  * route.
  */
-export async function upsertAccount(auth, env = process.env, { activate = false } = {}) {
+export async function upsertAccount(auth, env = process.env, { activate = false, site = "" } = {}) {
   const id = accountIdOf(auth);
   if (!id) throw new Error("WorkBuddy sign-in returned no account id");
   return serial(env, async () => {
@@ -135,6 +141,7 @@ export async function upsertAccount(auth, env = process.env, { activate = false 
       existing.accountId = auth.accountId || existing.accountId;
       existing.enterpriseId = auth.enterpriseId || "";
       existing.domain = auth.domain || existing.domain;
+      existing.site = normalizeSite(site || existing.site);
       existing.enabled = true;
       existing.lastUsedAt = now;
     } else {
@@ -145,6 +152,7 @@ export async function upsertAccount(auth, env = process.env, { activate = false 
         accountId: auth.accountId || "",
         enterpriseId: auth.enterpriseId || "",
         domain: auth.domain || "",
+        site: normalizeSite(site),
         enabled: true,
         addedAt: now,
         lastUsedAt: now,
@@ -249,10 +257,23 @@ export function publicAccount(account) {
     uid: account.uid || "",
     enterpriseId: account.enterpriseId || "",
     domain: account.domain || "",
+    site: normalizeSite(account.site),
     enabled: Boolean(account.enabled),
     addedAt: account.addedAt || "",
     lastUsedAt: account.lastUsedAt || "",
     expiresAt: expires || null,
     expiresSoon: Boolean(expires) && expires - Date.now() < 10 * 60 * 1000
   };
+}
+
+/**
+ * WorkBuddy ships as two builds with separate endpoints and catalogues: the
+ * domestic one (copilot.tencent.com) and the international one
+ * (www.workbuddy.ai). Accounts remember which one they signed in to; anything
+ * written before this existed is domestic.
+ */
+export const SITES = ["workbuddy", "workbuddy-ai"];
+
+export function normalizeSite(site) {
+  return site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
 }

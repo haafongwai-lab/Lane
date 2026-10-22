@@ -1,9 +1,10 @@
 # Lane
 
-Lane is a small, Windows-local desktop gateway for one provider and two agents:
+Lane is a small, Windows-local desktop gateway for one provider and four agents:
 
-- Provider: WorkBuddy
-- Agents: Claude Desktop and Codex
+- Provider: WorkBuddy — the domestic build (copilot.tencent.com) and the
+  international build (www.workbuddy.ai), signed in side by side
+- Agents: Claude Desktop, Codex and ZCode
 
 It is intentionally independent from magpie. It does not read magpie's data
 directory, use its port, or control its processes.
@@ -20,14 +21,31 @@ directory, use its port, or control its processes.
 - Stable Claude-facing aliases for WorkBuddy model ids
 - WorkBuddy sign-in, token persistence, refresh, model discovery and request
   handling through the community plugin
-- Reversible Claude Desktop and Codex wiring
+- Reversible Claude Desktop, Codex and ZCode wiring
 
 The desktop app keeps the scope intentionally small. It does not implement a
 plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
 or a background updater. Those are magpie capabilities that this project does
 not need for the single-provider, Windows-local use case.
 
+## ZCode
+
+ZCode keeps its providers in `~/.zcode/v2/provider_config.json`. Lane adds one
+custom rule named `lane` there — speaking Anthropic Messages at the gateway,
+with the account's model list — and puts it first in `providerOrder`. A rule
+without a template is complete on its own in ZCode's schema, so nothing else
+in the file changes: the user's API keys, other providers and settings are
+written back as they were. Disconnect removes the rule and its order entry.
+ZCode must be restarted to read the new provider.
+
 ## Accounts
+
+Both WorkBuddy builds are supported. An account belongs to the build it was
+signed in through: `lane login --site workbuddy-ai` joins the international
+one, plain `lane login` the domestic one. The two have separate endpoints and
+separate model catalogues, and an account always talks to its own build —
+switching the route to an international account moves requests with it.
+Accounts written before this existed count as domestic.
 
 WorkBuddy accepts several accounts at once. Each one that signs in is kept in
 `%LOCALAPPDATA%\lane\accounts.json` with its own tokens, and one of them is
@@ -142,6 +160,7 @@ Then wire an agent:
 ```powershell
 node src/cli.js connect claude-desktop
 node src/cli.js connect codex
+node src/cli.js connect zcode
 ```
 
 Restart the agent after connecting. To undo only Lane's changes:
@@ -149,6 +168,7 @@ Restart the agent after connecting. To undo only Lane's changes:
 ```powershell
 node src/cli.js disconnect claude-desktop
 node src/cli.js disconnect codex
+node src/cli.js disconnect zcode
 ```
 
 Disconnect restores the values Lane stored before its first write. It does

@@ -231,9 +231,9 @@ ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   }
   throw new Error(`unknown command: ${command}`);
 });
-ipcMain.handle("lane:signin", async () => {
+ipcMain.handle("lane:signin", async (_event, options) => {
   await startGateway();
-  return control.signIn();
+  return control.signIn({ site: options?.site });
 });
 // Account actions run against whichever Lane owns the gateway, so the list
 // stays the same whether this window started it or joined one.
