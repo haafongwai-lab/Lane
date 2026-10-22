@@ -34,6 +34,7 @@ export class WorkBuddyProvider {
     // Hooks with no account behind them: only the static model catalogue
     // and the sign-in flow need them.
     this.hooks = hooks;
+    this.models = [];
     this.ready = false;
   }
 
@@ -154,6 +155,12 @@ export class WorkBuddyProvider {
     return target.auth;
   }
 
+  // The catalogue the last listModels() settled on, so request accounting can
+  // cost a model without asking the upstream on every status poll.
+  cachedModels() {
+    return this.models || [];
+  }
+
   async listModels(id) {
     await this.init();
     const session = await this.session(id);
@@ -164,16 +171,18 @@ export class WorkBuddyProvider {
     if (!provider) throw new Error("WorkBuddy plugin did not declare a provider");
     const auth = session?.auth || null;
     if (!auth) {
-      return Object.entries(provider.models || {}).map(([modelId, value]) => ({
+      this.models = Object.entries(provider.models || {}).map(([modelId, value]) => ({
         id: modelId,
         ...modelDetails(modelId, value)
       }));
+      return this.models;
     }
     const models = await hooks.provider.models(structuredClone(provider), { auth });
-    return Object.entries(models || {}).map(([modelId, value]) => ({
+    this.models = Object.entries(models || {}).map(([modelId, value]) => ({
       id: modelId,
       ...modelDetails(modelId, value)
     }));
+    return this.models;
   }
 
   /**

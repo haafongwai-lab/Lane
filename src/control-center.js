@@ -10,6 +10,7 @@ import {
 } from "./agents/claude-desktop.js";
 import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
+import { summary as usageSummary, RANGES } from "./usage.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -34,6 +35,39 @@ export function createControlCenter({
     }
     return provider;
   };
+
+  // WorkBuddy's usage hook is two billing calls, and both the window's status
+  // poll and the usage view ask for it. Answer from a short-lived cache so a
+  // foreground window costs one upstream read a minute instead of one every
+  // 3 seconds, and a failing read is not retried on every poll either.
+  //
+  // The cache is keyed by account: switching the route must show the new
+  // account's credits at once, not the previous account's until it expires.
+  const USAGE_TTL_MS = 60_000;
+  const USAGE_ERROR_TTL_MS = 15_000;
+  const usageCache = new Map();
+  const cachedUsage = async (instance) => {
+    const id = await instance.activeId().catch(() => "");
+    const now = Date.now();
+    const hit = usageCache.get(id);
+    if (hit && now - hit.at < hit.ttl) return hit.value;
+    let value;
+    try {
+      value = await instance.usage();
+    } catch (error) {
+      value = { error: error?.message || "usage is unknown" };
+    }
+    const failed = Boolean(value?.error);
+    usageCache.set(id, {
+      at: now,
+      ttl: failed ? USAGE_ERROR_TTL_MS : USAGE_TTL_MS,
+      value
+    });
+    return value;
+  };
+  // Switching, switching off or removing the route invalidates every entry:
+  // the figure that matters is always the current account's.
+  const forgetUsage = () => usageCache.clear();
 
   // Only the process that owns the gateway runs the daily check-in; a
   // second Lane window attaches to it instead of claiming twice.
@@ -66,7 +100,7 @@ export function createControlCenter({
       let usage = null;
       if (signedIn) {
         try {
-          usage = await instance.usage();
+          usage = await cachedUsage(instance);
         } catch {
           usage = { error: "usage is unknown" };
         }
@@ -109,7 +143,7 @@ export function createControlCenter({
         autostart,
         signInPending: Boolean(signInPending),
         signInError,
-        recent: journal.list()
+        recent: journal.recent()
       };
     },
 
@@ -150,17 +184,23 @@ export function createControlCenter({
 
     async activate(id) {
       const instance = await getProvider();
-      return instance.activate(id);
+      const account = await instance.activate(id);
+      forgetUsage();
+      return account;
     },
 
     async setEnabled(id, enabled) {
       const instance = await getProvider();
-      return instance.setEnabled(id, enabled);
+      const account = await instance.setEnabled(id, enabled);
+      forgetUsage();
+      return account;
     },
 
     async removeAccount(id) {
       const instance = await getProvider();
-      return instance.forget(id);
+      const result = await instance.forget(id);
+      forgetUsage();
+      return result;
     },
 
     // Kept for the old single-account UI: it removes whichever account the
@@ -223,6 +263,30 @@ export function createControlCenter({
 
     activity() {
       return journal.list();
+    },
+
+    /**
+     * Token and credit totals for the usage view. The cost per request comes
+     * from the model's credit multiple; the account's own credits, as
+     * WorkBuddy reports them, are a separate figure and are not mixed in.
+     */
+    async usage(range = "today") {
+      const instance = await getProvider();
+      // The catalogue is needed to cost rows written before the journal kept
+      // a multiple; the provider caches what its last listModels settled on,
+      // so this does not ask WorkBuddy again.
+      const models = instance.cachedModels();
+      const rates = new Map((models || []).map((model) => [model.id, model.rate]));
+      const report = usageSummary(journal.list(), {
+        range: RANGES.some((item) => item.key === range) ? range : "today",
+        rateFor: (id) => (rates.has(id) ? rates.get(id) : null)
+      });
+      report.ranges = RANGES.map(({ key, label, days }) => ({ key, label, days }));
+      report.at = Date.now();
+      // The account's own credits ride along as `quota`, so the page never
+      // has to merge two payloads to draw one card.
+      report.quota = await cachedUsage(instance).catch(() => null);
+      return report;
     },
 
     stop() {

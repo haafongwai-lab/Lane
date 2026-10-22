@@ -90,7 +90,13 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         }
         const requested = body.model;
         body.model = await mappedModel(provider, requested, "openai");
-        await proxyChat(res, provider, body, { control, agent: "openai", requested, endpoint: url.pathname });
+        await proxyChat(res, provider, body, {
+          control,
+          agent: "openai",
+          requested,
+          endpoint: url.pathname,
+          rate: await modelRate(provider, body.model)
+        });
         return;
       }
 
@@ -113,7 +119,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           agent: "codex",
           endpoint: url.pathname,
           requestedModel: requested,
-          model: body.model
+          model: body.model,
+          rate: await modelRate(provider, body.model)
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -150,7 +157,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           agent: "claude-desktop",
           endpoint: url.pathname,
           requestedModel: requested,
-          model: body.model
+          model: body.model,
+          rate: await modelRate(provider, body.model)
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -187,6 +195,18 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
 async function mappedModel(provider, requested, agent) {
   const models = withAliases(await provider.listModels(), agent);
   return resolveModel(requested, models, agent);
+}
+
+// The credit multiple WorkBuddy charges for this model, kept on the request
+// so its cost survives a later catalogue change. Undefined when the provider
+// cannot say, which leaves the request uncosted rather than costed at zero.
+async function modelRate(provider, id) {
+  try {
+    const models = await provider.listModels();
+    return models.find((model) => model.id === id)?.rate;
+  } catch {
+    return undefined;
+  }
 }
 
 // Claude Desktop asks how hard to think in output_config.effort; fit the
@@ -232,7 +252,8 @@ async function proxyChat(res, provider, body, options = {}) {
     agent: options.agent || "openai",
     endpoint: options.endpoint || "/v1/chat/completions",
     requestedModel: options.requested || body.model,
-    model: body.model
+    model: body.model,
+    rate: options.rate
   });
   try {
     const upstream = await provider.chat(body);
@@ -259,6 +280,11 @@ async function controlRoute(req, res, url, control) {
     }
     if (req.method === "GET" && url.pathname === "/lane/activity") {
       json(res, 200, { data: control.activity() });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/lane/usage") {
+      const range = url.searchParams.get("range") || "today";
+      json(res, 200, await control.usage(range));
       return;
     }
     if (req.method === "GET" && url.pathname === "/lane/accounts") {

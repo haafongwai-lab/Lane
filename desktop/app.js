@@ -89,6 +89,9 @@ function toast(message, error = false) {
 
 function go(view) {
   activeView = view;
+  // Entering the page always re-reads it: the status poll is paused while
+  // it is open, so the figures would otherwise be as old as the last visit.
+  if (view === "activity") loadUsage();
   $$(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
@@ -123,8 +126,9 @@ function render() {
   $("#route-live-dot").className = "dot ok";
   $("#route-live").textContent = running.length ? "处理中" : "实时";
   $("#route-count").textContent = `${recent.length} 个请求`;
-  // The route's model tag only shows while a request is actually running.
-  $("#route-model-label").textContent = running.length ? `· ${running[0].model}` : "";
+  // The rail only animates while a request is on the wire, so the motion
+  // always means something is happening rather than looping for decoration.
+  $(".route-canvas").classList.toggle("busy", running.length > 0);
   renderRouteAgent(last, { codexOn, claudeOn });
   $("#lane-state").textContent = "运行中";
   $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
@@ -148,7 +152,7 @@ function render() {
   $("#autostart").checked = Boolean(snapshot.autostart);
 
   renderModels(models || []);
-  renderActivity();
+  renderUsageRecent();
   renderAccounts();
   renderCheckin();
 }
@@ -296,22 +300,214 @@ function renderModels(models) {
     </div>`).join("");
 }
 
-function renderActivity() {
-  if (!snapshot) return;
-  const rows = snapshot.recent || [];
-  if (!rows.length) {
-    $("#activity-list").innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
+// ---- usage ----------------------------------------------------------------
+
+// The overview is computed in main over the whole journal, while this page's
+// request list comes from the status snapshot. Both are refreshed together.
+let usage = null;
+let usageRange = "today";
+let usageLoading = false;
+let usageQueued = false;
+
+// A range switch while a read is in flight must not be dropped: without
+// queueing, the page would keep showing the old range while the control says
+// the new one. One trailing reload is enough, whatever was clicked meanwhile.
+async function loadUsage() {
+  if (usageLoading) {
+    usageQueued = true;
     return;
   }
-  $("#activity-list").innerHTML = rows.map((item) => `
-    <div class="activity-row">
-      <span class="muted">${new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false })}</span>
-      <span class="agent-pill">${esc(item.agent)}</span>
-      <span>${esc(item.model)}</span>
-      <span class="${item.status === "error" ? "status-err" : "status-ok"}">${item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成"}</span>
-      <span>${duration(item.durationMs)}</span>
-      <span>${compact(item.totalTokens)}</span>
-    </div>`).join("");
+  usageLoading = true;
+  try {
+    usage = await window.lane.usage(usageRange);
+    renderUsage();
+  } catch (error) {
+    $("#usage-chart").innerHTML = `<div class="empty">${esc(error.message || "读取用量失败")}</div>`;
+  } finally {
+    usageLoading = false;
+    if (usageQueued) {
+      usageQueued = false;
+      loadUsage();
+    }
+  }
+}
+
+const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude Desktop", openai: "OpenAI 兼容" };
+
+function agentLabel(agent) {
+  return AGENT_LABELS[agent] || agent || "未知来源";
+}
+
+// Credits carry a lot of leading zeros at flash-model prices; show enough of
+// them to be meaningful, and never claim more precision than was recorded.
+function credits(value, digits = 4) {
+  const number = Number(value) || 0;
+  if (number === 0) return "0";
+  if (number >= 1000) return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(number);
+  if (number >= 1) return number.toFixed(2).replace(/\.?0+$/, "");
+  return number.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function percent(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function renderUsage() {
+  if (!usage) return;
+  const { totals, series, models, quota } = usage;
+
+  // One line of headline figures replaces the four metric cards: the totals
+  // still read at a glance, and the chart below carries the detail.
+  $("#usage-summary").innerHTML = [
+    `<b>${credits(totals.credits)}</b> 积分`,
+    `<b>${compact(totals.totalTokens)}</b> Token`,
+    `<b>${compact(totals.inputTokens)}</b> 输入 / <b>${compact(totals.outputTokens)}</b> 输出`,
+    `<b>${totals.requests}</b> 次请求`
+  ].join(" · ");
+
+  // The range control comes back with the report, so a stale tab can't
+  // leave the page showing one range and offering another.
+  for (const button of $$("#usage-range button")) {
+    button.classList.toggle("active", button.dataset.range === usage.range);
+    button.setAttribute("aria-selected", String(button.dataset.range === usage.range));
+  }
+
+  // The page's age is part of the figure: credits are read from a cache, so
+  // say when they were last read rather than implying they are live.
+  const stamp = usage.at ? new Date(usage.at).toLocaleTimeString("zh-CN", { hour12: false }) : "";
+  $("#usage-updated").textContent = stamp ? `更新于 ${stamp}` : "";
+
+  renderUsageChart(series);
+  renderUsageQuota(quota);
+  renderUsageModels(models, totals);
+  renderUsageRecent();
+}
+
+// Bars are paired per day: credits and tokens share the column but not the
+// scale, since one credit is a multiple of a million tokens. A range where
+// nothing ran at all says so instead of drawing a flat empty chart.
+function renderUsageChart(series) {
+  const node = $("#usage-chart");
+  const active = series.filter((item) => (item.requests || 0) > 0);
+  if (!active.length) {
+    node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
+    return;
+  }
+  const creditMax = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
+  const tokenMax = Math.max(...series.map((item) => Number(item.totalTokens) || 0), 0);
+  const showTokens = series.length > 1;
+  const peak = series.reduce((best, item) => ((Number(item.credits) || 0) > (Number(best.credits) || 0) ? item : best), series[0]);
+  node.innerHTML = `
+    <div class="usage-bars${showTokens ? "" : " single"}">
+      ${series.map((item) => {
+        const creditHeight = creditMax ? (Number(item.credits) || 0) / creditMax * 100 : 0;
+        const tokenHeight = tokenMax ? (Number(item.totalTokens) || 0) / tokenMax * 100 : 0;
+        const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+        const detail = [
+          `${item.date}`,
+          `积分 ${credits(item.credits)}`,
+          `Token ${compact(item.totalTokens)}`,
+          `请求 ${item.requests} 次`
+        ].join(" · ");
+        const empty = !(item.requests || 0);
+        // An empty day keeps a 1px stub (the class supplies its colour);
+        // a busy day always shows at least 1.5% so it is never invisible.
+        const height = (value) => (empty ? 0.6 : Math.max(value, 1.5)).toFixed(1);
+        return `<div class="usage-bar${empty ? " quiet" : ""}" title="${esc(detail)}">
+          <div class="usage-bar-track">
+            <i class="credits" style="height:${height(creditHeight)}%"></i>
+            ${showTokens ? `<i class="tokens" style="height:${height(tokenHeight)}%"></i>` : ""}
+          </div>
+          <span>${esc(label)}</span>
+        </div>`;
+      }).join("")}
+    </div>
+    <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)} · 请求 ${peak.requests} 次</p>`;
+}
+
+// WorkBuddy's own meter: the cycle's credits against what the plan grants.
+function renderUsageQuota(quota) {
+  const node = $("#usage-quota");
+  const plan = $("#usage-plan");
+  if (!quota || quota.error) {
+    plan.textContent = "—";
+    node.innerHTML = `<div class="empty">${esc(quota?.error && quota.error !== "not signed in" ? quota.error : "登录后显示账户额度。")}</div>`;
+    return;
+  }
+  plan.textContent = quota.plan || "账户";
+  const view = (quota.windows || []).find((item) => item.name === "Credits") || (quota.windows || [])[0];
+  if (!view) {
+    node.innerHTML = '<div class="empty">该账户没有可读的积分额度。</div>';
+    return;
+  }
+  const used = Number(view.amount) || 0;
+  const limit = Number(view.limit) || 0;
+  const share = Number.isFinite(Number(view.used))
+    ? Math.max(0, Math.min(100, Number(view.used)))
+    : limit ? (used / limit) * 100 : 0;
+  const left = Math.max(0, limit - used);
+  // The reset date lives on the credits window for an enterprise account;
+  // a personal account's summary does not carry one at all.
+  const resetAt = view.resetsAt || quota.resetsAt;
+  const reset = resetAt
+    ? new Date(resetAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+    : "";
+  node.innerHTML = `
+    <div class="quota-amount"><b>${creditNumber(left)}</b><span>剩余积分 / 共 ${creditNumber(limit)}</span></div>
+    <div class="quota-meter"><i style="width:${share.toFixed(1)}%"></i></div>
+    <div class="quota-foot">
+      <span>已用 ${percent(share / 100)}</span>
+      ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
+    </div>`;
+}
+
+function renderUsageModels(models, totals) {
+  const node = $("#usage-models");
+  if (!models.length) {
+    node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
+    return;
+  }
+  node.innerHTML = `
+    <div class="usage-table-head"><span>模型</span><span>请求</span><span>输入 / 输出</span><span>积分</span><span>占比</span></div>
+    ${models.map((row) => `
+      <div class="usage-table-row">
+        <div class="usage-model"><b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
+        <span>${row.requests}</span>
+        <span class="usage-io">${compact(row.inputTokens)} <i>/</i> ${compact(row.outputTokens)}</span>
+        <span class="usage-cost">${credits(row.credits)}</span>
+        <div class="usage-share"><div class="share-track"><i style="width:${(row.share * 100).toFixed(1)}%"></i></div><span>${percent(row.share)}</span></div>
+      </div>`).join("")}
+    <div class="usage-table-foot">
+      <span>合计</span><span>${totals.requests}</span>
+      <span>${compact(totals.inputTokens)} / ${compact(totals.outputTokens)}</span>
+      <span>${credits(totals.credits)}</span><span></span>
+    </div>`;
+}
+
+function renderUsageRecent() {
+  // Never truncate the snapshot in place: the route card and the activity
+  // page read the same array, and a shorter list would silently shrink them.
+  const all = snapshot?.recent || [];
+  const rows = all.slice(0, 12);
+  $("#usage-recent-count").textContent = rows.length ? `最近 ${rows.length} 条` : "0 条";
+  const node = $("#usage-recent");
+  if (!rows.length) {
+    node.innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
+    return;
+  }
+  node.innerHTML = rows.map((item) => {
+    const when = new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const cache = item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
+    const state = item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成";
+    return `<div class="recent-row">
+      <span class="recent-time">${esc(when)}</span>
+      <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
+      <span class="recent-model">${esc(item.model)}</span>
+      <span class="recent-state ${item.status === "error" ? "err" : item.status === "running" ? "live" : "ok"}">${state}</span>
+      <span class="recent-tokens">${compact(item.totalTokens)}<i>${cache ? ` · 缓存 ${percent(cache)}` : ""}</i></span>
+      <span class="recent-cost">${credits(item.credits ?? 0)}</span>
+    </div>`;
+  }).join("");
 }
 
 async function command(command, options = {}, success = "操作完成") {
@@ -337,7 +533,17 @@ async function signIn() {
 $$(".nav").forEach((button) => button.addEventListener("click", () => go(button.dataset.view)));
 $("#refresh-agents").addEventListener("click", () => refresh());
 $("#refresh-models").addEventListener("click", () => refresh());
-$("#refresh-activity").addEventListener("click", () => refresh());
+$("#refresh-activity").addEventListener("click", async () => {
+  await refresh();
+  await loadUsage();
+});
+$("#usage-range").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-range]");
+  if (!button || button.dataset.range === usageRange) return;
+  usageRange = button.dataset.range;
+  for (const item of $$("#usage-range button")) item.classList.toggle("active", item === button);
+  loadUsage();
+});
 $("#codex-connect").addEventListener("click", () => command("connect", { agent: "codex" }, "Codex 已接入，请新建会话"));
 $("#codex-disconnect").addEventListener("click", () => command("disconnect", { agent: "codex" }, "Codex 已断开"));
 $("#claude-connect").addEventListener("click", () => command("connect", { agent: "claude-desktop" }, "Claude Desktop 已接入，请重启客户端"));
@@ -447,4 +653,9 @@ window.lane.onSignIn(async ({ result, error }) => {
 });
 
 refresh();
-setInterval(() => refresh({ quiet: true }), 3000);
+setInterval(() => {
+  // The usage page already has its own numbers and a range control; polling
+  // status behind it would only redraw the request list under the user.
+  if (activeView === "activity") return;
+  refresh({ quiet: true });
+}, 3000);

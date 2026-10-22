@@ -10,9 +10,6 @@
 <body>
   <div class="app">
     <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="brand-copy"><b>Lane</b><span>轻量本地网关</span></div>
-      </div>
 
       <nav>
         <p>工作台</p>
@@ -49,17 +46,23 @@
           <div class="card-top">
             <div class="route-title">
               <span class="overline">当前路由</span>
-              <h2><em id="route-model-label"></em></h2>
             </div>
             <div class="route-meta"><span class="dot" id="route-live-dot"></span><span id="route-live">实时</span><span class="divider"></span><span id="route-count">0 个请求</span></div>
           </div>
 
           <div class="route-canvas">
             <div class="canvas-grid"></div>
-            <div class="flow-line left"></div>
-            <div class="flow-line right"></div>
-            <div class="flow-pulse out"></div>
-            <div class="flow-pulse back"></div>
+            <div class="flow-rail"></div>
+            <div class="flow-stream out">
+              <i style="--delay: 0s"></i>
+              <i style="--delay: -0.8s"></i>
+              <i style="--delay: -1.6s"></i>
+            </div>
+            <div class="flow-stream back">
+              <i style="--delay: -0.4s"></i>
+              <i style="--delay: -1.2s"></i>
+              <i style="--delay: -2s"></i>
+            </div>
             <div class="route-node client-node" id="client-node">
               <span class="node-label">AGENT</span>
               <div class="agent-logos">
@@ -195,13 +198,52 @@
 
       <section class="view" id="view-activity">
         <div class="heading-row">
-          <div><div class="eyebrow">请求记录</div><h1>最近的请求</h1><p class="sub">记录只保存在本机，不包含完整提示词。</p></div>
-          <button class="ghost" id="refresh-activity">↻ 刷新</button>
+          <div><div class="eyebrow">用量信息</div><h1>Token 与积分花费</h1><p class="sub">本机网关按模型倍率记账，与 WorkBuddy 账户额度分列；数据只保存在本机。</p></div>
+          <div class="heading-actions">
+            <span class="usage-updated" id="usage-updated"></span>
+            <div class="segmented" id="usage-range" role="tablist">
+              <button class="active" data-range="today" role="tab">今天</button>
+              <button data-range="7d" role="tab">近 7 天</button>
+              <button data-range="30d" role="tab">近 30 天</button>
+            </div>
+            <button class="ghost" id="refresh-activity">↻ 刷新</button>
+          </div>
         </div>
-        <article class="panel activity-panel">
-          <div class="activity-head"><span>时间</span><span>来源</span><span>模型</span><span>状态</span><span>耗时</span><span>Token</span></div>
-          <div id="activity-list"><div class="empty">还没有请求。先用 Codex 发起一轮对话。</div></div>
-        </article>
+
+        <div class="usage-grid">
+          <article class="panel usage-chart-panel">
+            <div class="panel-head">
+              <div>
+                <span class="overline">趋势</span>
+                <h3>每日消耗</h3>
+                <p class="usage-summary" id="usage-summary"></p>
+              </div>
+              <div class="usage-legend">
+                <span><i class="swatch credits"></i>积分</span>
+                <span><i class="swatch tokens"></i>Token</span>
+              </div>
+            </div>
+            <div class="usage-chart" id="usage-chart"><div class="empty">正在读取用量…</div></div>
+          </article>
+
+          <article class="panel usage-quota-panel">
+            <div class="panel-head"><div><span class="overline">账户额度</span><h3>WorkBuddy 周期积分</h3></div><span class="soft-label" id="usage-plan">—</span></div>
+            <p class="setting-copy">WorkBuddy 按周期统计整个账户的积分，无法拆分到单次请求，因此与左侧的本机记账分开显示。</p>
+            <div class="usage-quota" id="usage-quota"><div class="empty">登录后显示账户额度。</div></div>
+          </article>
+        </div>
+
+        <div class="usage-grid">
+          <article class="panel usage-table-panel">
+            <div class="panel-head"><div><span class="overline">按模型</span><h3>模型消耗构成</h3></div></div>
+            <div class="usage-table" id="usage-models"><div class="empty">所选区间内还没有请求。</div></div>
+          </article>
+
+          <article class="panel usage-table-panel">
+            <div class="panel-head"><div><span class="overline">请求明细</span><h3>最近的请求</h3></div><span class="soft-label" id="usage-recent-count">0 条</span></div>
+            <div class="usage-recent" id="usage-recent"><div class="empty">还没有请求。先用 Codex 发起一轮对话。</div></div>
+          </article>
+        </div>
       </section>
 
       <section class="view" id="view-settings">
@@ -210,8 +252,8 @@
         </div>
         <div class="settings-grid">
           <article class="panel">
-            <div class="panel-head"><div><span class="overline">启动</span><h3>登录时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
-            <p class="setting-copy">Windows 登录后自动启动 Lane。关闭窗口后仍驻留系统托盘，托盘菜单的「退出」才会真正停止网关。</p>
+            <div class="panel-head"><div><span class="overline">启动</span><h3>开机时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
+            <p class="setting-copy">Windows 启动后自动运行 Lane，不弹出窗口，只驻留系统托盘。托盘菜单的「退出」才会真正停止网关。</p>
             <div class="setting-row"><span>网关</span><code id="gateway-address">127.0.0.1:3426</code></div>
             <div class="setting-row"><span>常驻方式</span><code>系统托盘 · 无窗口</code></div>
           </article>

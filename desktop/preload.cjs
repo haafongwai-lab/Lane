@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("lane", {
   signIn: () => ipcRenderer.invoke("lane:signin"),
   account: (action, id, options = {}) => ipcRenderer.invoke("lane:account", { action, id, ...options }),
   checkin: (id) => ipcRenderer.invoke("lane:checkin", { id }),
+  usage: (range) => ipcRenderer.invoke("lane:usage", { range }),
   checkinSettings: (patch) => ipcRenderer.invoke("lane:checkin-settings", patch),
   test: () => ipcRenderer.invoke("lane:test"),
   open: (target) => ipcRenderer.invoke("lane:open", target),

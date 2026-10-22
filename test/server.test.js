@@ -366,6 +366,33 @@ test("account routes switch, switch off, remove and check in", async () => {
   }
 });
 
+test("the usage route answers the overview and passes the range through", async () => {
+  const calls = [];
+  const control = {
+    usage: async (range) => {
+      calls.push(range);
+      return { range, totals: { requests: 2, credits: 0.07 }, series: [] };
+    }
+  };
+  const server = createServer({ control });
+  const base = await listen(server);
+  try {
+    const today = await fetch(`${base}/lane/usage`);
+    assert.equal(today.status, 200);
+    assert.deepEqual(await today.json(), {
+      range: "today",
+      totals: { requests: 2, credits: 0.07 },
+      series: []
+    });
+
+    const week = await fetch(`${base}/lane/usage?range=7d`);
+    assert.equal((await week.json()).range, "7d");
+    assert.deepEqual(calls, ["today", "7d"]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("switching an account needs an explicit boolean", async () => {
   const control = {
     setEnabled: async () => {

@@ -52,17 +52,6 @@ h1, h2, h3, p { margin: 0; }
   border-right: 1px solid rgba(196, 196, 189, .5);
   backdrop-filter: blur(18px);
 }
-.brand { display: flex; align-items: flex-start; justify-content: center; padding: 0 9px 35px; text-align: center; }
-.brand-copy { width: 100%; }
-.brand-copy b { display: block; font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Microsoft YaHei UI", serif; }
-.brand-copy b {
-  margin: 0 auto;
-  font-size: 40px;
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: -2.2px;
-}
-/* One wordmark style for the brand, the route node and the connection list. */
 .wordmark {
   color: #20231f;
   font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Microsoft YaHei UI", serif;
@@ -72,15 +61,6 @@ h1, h2, h3, p { margin: 0; }
   line-height: 1;
   letter-spacing: -1.8px;
 }
-.brand-copy b {
-  margin: 0 auto;
-  font-size: 29px;
-  font-style: italic;
-  font-weight: 500;
-  letter-spacing: -1.8px;
-}
-.brand-copy span { display: none; }
-
 nav { flex: 1; }
 nav p {
   margin: 19px 12px 8px;
@@ -192,14 +172,14 @@ h1 {
 }
 .route-card { overflow: hidden; }
 .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 23px 25px 0; }
-.route-title h2 { margin-top: 5px; font: 600 18px/1.4 var(--font-display); letter-spacing: -.35px; }
-.route-title h2 em { color: var(--muted); font-size: 12px; font-style: normal; font-weight: 450; letter-spacing: 0; }
 .route-meta { display: flex; align-items: center; gap: 8px; padding-top: 7px; color: var(--muted); font-size: 10px; }
 .route-meta .divider { width: 1px; height: 11px; margin: 0 4px; background: var(--line); }
 
 .route-canvas {
   --canvas-pad-top: 38px;
   --canvas-pad-bottom: 93px;
+  /* Vertical center of the three nodes; the rail and its dots share it. */
+  --flow-y: calc(var(--canvas-pad-top) + (100% - var(--canvas-pad-top) - var(--canvas-pad-bottom)) / 2);
   position: relative;
   display: grid;
   grid-template-columns: .9fr 1.08fr 1.28fr;
@@ -216,48 +196,81 @@ h1 {
   background-image: radial-gradient(circle at center, rgba(145,147,139,.26) .7px, transparent .8px);
   background-size: 24px 24px;
 }
-.flow-line {
+/* One visible line between the agent and the provider, passing behind the
+   gateway node so the two directions share it instead of stacking. */
+.flow-rail {
   position: absolute;
-  top: calc(var(--canvas-pad-top) + (100% - var(--canvas-pad-top) - var(--canvas-pad-bottom)) / 2);
+  top: var(--flow-y);
+  right: 24%;
+  left: 24%;
   z-index: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, #c8c9c1 12%, #a3ac9f 88%, transparent);
+  background: linear-gradient(90deg, transparent, #c8c9c1 9%, #a3ac9f 91%, transparent);
 }
-.flow-line.left { left: 22%; right: 57%; }
-.flow-line.right { left: 56%; right: 25%; }
-.flow-pulse {
+/* Both streams share the rail: requests run agent → provider, answers run
+   provider → agent. The track spans the rail so a dot's `left` percentage is
+   measured against the rail, not against the dot itself. Dots sit with the
+   rail's z-index, so they pass behind the gateway node as they cross it. */
+.flow-stream {
+  --travel: 2.4s;
   position: absolute;
-  z-index: 3;
-  top: calc(var(--canvas-pad-top) + (100% - var(--canvas-pad-top) - var(--canvas-pad-bottom)) / 2 - 3px);
+  top: calc(var(--flow-y) - 3px);
+  right: 24%;
+  left: 24%;
+  z-index: 1;
+  height: 6px;
+  /* Hidden while idle: a paused animation would leave dots frozen
+     mid-rail, which reads as a stuck request. */
+  display: none;
+}
+.route-canvas.busy .flow-stream { display: block; }
+.flow-stream i {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 6px;
   height: 6px;
+  margin-left: -3px;
   border-radius: 50%;
+  opacity: 0;
+  animation-duration: var(--travel);
+  animation-iteration-count: infinite;
+  animation-delay: var(--delay, 0s);
+  animation-play-state: paused;
+}
+.flow-stream.out i { animation-name: lane-flow-out; animation-timing-function: ease-in; }
+.flow-stream.back i { animation-name: lane-flow-back; animation-timing-function: ease-out; }
+/* The request: fades in leaving the agent, brightest as it reaches Lane. */
+.flow-stream.out i {
   background: var(--green);
-  box-shadow: 0 0 0 5px rgba(35,118,77,.1);
+  box-shadow: 0 0 0 4px rgba(35,118,77,.1);
 }
-/* The request leaves the agent and crosses the gateway to the provider. */
-.flow-pulse.out {
-  left: 22%;
-  animation: travel-out 7s linear infinite;
-}
-/* The answer comes back the other way. */
-.flow-pulse.back {
-  left: 75%;
+/* The answer: bright at Lane, fading as it lands back on the agent. */
+.flow-stream.back i {
   background: #3f7fb8;
-  box-shadow: 0 0 0 5px rgba(63,127,184,.12);
-  animation: travel-back 7s linear infinite;
+  box-shadow: 0 0 0 4px rgba(63,127,184,.12);
 }
-@keyframes travel-out {
-  0% { left: 22%; opacity: 0; }
-  6% { opacity: 1; }
-  44% { left: 75%; opacity: 1; }
-  50%, 100% { left: 75%; opacity: 0; }
+/* A dot is visible for the middle 56% of its cycle and parked off the track
+   for the rest, so the staggered delays (which drop later dots mid-rail)
+   never leave one sitting at a fixed spot. */
+@keyframes lane-flow-out {
+  0% { left: 0%; opacity: 0; transform: scale(.55); }
+  10% { opacity: 1; transform: scale(1); }
+  62% { opacity: 1; transform: scale(1); }
+  66%, 100% { left: 100%; opacity: 0; transform: scale(.55); }
 }
-@keyframes travel-back {
-  0%, 50% { left: 75%; opacity: 0; }
-  56% { opacity: 1; }
-  94% { left: 22%; opacity: 1; }
-  100% { left: 22%; opacity: 0; }
+@keyframes lane-flow-back {
+  0% { left: 100%; opacity: 0; transform: scale(.55); }
+  10% { opacity: 1; transform: scale(1); }
+  62% { opacity: 1; transform: scale(1); }
+  66%, 100% { left: 0%; opacity: 0; transform: scale(.55); }
+}
+/* A running request lights the rail: requests in, answers out. */
+.route-canvas.busy .flow-rail { background: linear-gradient(90deg, #c8c9c1, #79a98b 30%, #5f93bd 70%, #c8c9c1); }
+.route-canvas.busy .flow-stream i { animation-play-state: running; }
+/* Motion is decorative; without it the rail and nodes still read. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-stream, .route-canvas.busy .flow-stream { display: none; }
 }
 
 .route-node {
@@ -405,8 +418,8 @@ h1 {
 .agent-note { min-height: 34px; margin-top: 18px; color: #858780; font-size: 10px; line-height: 1.65; }
 .card-actions { margin-top: 18px; }
 .card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 10px; box-shadow: none; }
-.models-panel, .activity-panel { overflow: hidden; padding: 0; }
-.model-head, .activity-head {
+.models-panel { overflow: hidden; padding: 0; }
+.model-head {
   display: grid;
   grid-template-columns: 2.1fr .9fr .85fr .9fr .72fr;
   gap: 12px;
@@ -434,20 +447,6 @@ h1 {
 .model-row code { color: #858780; }
 .model-row .soft-label { justify-self: start; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 11px; text-align: center; }
-.activity-head, .activity-row { grid-template-columns: 1.1fr 1fr 1.35fr .8fr .8fr .8fr; }
-.activity-row {
-  display: grid;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 22px;
-  border-bottom: 1px solid var(--line-soft);
-  font-size: 10px;
-}
-.activity-row:last-child { border-bottom: 0; }
-.activity-row .agent-pill { color: #5a7764; }
-.activity-row .status-ok { color: var(--green); }
-.activity-row .status-err { color: var(--red); }
-.activity-row .muted { color: var(--faint); }
 
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .setting-copy { margin: 15px 0 16px; color: #858780; font-size: 11px; line-height: 1.65; }
@@ -471,6 +470,226 @@ h1 {
   font-weight: 650;
 }
 .account-avatar img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+/* ---- usage: tokens and credits ------------------------------------------ */
+
+/* A quiet range switch, sized like the ghost buttons beside it. */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.55);
+}
+.segmented button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  line-height: 1.4;
+  transition: color .15s ease, background .15s ease;
+}
+.segmented button:hover { color: var(--ink); }
+.segmented button.active {
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgba(25,27,25,.07);
+  font-weight: 650;
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+.usage-chart-panel, .usage-quota-panel, .usage-table-panel { min-width: 0; }
+/* The headline figures that used to be four separate cards, kept as one
+   quiet line under the chart's title. */
+.usage-summary {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-summary b { color: var(--ink); font-weight: 650; }
+.usage-legend { display: flex; align-items: center; gap: 14px; color: var(--faint); font-size: 9.5px; }
+.usage-legend span { display: flex; align-items: center; gap: 5px; }
+.swatch { width: 7px; height: 7px; display: inline-block; border-radius: 2px; }
+.swatch.credits { background: #5c8a6d; }
+.swatch.tokens { background: #c9d3ca; }
+
+/* Paired bars: credits dark, tokens a pale companion on the same baseline. */
+.usage-chart { padding: 6px 2px 0; }
+.usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 186px;
+  padding-top: 8px;
+}
+.usage-bars.single { gap: 0; }
+.usage-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 9px;
+}
+.usage-bar-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 100%;
+  padding: 0 6%;
+  border-bottom: 1px solid var(--line-soft);
+}
+.usage-bar-track i {
+  width: 46%;
+  max-width: 16px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  transition: height .3s ease;
+}
+/* A range with a single day (or one busy day and six quiet ones) must not
+   stretch its bars across the whole panel. */
+.usage-bars.single .usage-bar { flex: 0 0 72px; }
+.usage-bars.single { justify-content: center; }
+.usage-bars.single .usage-bar-track { padding: 0 22%; }
+/* A day with no traffic keeps a faint stub so the axis reads as a whole. */
+.usage-bar.quiet .usage-bar-track i { background: #eceded; }
+.usage-chart-note {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--faint);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-bar-track i.credits { background: linear-gradient(180deg, #6d9a7e, #5c8a6d); }
+.usage-bar-track i.tokens { background: #dfe6e0; }
+.usage-bar span {
+  display: block;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 9px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The account's own credits, kept visually apart from Lane's accounting. */
+.usage-quota { margin-top: 16px; }
+.quota-amount { display: flex; align-items: baseline; gap: 8px; }
+.quota-amount b { font: 600 24px/1 var(--font-display); letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
+.quota-amount span { color: var(--faint); font-size: 9.5px; }
+.quota-meter {
+  height: 5px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #eceded;
+}
+.quota-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #6d9a7e, #4f7d60);
+  transition: width .3s ease;
+}
+.quota-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  color: var(--faint);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table { margin-top: 12px; }
+.usage-table-head, .usage-table-row, .usage-table-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) .55fr 1.1fr .8fr 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 10.5px;
+}
+.usage-table-head {
+  padding-top: 0;
+  border-bottom-color: var(--line);
+  color: var(--faint);
+  font-size: 9px;
+  letter-spacing: .55px;
+  text-transform: uppercase;
+}
+.usage-table-row:last-of-type { border-bottom: 0; }
+.usage-model { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.usage-model b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.usage-model code { flex: 0 0 auto; color: var(--faint); font-size: 9px; }
+.usage-io { color: var(--muted); font-variant-numeric: tabular-nums; }
+.usage-io i { color: var(--faint); font-style: normal; }
+.usage-cost { font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage-share { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.share-track {
+  flex: 1 1 auto;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #eceded;
+}
+.share-track i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #7d9a86;
+}
+.usage-share span { flex: 0 0 auto; color: var(--faint); font-size: 9px; font-variant-numeric: tabular-nums; }
+.usage-table-foot {
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.usage-recent { margin-top: 12px; }
+.recent-row {
+  display: grid;
+  grid-template-columns: 1.05fr .85fr 1.15fr .55fr 1.05fr .55fr;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 10px;
+}
+.recent-row:last-child { border-bottom: 0; }
+.recent-time { color: var(--faint); font-variant-numeric: tabular-nums; }
+.recent-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-pill { color: #5a7764; font-size: 9.5px; }
+.recent-state { font-size: 9.5px; }
+.recent-state.ok { color: var(--green); }
+.recent-state.live { color: #3f7fb8; }
+.recent-state.err { color: var(--red); }
+.recent-tokens { color: var(--muted); font-variant-numeric: tabular-nums; }
+.recent-tokens i { color: var(--faint); font-style: normal; font-size: 9px; }
+.recent-cost { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Four cards only where there is room for four comfortable columns; the
+   window's default width and below pair them up, and the tables stack first. */
+@media (max-width: 1279px) {
+  .usage-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 930px) {
+  .recent-row { grid-template-columns: 1fr .8fr 1.2fr .8fr; }
+  .recent-tokens, .recent-cost { display: none; }
+}
 
 .about-panel { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .about-panel h3 { margin-top: 5px; }
@@ -506,13 +725,11 @@ h1 {
   main { width: calc(100% - 196px); margin-left: 196px; }
   .view { padding-right: 29px; padding-left: 29px; }
   .route-canvas { grid-template-columns: .92fr 1.02fr 1.24fr; gap: 22px; padding-right: 36px; padding-left: 34px; }
-  .flow-line.left { left: 23%; right: 56%; }
-  .flow-line.right { left: 55%; right: 26%; }
+  .flow-rail, .flow-stream { right: 26%; left: 23%; }
 }
 @media (max-width: 930px) {
   .sidebar { width: 66px; padding-right: 9px; padding-left: 9px; }
-  .brand { padding-right: 0; padding-left: 7px; }
-  .brand-copy, .nav span, nav p, .side-status { display: none; }
+  .nav span, nav p, .side-status { display: none; }
   .nav { justify-content: center; padding: 11px 0; }
   .nav i { font-size: 18px; }
   main { width: calc(100% - 66px); margin-left: 66px; }
@@ -527,12 +744,10 @@ h1 {
     gap: 9px;
     padding: var(--canvas-pad-top) 13px var(--canvas-pad-bottom);
   }
-  .flow-line.left { left: 22%; right: 55%; }
-  .flow-line.right { left: 55%; right: 24%; }
+  .flow-rail, .flow-stream { right: 24%; left: 22%; }
 }
 @media (max-height: 760px) {
   .sidebar { padding-top: 18px; }
-  .brand { padding-bottom: 20px; }
   .view { padding-top: 24px; }
   .heading-row { margin-bottom: 20px; }
   .route-canvas {

@@ -77,6 +77,13 @@ connects/disconnects both agents, lists models, and keeps recent request
 timing and token usage locally. Closing the window keeps Lane in the system
 tray; choose **Exit** in the tray to stop the gateway.
 
+The **用量信息** view breaks usage down for the last day, week or month: a
+daily chart of credits and tokens, the account's own cycle credits beside it,
+a per-model breakdown, and the most recent requests. The gateway's own
+accounting costs each request at the model's credit multiple
+(`(input + output tokens ÷ 1,000,000) × rate`) and is kept separate from
+WorkBuddy's whole-account meter, which cannot be split per request.
+
 Build the Windows installer and portable executable:
 
 ```powershell
