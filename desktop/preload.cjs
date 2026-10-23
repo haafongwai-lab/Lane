@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("lane", {
   checkin: (id) => ipcRenderer.invoke("lane:checkin", { id }),
   usage: (range) => ipcRenderer.invoke("lane:usage", { range }),
   checkinSettings: (patch) => ipcRenderer.invoke("lane:checkin-settings", patch),
+  gatewaySettings: () => ipcRenderer.invoke("lane:gateway-settings"),
+  saveGatewaySettings: (patch) => ipcRenderer.invoke("lane:save-gateway-settings", patch),
   test: () => ipcRenderer.invoke("lane:test"),
   open: (target) => ipcRenderer.invoke("lane:open", target),
   openURL: (url) => ipcRenderer.invoke("lane:open-url", url),

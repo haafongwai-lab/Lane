@@ -15,10 +15,9 @@
 export const RANGES = [
   { key: "today", label: "今天", days: 1 },
   { key: "7d", label: "近 7 天", days: 7 },
-  { key: "30d", label: "近 30 天", days: 30 }
+  { key: "15d", label: "近 15 天", days: 15 }
 ];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 // Credits are shown to two decimals, but a single flash-model request costs
 // a ten-thousandth of one; rounding before summing would lose it entirely.
 const CREDIT_DIGITS = 6;
@@ -43,8 +42,13 @@ function midnight(now) {
 function dayKeys(days, now) {
   const start = midnight(now);
   const keys = [];
+  // Walk the calendar rather than subtracting fixed 24-hour days: a
+  // daylight-saving day lasts 23 or 25 hours, and the fixed sum would skip
+  // or repeat that date.
   for (let offset = days - 1; offset >= 0; offset -= 1) {
-    keys.push(localDateKey(new Date(start.getTime() - offset * DAY_MS)));
+    const day = new Date(start);
+    day.setDate(day.getDate() - offset);
+    keys.push(localDateKey(day));
   }
   return keys;
 }
@@ -169,8 +173,12 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
 }
 
 function previousTotals(requests, { keys, startAt, rateFor }) {
-  const span = keys.length * DAY_MS;
-  const from = startAt - span;
+  // The previous period is the same number of calendar days, not the same
+  // number of milliseconds: a daylight-saving boundary in between would
+  // otherwise skew the comparison window by an hour.
+  const firstPrevious = new Date(startAt);
+  firstPrevious.setDate(firstPrevious.getDate() - keys.length);
+  const from = firstPrevious.getTime();
   const until = startAt;
   const seen = { requests: 0, credits: 0, totalTokens: 0 };
   for (const request of requests) {

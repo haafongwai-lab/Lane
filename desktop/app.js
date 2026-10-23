@@ -61,8 +61,10 @@ function creditView(usage) {
 
 function renderCredits(usage) {
   const credits = creditView(usage);
+  // The meter reports what the cycle has spent; the card answers the question
+  // the account page does — how much is left — so it shows the remainder.
   $("#account-credits").textContent = credits
-    ? `积分 ${creditNumber(credits.used)} / ${creditNumber(credits.limit)}`
+    ? `剩余积分 ${creditNumber(credits.left)} / ${creditNumber(credits.limit)}`
     : usage?.error ? "积分不可用" : "积分 —";
 }
 
@@ -96,7 +98,7 @@ function go(view) {
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
 
-async function refresh() {
+async function refresh({ quiet = false } = {}) {
   if (refreshing) return;
   refreshing = true;
   try {
@@ -104,8 +106,6 @@ async function refresh() {
     render();
   } catch (error) {
     if (!quiet) toast(`读取状态失败：${error.message}`, true);
-    $("#side-dot").className = "dot bad";
-    $("#side-status").textContent = "网关连接失败";
   } finally {
     refreshing = false;
   }
@@ -120,10 +120,6 @@ function render() {
   const claudeOn = agents?.claudeDesktop?.connected;
   const zcodeOn = agents?.zcode?.connected;
 
-  $("#side-dot").className = "dot ok";
-  $("#side-status").textContent = snapshot.starting
-    ? "网关启动中"
-    : signedIn ? "网关已就绪" : "网关运行中 · 等待登录";
   $("#route-live-dot").className = "dot ok";
   $("#route-live").textContent = running.length ? "处理中" : "实时";
   $("#route-count").textContent = `${recent.length} 个请求`;
@@ -131,7 +127,9 @@ function render() {
   // always means something is happening rather than looping for decoration.
   $(".route-canvas").classList.toggle("busy", running.length > 0);
   renderRouteAgent(last, { codexOn, claudeOn, zcodeOn });
-  $("#lane-state").textContent = "运行中";
+  // "starting" is what the main process answers while the gateway is coming
+  // up or retrying after a failed start; a fixed "运行中" would mask that.
+  $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
   $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
   $("#provider-state").previousElementSibling.classList.toggle("off", !signedIn);
   $("#account-name").textContent = account || "WorkBuddy";
@@ -150,7 +148,20 @@ function render() {
   $("#zcode-connect-state").textContent = zcodeOn ? "已接入" : "未接入";
   $("#zcode-connect-state").classList.toggle("on", zcodeOn);
   $("#zcode-connect").textContent = zcodeOn ? "重新接入 ZCode" : "接入 ZCode";
-  $("#gateway-address").textContent = (snapshot.gateway || "http://127.0.0.1:3426").replace(/^https?:\/\//, "");
+  // The settings page owns the port field now; keep it from being cleared
+  // while the user is typing, and only fill it once.
+  const portField = $("#gateway-port");
+  if (portField && document.activeElement !== portField && !portField.value) {
+    portField.value = snapshot.gateway ? String(new URL(snapshot.gateway).port) : "";
+  }
+  // Every address shown in the UI derives from the snapshot, so a saved
+  // port change is reflected everywhere once the gateway restarts on it.
+  // (The sidebar shows none of them: that corner is blank by design.)
+  const address = (snapshot.gateway || "http://127.0.0.1:3426").replace(/^https?:\/\//, "");
+  $("#lane-address").textContent = address;
+  $("#health-address").textContent = address;
+  $("#codex-address").textContent = `${address}/v1`;
+  $("#claude-address").textContent = address;
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
   $("#log-name").textContent = snapshot.ownsGateway === false ? "lane.log" : "desktop.log";
@@ -251,7 +262,6 @@ function renderCheckin() {
   const done = items.filter((item) => item.status === "done").length;
   $("#checkin-progress").hidden = items.length === 0;
   $("#checkin-ratio").textContent = items.length ? `${done} / ${items.length}` : "—";
-  $("#checkin-fill").style.width = items.length ? `${Math.round((done / items.length) * 100)}%` : "0%";
 
   // Only what needs attention stays below the meter.
   const issues = items.filter((item) => item.status === "failed");
@@ -330,7 +340,9 @@ function renderModels(models) {
 // The overview is computed in main over the whole journal, while this page's
 // request list comes from the status snapshot. Both are refreshed together.
 let usage = null;
-let usageRange = "today";
+// The page opens on the week view: it is the span people actually compare,
+// while "today" is one click away at the left of the segmented control.
+let usageRange = "7d";
 let usageLoading = false;
 let usageQueued = false;
 
@@ -670,6 +682,8 @@ $("#test-route").addEventListener("click", async () => {
     const result = await window.lane.test();
     toast(result.ok ? `链路正常 · ${result.elapsed}ms · ${result.text}` : `测试失败：${result.text}`, !result.ok);
     await refresh({ quiet: true });
+  } catch (error) {
+    toast(`测试失败：${error?.message || error}`, true);
   } finally {
     button.disabled = false;
     button.textContent = "测试链路";
@@ -681,15 +695,52 @@ $("#autostart").addEventListener("change", (event) => {
 });
 $("#open-data").addEventListener("click", () => window.lane.open("data"));
 $("#open-log").addEventListener("click", () => window.lane.open("log"));
+
+// The gateway port only takes effect on a restart: the listen call happens
+// once, at start. The note spells that out, so a saved port that seems to
+// do nothing does not read as a bug.
+function gatewayNote(text, error = false) {
+  const node = $("#gateway-port-note");
+  node.hidden = !text;
+  node.textContent = text || "";
+  node.classList.toggle("error", error);
+}
+$("#gateway-port-save").addEventListener("click", async () => {
+  const port = Number($("#gateway-port").value);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    gatewayNote("端口需为 1024–65535 之间的整数", true);
+    return;
+  }
+  const button = $("#gateway-port-save");
+  button.disabled = true;
+  try {
+    const result = await window.lane.saveGatewaySettings({ port });
+    if (!result.changed) {
+      gatewayNote(`当前就是端口 ${port}，无需保存`);
+      return;
+    }
+    const agents = result.rewritten?.length
+      ? `已同步更新接入配置：${result.rewritten.join("、")}`
+      : "当前没有已接入的 Agent，无需改写";
+    gatewayNote(`已保存。重启 Lane 后生效，新地址 127.0.0.1:${result.port}。${agents}。`);
+    toast(`网关端口已保存为 ${result.port}`, false);
+  } catch (error) {
+    gatewayNote(error.message || "保存失败", true);
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#refresh-route").addEventListener("click", () => refresh());
 $("#quit-app").addEventListener("click", async () => {
   if (!confirm("退出 Lane 会同时停止本地网关，确定吗？")) return;
   await window.lane.quit();
 });
 
-window.lane.onSignIn(async ({ result, error }) => {
+window.lane.onSignIn(async ({ error } = {}) => {
+  // The event only ever arrives when a sign-in finished: it failed if it
+  // carries an error, otherwise the account landed and the window refreshes.
   if (error) toast(`WorkBuddy 登录失败：${error}`, true);
-  else if (result) toast("WorkBuddy 登录成功");
+  else toast("WorkBuddy 登录成功");
   await refresh({ quiet: true });
 });
 

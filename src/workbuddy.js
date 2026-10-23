@@ -17,6 +17,17 @@ import { prepareChat, restoreToolNames } from "./sanitize.js";
 const require = createRequire(import.meta.url);
 const PACKAGE = "@magpie-community/opencode-workbuddy-auth";
 
+// The plugin's models hook fetches /v3/config live on every call. Lane asks
+// it from the model routes, the journal's rate lookup and the desktop
+// status poll — without a short cache that is several upstream calls per
+// request and twenty per minute of window polling, each adding a network
+// round trip to the request's first byte.
+const MODEL_CACHE_MS = 30_000;
+// How long a chat request may wait for WorkBuddy's response head. The body
+// itself streams for as long as the generation runs; only the wait for the
+// upstream to accept the request is bounded.
+const CHAT_HEADERS_TIMEOUT_MS = Number(process.env.LANE_UPSTREAM_TIMEOUT_MS) || 120_000;
+
 /**
  * WorkBuddy plugins are OpenCode v1 plugins: a factory receives a client
  * and returns hooks. Lane supplies only the auth persistence the plugin
@@ -41,6 +52,8 @@ export class WorkBuddyProvider {
     // One plugin per site: the domestic build and the international build are
     // separate packages with separate endpoints and separate catalogues.
     this.factories = new Map();
+    this.modelCache = new Map();
+    this.modelLoads = new Map();
   }
 
   /**
@@ -73,11 +86,16 @@ export class WorkBuddyProvider {
 
   async accounts() {
     await this.init();
+    // The file is the source of truth: the CLI, the check-in scheduler or a
+    // second Lane may have signed an account in or switched the route since
+    // this process last looked, and a refresh must show what is there now.
+    this.state = await loadAccounts(this.env);
     return this.state.accounts.map(publicAccount);
   }
 
   async activeId() {
     await this.init();
+    this.state = await loadAccounts(this.env);
     return this.state.activeId;
   }
 
@@ -95,6 +113,18 @@ export class WorkBuddyProvider {
     if (!target) return null;
     const existing = this.sessions.get(target);
     if (existing) return existing;
+    // A check-in round and a first chat can ask for the same account at the
+    // same moment; one load is shared rather than building two plugin
+    // instances and keeping whichever happened to land last.
+    this.sessionLoads ||= new Map();
+    const pending = this.sessionLoads.get(target);
+    if (pending) return pending;
+    const load = this.loadSession(target).finally(() => this.sessionLoads.delete(target));
+    this.sessionLoads.set(target, load);
+    return load;
+  }
+
+  async loadSession(target) {
     const account = this.state.accounts.find((item) => item.id === target);
     if (!account) return null;
     const factory = await this.factoryFor(account.site);
@@ -183,7 +213,33 @@ export class WorkBuddyProvider {
     return this.models || [];
   }
 
+  // A route change or a new sign-in can change what the catalogue says;
+  // those are the moments the cached catalogues stop being trusted.
+  invalidateModels() {
+    this.modelCache.clear();
+  }
+
   async listModels(id) {
+    await this.init();
+    const key = id || this.state.activeId || "";
+    const hit = this.modelCache.get(key);
+    if (hit && Date.now() - hit.at < MODEL_CACHE_MS) {
+      this.models = hit.value;
+      return hit.value;
+    }
+    // Callers arrive in bursts (the model routes ask twice per request); one
+    // load serves them all rather than racing N upstream fetches.
+    const existing = this.modelLoads.get(key);
+    if (existing) return existing;
+    const load = this.loadModels(id).finally(() => this.modelLoads.delete(key));
+    this.modelLoads.set(key, load);
+    const models = await load;
+    this.modelCache.set(key, { at: Date.now(), value: models });
+    this.models = models;
+    return models;
+  }
+
+  async loadModels(id) {
     await this.init();
     const session = await this.session(id);
     const hooks = session?.hooks || (await this.anonymousHooks());
@@ -193,18 +249,16 @@ export class WorkBuddyProvider {
     if (!provider) throw new Error("WorkBuddy plugin did not declare a provider");
     const auth = session?.auth || null;
     if (!auth) {
-      this.models = Object.entries(provider.models || {}).map(([modelId, value]) => ({
+      return Object.entries(provider.models || {}).map(([modelId, value]) => ({
         id: modelId,
         ...modelDetails(modelId, value)
       }));
-      return this.models;
     }
     const models = await hooks.provider.models(structuredClone(provider), { auth });
-    this.models = Object.entries(models || {}).map(([modelId, value]) => ({
+    return Object.entries(models || {}).map(([modelId, value]) => ({
       id: modelId,
       ...modelDetails(modelId, value)
     }));
-    return this.models;
   }
 
   /**
@@ -226,7 +280,14 @@ export class WorkBuddyProvider {
     }
   }
 
-  async chat(body) {
+  /**
+   * `signal` aborts the request when the client that caused it hangs up, so
+   * WorkBuddy stops generating instead of billing a stream nobody reads. The
+   * wait for the response head is separately bounded: an upstream that
+   * accepts neither would otherwise leave the client hanging forever, and
+   * the body itself may stream for as long as the generation runs.
+   */
+  async chat(body, { signal } = {}) {
     const session = await this.activeSession();
     if (!session) throw new Error("WorkBuddy is not signed in");
     await this.refreshIfNeeded(session);
@@ -235,14 +296,30 @@ export class WorkBuddyProvider {
     // and refuses tool shapes its models cannot take. The plugin knows both
     // lists; this is the same preparation it applies to its own requests.
     const prepared = await prepareChat({ ...body, stream: true });
-    const response = await loader.fetch(`${loader.baseURL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: body.stream ? "text/event-stream" : "application/json"
-      },
-      body: JSON.stringify(prepared.body)
-    });
+    const gate = new AbortController();
+    const timer = setTimeout(
+      () => gate.abort(new Error(`WorkBuddy did not answer within ${CHAT_HEADERS_TIMEOUT_MS / 1000}s`)),
+      CHAT_HEADERS_TIMEOUT_MS
+    );
+    const passThrough = () => gate.abort(signal.reason);
+    if (signal) {
+      if (signal.aborted) passThrough();
+      else signal.addEventListener("abort", passThrough, { once: true });
+    }
+    let response;
+    try {
+      response = await loader.fetch(`${loader.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: body.stream ? "text/event-stream" : "application/json"
+        },
+        body: JSON.stringify(prepared.body),
+        signal: gate.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     // A refusal names no client and no word, so the only way to find the
     // offending wording is to keep what was actually sent. This runs only on
     // a refusal, and only the system prompt's head is kept.
@@ -266,6 +343,7 @@ export class WorkBuddyProvider {
     await this.init();
     const account = await activateAccount(id, this.env);
     this.state = await loadAccounts(this.env);
+    this.invalidateModels();
     return publicAccount(account);
   }
 
@@ -274,6 +352,7 @@ export class WorkBuddyProvider {
     const account = await setAccountEnabled(id, enabled, this.env);
     this.state = await loadAccounts(this.env);
     if (!enabled) this.sessions.delete(id);
+    this.invalidateModels();
     return publicAccount(account);
   }
 
@@ -282,6 +361,7 @@ export class WorkBuddyProvider {
     const result = await removeAccount(id, this.env);
     this.sessions.delete(id);
     this.state = await loadAccounts(this.env);
+    this.invalidateModels();
     return result;
   }
 
@@ -301,23 +381,29 @@ export class WorkBuddyProvider {
   /**
    * A finished sign-in always adds an account. The first one becomes the
    * route; a later one joins the list switched on but idle.
+   *
+   * `auth` is the outcome of an already-awaited `result.callback()`. The
+   * desktop's sign-in flow waits for the callback itself to tell the window
+   * when the browser round trip is over; without the result handed in,
+   * waiting again would poll the plugin's token endpoint a second time with
+   * the same state, which the endpoint is free to refuse.
    */
-  async finishSignIn(result, site = result?.site || "workbuddy") {
-    const auth = await result.callback();
-    if (auth?.type !== "success") {
-      throw new Error(auth?.error || "WorkBuddy sign-in failed");
+  async finishSignIn(result, site = result?.site || "workbuddy", auth = null) {
+    const outcome = auth || await result.callback();
+    if (outcome?.type !== "success") {
+      throw new Error(outcome?.error || "WorkBuddy sign-in failed");
     }
     const stored = {
       type: "oauth",
-      access: auth.access,
-      refresh: auth.refresh,
-      expires: auth.expires,
-      refreshExpiresAt: auth.refreshExpiresAt || 0,
-      domain: auth.domain || "",
-      tokenType: auth.tokenType || "",
-      uid: auth.uid || "",
-      enterpriseId: auth.enterpriseId || "",
-      accountId: auth.accountId || ""
+      access: outcome.access,
+      refresh: outcome.refresh,
+      expires: outcome.expires,
+      refreshExpiresAt: outcome.refreshExpiresAt || 0,
+      domain: outcome.domain || "",
+      tokenType: outcome.tokenType || "",
+      uid: outcome.uid || "",
+      enterpriseId: outcome.enterpriseId || "",
+      accountId: outcome.accountId || ""
     };
     const id = accountIdOf(stored);
     if (!id) throw new Error("WorkBuddy sign-in returned no account id");
@@ -325,6 +411,7 @@ export class WorkBuddyProvider {
     await upsertAccount(stored, this.env, { activate: !this.state.activeId, site: key });
     this.sessions.delete(id);
     this.state = await loadAccounts(this.env);
+    this.invalidateModels();
     return { ...stored, id, site: key };
   }
 

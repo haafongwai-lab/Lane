@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
 import { readAuth, writeAuth } from "./auth-store.js";
 
@@ -36,12 +37,50 @@ function emptyState() {
 
 const queues = new Map();
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The in-process queue keeps one Lane's writes in order; a lock file keeps
+// two processes (the gateway and a `lane` CLI command) from reading the same
+// state and dropping each other's change. A lock left by a crashed holder is
+// broken once it is this old, so a stale file never wedges the gateway.
+const LOCK_STALE_MS = 30_000;
+const LOCK_WAIT_MS = 15_000;
+
+async function crossProcessLock(key, work) {
+  const lock = `${key}.lock`;
+  const start = Date.now();
+  for (;;) {
+    try {
+      const handle = await fs.open(lock, "wx", 0o600);
+      await handle.write(`${process.pid} ${new Date().toISOString()}`);
+      await handle.close();
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    const mtime = await fs.stat(lock).then((info) => info.mtimeMs, () => 0);
+    if (!mtime || Date.now() - mtime > LOCK_STALE_MS) {
+      await fs.rm(lock, { force: true }).catch(() => {});
+    } else if (Date.now() - start > LOCK_WAIT_MS) {
+      throw new Error("accounts file is locked by another Lane; try again");
+    } else {
+      await sleep(75);
+    }
+  }
+  try {
+    return await work();
+  } finally {
+    await fs.rm(lock, { force: true }).catch(() => {});
+  }
+}
+
 // Read-modify-write on one file is serialised per data directory, so two
 // requests that touch different accounts can't drop each other's change.
 function serial(env, work) {
   const key = path.join(dataDir(env), FILE);
   const previous = queues.get(key) || Promise.resolve();
-  const next = previous.then(work, work);
+  const run = () => crossProcessLock(key, work);
+  const next = previous.then(run, run);
   queues.set(key, next.catch(() => {}));
   return next;
 }
@@ -75,15 +114,24 @@ export async function readAccounts(env = process.env) {
       ? accounts[0]?.id || ""
       : accounts.some((item) => item.id === stored) ? stored : "";
     return { version: 1, activeId, accounts };
-  } catch {
-    return emptyState();
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      // A truncated or hand-edited file must not be silently replaced: the
+      // bytes move aside so every account can be recovered from them, and
+      // the state starts over (the legacy mirror below restores the route).
+      console.error(`lane: ${FILE} is not valid JSON; keeping the broken copy as ${FILE}.corrupt`);
+      await fs.rename(fileOf(env), `${fileOf(env)}.corrupt`).catch(() => {});
+      return emptyState();
+    }
+    if (error?.code === "ENOENT") return emptyState();
+    throw error;
   }
 }
 
 export async function writeAccounts(state, env = process.env) {
   const target = fileOf(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temp = `${target}.${process.pid}.tmp`;
+  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(temp, target);
   return state;
@@ -230,7 +278,9 @@ export async function removeAccount(id, env = process.env) {
     state.accounts = state.accounts.filter((item) => item.id !== id);
     if (state.accounts.length === before) return { removed: false, activeId: state.activeId };
     if (state.activeId === id) {
-      state.activeId = state.accounts.find((item) => item.enabled)?.id || state.accounts[0]?.id || "";
+      // No enabled account left means no route: "" rather than a switched-off
+      // account that would read as signed out until manually re-enabled.
+      state.activeId = state.accounts.find((item) => item.enabled)?.id || "";
     }
     await writeAccounts(state, env);
     await mirror(state, env);

@@ -108,6 +108,21 @@ test("removing the active account moves the route and clears the mirror", async 
   assert.equal(legacy.uid, "uid-2", "the mirror follows the active account");
 });
 
+test("removing the route with only switched-off accounts left leaves no route", async () => {
+  const { env } = await tempEnv();
+  await upsertAccount(authFor("uid-1", "first"), env);
+  await upsertAccount(authFor("uid-2", "second"), env);
+  await setAccountEnabled("uid-2", false, env);
+
+  const result = await removeAccount("uid-1", env);
+  assert.equal(result.removed, true);
+  assert.equal(result.activeId, "", "a switched-off account never becomes the route");
+
+  // Switching an account back on takes the route again.
+  await setAccountEnabled("uid-2", true, env);
+  assert.equal((await readAccounts(env)).activeId, "uid-2");
+});
+
 test("the public view of an account never carries its tokens", async () => {
   const { env } = await tempEnv();
   await upsertAccount(authFor("uid-1", "first"), env);
@@ -125,4 +140,28 @@ test("an account with no uid is not silently merged into another", async () => {
     () => upsertAccount({ type: "oauth", access: "x" }, env),
     /no account id/
   );
+});
+
+test("a corrupted accounts.json is kept aside, not silently replaced", async () => {
+  const { env, dir } = await tempEnv();
+  try {
+    await upsertAccount(authFor("uid-1", "first"), env);
+    await upsertAccount(authFor("uid-2", "second"), env);
+    await activateAccount("uid-2", env);
+    const raw = await fs.readFile(path.join(dir, "accounts.json"), "utf8");
+
+    // A crash-truncated file: unreadable, but every token is still in it.
+    await fs.writeFile(path.join(dir, "accounts.json"), `${raw.slice(0, raw.length - 5)}`);
+
+    const state = await loadAccounts(env);
+    // The legacy mirror restores the active account, so the gateway keeps
+    // working, and the broken bytes wait beside it for recovery.
+    assert.equal(state.accounts.length, 1);
+    assert.equal(state.accounts[0].id, "uid-2");
+    const kept = await fs.readFile(path.join(dir, "accounts.json.corrupt"), "utf8");
+    assert.ok(kept.includes("uid-1"), "the other account survives in the backup");
+    assert.ok(kept.includes("uid-2"));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

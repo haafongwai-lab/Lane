@@ -40,6 +40,18 @@ function argValue(args, name) {
 
 async function serve(args) {
   const { host, port } = parseAddress(argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`);
+  const address = `http://${host}:${port}`;
+  // A second Lane on the same port would race the first for the journal and
+  // the daily check-in; if one already owns the address, say so instead.
+  try {
+    const probe = await fetch(`${address}/healthz`, { signal: AbortSignal.timeout(1500) });
+    const body = probe.ok ? await probe.json().catch(() => ({})) : {};
+    if (body?.name === "lane") {
+      console.error(`another Lane is already serving ${address}; quit it (tray → 退出) or pass --addr`);
+      process.exitCode = 1;
+      return;
+    }
+  } catch {}
   const provider = new WorkBuddyProvider();
   await provider.init();
   const control = createControlCenter({ port, host, checkins: true });
@@ -48,10 +60,12 @@ async function serve(args) {
     server.once("error", reject);
     server.listen(port, host, resolve);
   });
-  console.log(`lane listening on http://${host}:${port}`);
+  console.log(`lane listening on ${address}`);
   console.log("provider: workbuddy");
-  const stop = () => {
-    control.stop();
+  const stop = async () => {
+    // Let the journal's final debounced write land before the process goes.
+    await control.stop?.();
+    server.closeAllConnections?.();
     server.close(() => process.exit(0));
   };
   process.once("SIGINT", stop);

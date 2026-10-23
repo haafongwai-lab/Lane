@@ -1,6 +1,6 @@
 {
   "name": "lane",
-  "version": "0.1.2",
+  "version": "0.2.5",
   "private": true,
   "description": "A small Windows-local gateway for WorkBuddy, Claude Desktop, and Codex.",
   "main": "desktop/main.js",
@@ -17,11 +17,11 @@
     "doctor": "node src/cli.js doctor",
     "connect:claude": "node src/cli.js connect claude-desktop",
     "connect:codex": "node src/cli.js connect codex",
-    "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/make-icons.ps1",
+    "icons": "python desktop/make-icons.py",
     "build": "npm run icons && electron-builder --win --x64"
   },
   "dependencies": {
-    "@magpie-community/opencode-workbuddy-auth": "0.1.28"
+    "@magpie-community/opencode-workbuddy-auth": "0.1.30"
   },
   "devDependencies": {
     "electron": "45.0.0",

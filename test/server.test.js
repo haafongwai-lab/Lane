@@ -486,6 +486,105 @@ test("a chat completion that asks for a stream keeps the upstream events", async
   }
 });
 
+test("a non-stream chat completion stitches tool calls back together", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([
+        chunk({ content: "Let me check." }),
+        chunk({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"city"' } }] }),
+        chunk({ tool_calls: [{ index: 0, function: { arguments: ':"Paris"}' } }] }),
+        chunk({ tool_calls: [{ index: 1, id: "call_2", type: "function", function: { name: "get_time", arguments: "{}" } }] }),
+        chunk({}, "tool_calls"),
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        messages: [{ role: "user", content: "weather?" }],
+        tools: [{ type: "function", function: { name: "get_weather", parameters: {} } }]
+      })
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.choices[0].finish_reason, "tool_calls");
+    assert.equal(body.choices[0].message.content, "Let me check.");
+    assert.deepEqual(body.choices[0].message.tool_calls, [
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Paris"}' }
+      },
+      {
+        id: "call_2",
+        type: "function",
+        function: { name: "get_time", arguments: "{}" }
+      }
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("the journal records the account carrying the request", async () => {
+  const started = [];
+  const control = {
+    journal: {
+      start: (values) => {
+        started.push(values);
+        return { id: "r1", startedAt: Date.now() };
+      },
+      note: () => {},
+      usage: () => {},
+      finish: () => {}
+    },
+    invalidateUsage: () => {}
+  };
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async activeId() { return "uid-9"; },
+    async chat() {
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })}\n\n`;
+      return new Response([chunk({ content: "ok" }), chunk({}, "stop"), "data: [DONE]\n\n"].join(""), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+  };
+  const server = createServer({ provider, control });
+  const base = await listen(server);
+  try {
+    const chat = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(chat.status, 200);
+    assert.equal(started[0].accountId, "uid-9");
+
+    const messages = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(messages.status, 200);
+    assert.equal(started[1].accountId, "uid-9");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("a refused chat reaches the client as an error, not an empty body", async () => {
   const provider = {
     async listModels() { return [{ id: "auto", name: "Auto" }]; },
@@ -507,6 +606,319 @@ test("a refused chat reaches the client as an error, not an empty body", async (
     assert.equal(res.status, 400);
     const body = await res.json();
     assert.match(body.error.message, /Illegal API invocation/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a Host header naming another domain is refused; loopback names pass", async () => {
+  const server = createServer();
+  const base = await listen(server);
+  const port = new URL(base).port;
+  // fetch pins Host to the URL's, so the forged header is sent raw.
+  const statusWith = (host) => new Promise((resolve, reject) => {
+    const req = http.request(`http://127.0.0.1:${port}/healthz`, {
+      agent: false,
+      headers: host ? { host } : {}
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+  try {
+    assert.equal(await statusWith("evil.example:3426"), 403, "a rebound domain cannot reach the gateway");
+    assert.equal(await statusWith(`localhost:${port}`), 200);
+    assert.equal(await statusWith(`127.0.0.1:${port}`), 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+// The upstream failing mid-stream used to take the whole gateway down: the
+// catch wrote a JSON error head onto a response that had already sent its
+// SSE head, ERR_HTTP_HEADERS_SENT escaped every handler, and Node exited.
+test("a chat stream whose upstream dies mid-answer stays inside the protocol", async (t) => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      let sent = false;
+      const body = new ReadableStream({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(new TextEncoder().encode(
+              'data: {"choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n'
+            ));
+            return;
+          }
+          controller.error(new Error("upstream disconnected"));
+        }
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  t.after(() => server.closeAllConnections?.());
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", stream: true, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.match(text, /"content":"partial"/);
+    assert.match(text, /upstream disconnected/);
+    assert.match(text, /data: \[DONE\]/);
+    // The gateway itself survived the failure.
+    const health = await fetch(`${base}/healthz`);
+    assert.equal(health.status, 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a chat stream that ends without any event reports an error, not an empty success", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      // Only a heartbeat: no OpenAI event ever arrives.
+      return new Response(": keep-alive\n\n", { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", stream: true, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.match(text, /upstream stream ended without a response/);
+    assert.match(text, /data: \[DONE\]/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a chat stream missing its finish_reason still ends with one", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      // Content, then the stream simply stops: no finish_reason anywhere.
+      return new Response(
+        'data: {"choices":[{"index":0,"delta":{"content":"tailless"}}]}\n\n',
+        { headers: { "content-type": "text/event-stream" } }
+      );
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", stream: true, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.match(text, /"content":"tailless"/);
+    assert.match(text, /"finish_reason":"stop"/);
+    assert.match(text, /data: \[DONE\]/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("count_tokens counts CJK text at a token a character", async () => {
+  const server = createServer();
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/messages/count_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "hy3",
+        messages: [{ role: "user", content: "你好世界" }]
+      })
+    });
+    // Four CJK characters are about four tokens, not the one that a flat
+    // chars/4 estimate would have answered.
+    assert.equal((await response.json()).input_tokens, 4);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a request from a foreign Origin cannot drive the gateway", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "auto", name: "Auto" }];
+    },
+    async chat() {
+      return new Response('data: {"choices":[{"index":0,"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n', {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+  };
+  const control = {
+    journal: { start: () => null, note: () => {}, usage: () => {}, finish: () => {} },
+    checkinSettings: async (patch) => patch,
+    connect: async () => ({ connected: true })
+  };
+  const server = createServer({ provider, control });
+  const base = await listen(server);
+  const port = new URL(base).port;
+  try {
+    // A page at another origin: no preflight is needed for a text/plain POST,
+    // so the gateway itself must refuse it.
+    for (const path of ["/lane/checkin/settings", "/v1/chat/completions"]) {
+      const response = await fetch(base + path, {
+        method: "POST",
+        headers: { "content-type": "text/plain", origin: "https://evil.example" },
+        body: JSON.stringify(path === "/v1/chat/completions"
+          ? { model: "auto", messages: [{ role: "user", content: "hi" }] }
+          : { hour: 3 })
+      });
+      assert.equal(response.status, 403, path);
+    }
+    const fetchSite = await fetch(`${base}/lane/status`, {
+      headers: { "sec-fetch-site": "cross-site" }
+    });
+    assert.equal(fetchSite.status, 403);
+
+    // No Origin at all is what Codex, ZCode and the CLI send: allowed.
+    const plain = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(plain.status, 200);
+    // A same-origin browser request names the gateway itself: allowed.
+    const own = await fetch(`${base}/lane/checkin/settings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: `http://127.0.0.1:${port}` },
+      body: "{}"
+    });
+    assert.equal(own.status, 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a malformed request URL is answered with 400, not a crash", async () => {
+  const server = createServer();
+  const base = await listen(server);
+  try {
+    const status = await new Promise((resolve, reject) => {
+      const req = http.request(`${base}//`, { method: "GET", agent: false }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(status, 400);
+    // The gateway must still be serving afterwards.
+    const health = await fetch(`${base}/healthz`);
+    assert.equal(health.status, 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an ultra effort on a model without declared levels is fitted, not failed", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "auto", name: "Auto" }];
+    },
+    async chat() {
+      return new Response('data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        max_tokens: 10,
+        output_config: { effort: "ultra" },
+        messages: [{ role: "user", content: "hello" }]
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).content[0].text, "ok");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an upstream error inside a 200 SSE is not read as an empty answer", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "auto", name: "Auto" }];
+    },
+    async chat() {
+      return new Response('data: {"error":{"message":"quota gone"}}\n\n', {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.message, "quota gone");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("protocol bodies that are not objects answer 400", async () => {
+  const server = createServer();
+  const base = await listen(server);
+  try {
+    for (const path of ["/v1/messages", "/v1/responses"]) {
+      const response = await fetch(base + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "null"
+      });
+      assert.equal(response.status, 400, path);
+    }
+    const messages = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: "no" })
+    });
+    assert.equal(messages.status, 400);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a control path with malformed percent-encoding answers 400", async () => {
+  const control = { activate: async () => ({}) };
+  const server = createServer({ control });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/lane/accounts/%E0%A4%A/activate`, { method: "POST" });
+    assert.equal(response.status, 400);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

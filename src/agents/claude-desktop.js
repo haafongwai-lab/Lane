@@ -25,22 +25,26 @@ export async function connectClaudeDesktop({
   const paths = claudePaths(env);
   const state = await readState(env);
   const previous = state["claude-desktop"] || {};
-  if (!previous.saved) {
-    previous.saved = [];
-    for (const set of paths.sets) {
-      const mode = await readJSON(set.modeConfig);
-      const threeP = await readJSON(set.threePConfig);
-      const metaPath = path.join(set.library, "_meta.json");
-      const profilePath = path.join(set.library, `${PROFILE_ID}.json`);
-      previous.saved.push({
-        root: set.local,
-        modeDeploymentMode: mode.deploymentMode,
-        threePDeploymentMode: threeP.deploymentMode,
-        meta: await readJSON(metaPath),
-        profileExists: await exists(profilePath)
-      });
-    }
+  const saved = Array.isArray(previous.saved) ? previous.saved : [];
+  const known = new Set(saved.map((item) => item.root));
+  for (const set of paths.sets) {
+    // Installations that appeared after the first connect — a Claude Desktop
+    // MSIX update, another channel — are snapshotted too, so disconnect can
+    // restore what it changed in them.
+    if (known.has(set.local)) continue;
+    const mode = await readJSON(set.modeConfig);
+    const threeP = await readJSON(set.threePConfig);
+    const metaPath = path.join(set.library, "_meta.json");
+    const profilePath = path.join(set.library, `${PROFILE_ID}.json`);
+    saved.push({
+      root: set.local,
+      modeDeploymentMode: mode.deploymentMode,
+      threePDeploymentMode: threeP.deploymentMode,
+      meta: await readJSON(metaPath),
+      profileExists: await exists(profilePath)
+    });
   }
+  previous.saved = saved;
 
   for (const set of paths.sets) {
     const mode = await readJSON(set.modeConfig);
@@ -88,9 +92,11 @@ export async function disconnectClaudeDesktop({ env = process.env } = {}) {
     else mode.deploymentMode = item.modeDeploymentMode;
     if (item.threePDeploymentMode === undefined) delete threeP.deploymentMode;
     else threeP.deploymentMode = item.threePDeploymentMode;
-    await writeJSON(set.modeConfig, mode);
-    await writeJSON(set.threePConfig, threeP);
-    await writeJSON(path.join(set.library, "_meta.json"), item.meta || {});
+    // A config Lane itself created (the machine had none) leaves as no file
+    // at all, rather than an empty object that only says "Lane was here".
+    await writeOrRemove(set.modeConfig, mode);
+    await writeOrRemove(set.threePConfig, threeP);
+    await writeOrRemove(path.join(set.library, "_meta.json"), item.meta || {});
     if (!item.profileExists) {
       await fs.rm(path.join(set.library, `${PROFILE_ID}.json`), { force: true });
     }
@@ -107,4 +113,12 @@ async function exists(filePath) {
   } catch {
     return false;
   }
+}
+
+async function writeOrRemove(filePath, value) {
+  if (value && typeof value === "object" && Object.keys(value).length) {
+    await writeJSON(filePath, value);
+    return;
+  }
+  await fs.rm(filePath, { force: true });
 }

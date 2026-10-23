@@ -73,6 +73,11 @@ function effortDescription(effort) {
 }
 
 export async function connectCodex({ env = process.env, gateway = gatewayBase(), providerModels } = {}) {
+  // The model list is asked for before anything is written: a provider that
+  // cannot be reached must not leave config.toml pointing at a gateway whose
+  // wiring state was never recorded — disconnect would have nothing to undo.
+  let models = null;
+  if (typeof providerModels === "function") models = await providerModels();
   const configPath = codexConfigPath(env);
   const state = await readState(env);
   let text = "";
@@ -92,8 +97,11 @@ export async function connectCodex({ env = process.env, gateway = gatewayBase(),
     }
   };
   if (saved.previous && !Object.hasOwn(saved.previous, "providerTable")) {
-    saved.previous.providerTable =
-      saved.previous.hadProviderTable && hadProviderTable ? providerTableBlock(text) : "";
+    // Wiring written before the provider table was kept in the snapshot left
+    // only Lane's own table in the file; the user's original, if there ever
+    // was one, is not recoverable, so restoring nothing beats restoring
+    // Lane's stale table.
+    saved.previous.providerTable = "";
   }
   let next = setTopValue(text, "model_provider", `"${PROVIDER}"`);
   next = setTopValue(next, "model_catalog_json", '"lane-models.json"');
@@ -101,12 +109,13 @@ export async function connectCodex({ env = process.env, gateway = gatewayBase(),
     ? replaceProviderTable(next, providerTable(gateway))
     : `${next.replace(/\s*$/, "\n\n")}${providerTable(gateway)}`;
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, next, "utf8");
-  if (typeof providerModels === "function") {
-    const models = await providerModels();
+  // The catalog lands before the config that points at it: config.toml is
+  // the commit step, and a failure above it leaves the machine untouched.
+  if (models) {
     const catalogPath = path.join(path.dirname(configPath), "lane-models.json");
     await fs.writeFile(catalogPath, catalogText(models));
   }
+  await fs.writeFile(configPath, next, "utf8");
   state[PROVIDER] = { ...saved, connected: true, gateway, configPath };
   await writeState(state, env);
   return { agent: "codex", connected: true, gateway, restartRequired: true };
@@ -173,8 +182,21 @@ export async function disconnectCodex({ env = process.env } = {}) {
   return { agent: "codex", connected: false, changed: true, restartRequired: true };
 }
 
+// The top-level region of a Codex config: the lines before the first
+// [section] header. `model_provider` and `model_catalog_json` are top-level
+// keys, but Codex profiles set `model_provider` inside their own
+// [profiles.<name>] sections too — key edits that scanned the whole file
+// rewrote or deleted those, silently breaking the user's profiles.
+function topLevelEnd(lines) {
+  const end = lines.findIndex((line) => /^\s*\[/.test(line));
+  return end < 0 ? lines.length : end;
+}
+
 function topValue(text, key) {
-  const line = text.split(/\r?\n/).find((entry) => new RegExp(`^${key}\\s*=`).test(entry));
+  const lines = text.split(/\r?\n/);
+  const line = lines
+    .slice(0, topLevelEnd(lines))
+    .find((entry) => new RegExp(`^${key}\\s*=`).test(entry));
   return line ? line.replace(new RegExp(`^${key}\\s*=\\s*`), "").trim() : "";
 }
 
@@ -188,7 +210,8 @@ function catalogText(models) {
 
 function setTopValue(text, key, value) {
   const lines = text.split(/\r?\n/);
-  const index = lines.findIndex((line) => new RegExp(`^${key}\\s*=`).test(line));
+  const pattern = new RegExp(`^${key}\\s*=`);
+  const index = lines.slice(0, topLevelEnd(lines)).findIndex((line) => pattern.test(line));
   const replacement = `${key} = ${value}`;
   if (index >= 0) lines[index] = replacement;
   else lines.unshift(replacement);
@@ -196,9 +219,11 @@ function setTopValue(text, key, value) {
 }
 
 function removeTopValue(text, key) {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => !new RegExp(`^${key}\\s*=`).test(line))
+  const lines = text.split(/\r?\n/);
+  const pattern = new RegExp(`^${key}\\s*=`);
+  const limit = topLevelEnd(lines);
+  return lines
+    .filter((line, index) => index >= limit || !pattern.test(line))
     .join("\n")
     .replace(/\n*$/, "\n");
 }

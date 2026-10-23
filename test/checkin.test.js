@@ -177,6 +177,24 @@ test("settings reject a time that isn't a time", async () => {
   assert.equal(next.settings.minute, 30);
 });
 
+test("concurrent settings saves never corrupt the file", async () => {
+  const { env, dir } = await tempEnv();
+  try {
+    for (let round = 0; round < 25; round += 1) {
+      await Promise.all([
+        updateSettings({ hour: 21, minute: 30 }, env),
+        updateSettings({ hour: 9, minute: 0 }, env)
+      ]);
+      // Unserialised writes used to interleave on one temp file and leave a
+      // body no JSON.parse could read.
+      const state = JSON.parse(await fs.readFile(path.join(dir, "checkin.json"), "utf8"));
+      assert.ok(state.settings);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("the check-in call carries the account's own headers", () => {
   const headers = signHeaders(
     { access: "tok", uid: "uid-1", domain: "www.workbuddy.cn", enterpriseId: "ent-9" },

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
 
 /**
@@ -23,6 +24,20 @@ const RETRY_MS = 30 * 60 * 1000;
 const UA_VERSION = process.env.LANE_WB_UA || "5.5.6";
 
 const DEFAULT_SETTINGS = { enabled: true, hour: 9, minute: 0 };
+
+const queues = new Map();
+
+// A forced run from the window and the scheduler's tick read the file, claim
+// and write back; run at the same moment, the later write loses the earlier
+// one's results. Serialised per data directory, like accounts.json, so the
+// second run reads what the first wrote.
+function serial(env, work) {
+  const key = fileOf(env);
+  const previous = queues.get(key) || Promise.resolve();
+  const next = previous.then(work, work);
+  queues.set(key, next.catch(() => {}));
+  return next;
+}
 
 function fileOf(env) {
   return path.join(dataDir(env), FILE);
@@ -56,21 +71,26 @@ export async function readCheckin(env = process.env) {
 async function writeCheckin(state, env = process.env) {
   const target = fileOf(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temp = `${target}.${process.pid}.tmp`;
+  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(temp, target);
   return state;
 }
 
 export async function updateSettings(patch, env = process.env) {
-  const state = await readCheckin(env);
-  if (patch && typeof patch === "object") {
-    if (typeof patch.enabled === "boolean") state.settings.enabled = patch.enabled;
-    if (patch.hour !== undefined) state.settings.hour = clampInt(patch.hour, 0, 23, state.settings.hour);
-    if (patch.minute !== undefined) state.settings.minute = clampInt(patch.minute, 0, 59, state.settings.minute);
-  }
-  await writeCheckin(state, env);
-  return state.settings;
+  // Through the same queue as a claim round: a save that races a round in
+  // flight would be overwritten when the round writes back the state it read
+  // before the save, and two unserialised writes share a temp file.
+  return serial(env, async () => {
+    const state = await readCheckin(env);
+    if (patch && typeof patch === "object") {
+      if (typeof patch.enabled === "boolean") state.settings.enabled = patch.enabled;
+      if (patch.hour !== undefined) state.settings.hour = clampInt(patch.hour, 0, 23, state.settings.hour);
+      if (patch.minute !== undefined) state.settings.minute = clampInt(patch.minute, 0, 59, state.settings.minute);
+    }
+    await writeCheckin(state, env);
+    return state.settings;
+  });
 }
 
 function clampInt(value, min, max, fallback) {
@@ -204,7 +224,11 @@ function looksCheckedIn(status) {
  * day, after the configured local time. A failure is retried half an hour
  * later; the whole run is idempotent, so a restart never double-claims.
  */
-export async function runCheckins({
+export function runCheckins(options = {}) {
+  return serial(options.env || process.env, () => claimRound(options));
+}
+
+async function claimRound({
   provider,
   env = process.env,
   now = new Date(),

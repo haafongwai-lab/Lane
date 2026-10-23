@@ -7,9 +7,20 @@ export function responsesToChat(body) {
   if (typeof input === "string") {
     messages.push({ role: "user", content: input });
   } else if (Array.isArray(input)) {
+    // A turn's parallel calls arrive as neighboring function_call items, but
+    // a chat upstream wants them all on one assistant message: a message that
+    // declares tool_calls must be followed by the results of those calls and
+    // nothing else, or the upstream answers 11148 "tool calls and tool
+    // results do not match" once the history is replayed.
+    let calls = null;
+    const flushCalls = () => {
+      if (calls) messages.push(calls);
+      calls = null;
+    };
     for (const item of input) {
       if (!item || typeof item !== "object") continue;
       if (item.type === "function_call_output") {
+        flushCalls();
         messages.push({
           role: "tool",
           tool_call_id: item.call_id,
@@ -18,22 +29,28 @@ export function responsesToChat(body) {
         continue;
       }
       if (item.type === "function_call") {
-        messages.push({
-          role: "assistant",
-          content: null,
-          tool_calls: [{
-            id: item.call_id || item.id,
-            type: "function",
-            function: { name: item.name, arguments: item.arguments || "{}" }
-          }]
+        calls ||= { role: "assistant", content: null, tool_calls: [] };
+        calls.tool_calls.push({
+          id: item.call_id || item.id,
+          type: "function",
+          function: { name: item.name, arguments: item.arguments || "{}" }
         });
         continue;
       }
       if (item.role) {
         const content = responseContent(item.content);
+        // The model's own words right after its calls are part of the same
+        // turn; they ride the same message so nothing separates the calls
+        // from the results that answer them.
+        if (item.role === "assistant" && calls && typeof content === "string") {
+          calls.content = calls.content ? `${calls.content}\n\n${content}` : content;
+          continue;
+        }
+        flushCalls();
         messages.push({ role: item.role, content });
       }
     }
+    flushCalls();
   }
   const out = { model: body.model, messages, stream: Boolean(body.stream) };
   if (body.max_output_tokens) out.max_tokens = body.max_output_tokens;
@@ -52,8 +69,22 @@ export function responsesToChat(body) {
         }
       }));
   }
-  if (body.tool_choice) out.tool_choice = body.tool_choice;
+  if (body.tool_choice) out.tool_choice = toolChoice(body.tool_choice);
   return out;
+}
+
+// Responses names a function directly ({type: "function", name}); Chat
+// Completions nests it. The bare strings mean the same in both. Shapes with
+// no Chat Completions spelling (allowed_tools and the rest) degrade to
+// "auto" rather than a form the upstream would refuse.
+function toolChoice(choice) {
+  if (typeof choice === "string") {
+    return ["auto", "none", "required"].includes(choice) ? choice : "auto";
+  }
+  if (choice?.type === "function" && typeof choice.name === "string" && choice.name) {
+    return { type: "function", function: { name: choice.name } };
+  }
+  return "auto";
 }
 
 function responseContent(content) {
@@ -81,12 +112,16 @@ export function chatToResponses(payload, model, id) {
       content: [{ type: "output_text", text: message.content, annotations: [] }]
     });
   }
-  for (const call of message.tool_calls || []) {
+  // A call the upstream sent without an id gets one of its own: parallel
+  // calls sharing the fallback id would come back as results the replay
+  // above can't tell apart.
+  for (const [index, call] of (message.tool_calls || []).entries()) {
+    const callId = call.id || `call_${id}_${index}`;
     output.push({
-      id: `fc_${call.id || id}`,
+      id: `fc_${callId}`,
       type: "function_call",
       status: "completed",
-      call_id: call.id || id,
+      call_id: callId,
       name: call.function?.name || "tool",
       arguments: call.function?.arguments || "{}"
     });
@@ -139,6 +174,9 @@ export function responsesStreamFromChat(chunkText, state, model) {
         }
       }));
     }
+    // A delta after response.completed would announce an item the completed
+    // response does not carry; the upstream has finished speaking.
+    if (state.finished) continue;
     if (delta.content) {
       const message = ensureResponsesMessage(out, state);
       out.push(sseData({
@@ -157,7 +195,9 @@ export function responsesStreamFromChat(chunkText, state, model) {
       state.finished = true;
       state.finishReason = choice.finish_reason;
       finishResponsesItems(out, state);
-      out.push(sseData(responseCompleted(state, model, payload.usage, responseId)));
+      // The usage an earlier chunk carried must survive a finish chunk that
+      // comes without its own numbers.
+      out.push(sseData(responseCompleted(state, model, { ...state.usage, ...payload.usage }, responseId)));
     }
   }
   return out.join("");

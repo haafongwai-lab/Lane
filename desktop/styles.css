@@ -88,11 +88,8 @@ nav p {
 .nav:hover { background: rgba(255, 255, 255, .42); color: var(--ink); }
 .nav.active { color: #1d1e1c; background: var(--surface); font-weight: 650; box-shadow: 0 1px 2px rgba(25,27,25,.04); }
 .nav.active i { color: var(--green); }
-.side-status { margin: 18px 8px 0; padding: 16px 4px 0; border-top: 1px solid rgba(190,190,183,.6); }
-.status-line { display: flex; align-items: center; gap: 8px; color: #62645f; font-size: 11px; }
-.side-status small { display: block; margin: 5px 0 0 15px; color: var(--faint); font: 9px/1.3 var(--font-mono); }
 .dot { width: 7px; height: 7px; display: inline-block; flex: 0 0 7px; border-radius: 50%; background: var(--faint); }
-.dot.ok, #side-dot.ok { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.12); }
+.dot.ok { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.12); }
 .dot.bad { background: var(--red); box-shadow: 0 0 0 3px rgba(166,75,60,.11); }
 
 main {
@@ -182,8 +179,10 @@ h1 {
   --flow-y: calc(var(--canvas-pad-top) + (100% - var(--canvas-pad-top) - var(--canvas-pad-bottom)) / 2);
   position: relative;
   display: grid;
-  grid-template-columns: .9fr 1.08fr 1.28fr;
-  align-items: center;
+  /* The lane column is just wide enough for its square; the sides split
+     the rest evenly, so the two rectangles match each other. */
+  grid-template-columns: 1.08fr 220px 1.08fr;
+  align-items: stretch;
   gap: 38px;
   min-height: 330px;
   padding: var(--canvas-pad-top) 54px var(--canvas-pad-bottom) 48px;
@@ -280,8 +279,10 @@ h1 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 142px;
-  padding: 16px 12px;
+  /* Side nodes are rectangles; the lane node squares itself (see below).
+     The min-height only floors the rectangles on short screens. */
+  min-height: 166px;
+  padding: 16px 20px;
   border: 1px solid rgba(213,213,206,.9);
   border-radius: var(--radius);
   background: rgba(255,255,255,.82);
@@ -313,27 +314,32 @@ h1 {
   letter-spacing: .9px;
 }
 .lane-node {
-  min-height: 166px;
+  /* The middle node is the square of the trio, at a fixed 220px: small
+     enough to stay calm at any window width. The row — and with it the two
+     rectangles — takes this height through the stretch alignment. */
+  width: 220px;
+  height: 220px;
   border-color: #aab7a9;
   background: rgba(253,253,249,.96);
   box-shadow: 0 15px 34px rgba(52,76,58,.075);
 }
 .lane-node strong { margin-top: 7px; font-size: 27px; letter-spacing: -1.8px; }
+/* The emblem is the app's own rounded tile, so it keeps a square box; the
+   mark inside it already carries the illustration's white panel. */
 .lane-emblem {
-  width: 46px;
-  height: 38px;
+  width: 54px;
+  height: 54px;
   display: grid;
   place-items: center;
-  margin-top: -2px;
-  margin-bottom: 0;
+  margin-top: 0;
+  margin-bottom: 2px;
   overflow: hidden;
   background: transparent;
 }
 .lane-emblem img {
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: block;
   object-fit: contain;
 }
 .node-kicker { margin-bottom: 9px; color: #79967f; font: 650 7px/1 var(--font-sans); letter-spacing: 1px; }
@@ -341,8 +347,8 @@ h1 {
 .node-state i { width: 5px; height: 5px; display: inline-block; border-radius: 50%; background: #2b975f; }
 .node-state i.off { background: #b6b8b0; }
 .node-logo {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   margin-bottom: 8px;
@@ -360,13 +366,16 @@ h1 {
 /* ZCode's own icon is a dark rounded plate, so it is shown as it is rather
    than clipped into the circle the other logos sit in. The plate carries its
    own margin, so it is scaled up to fill the box it is given. */
-.zcode-logo { background: transparent; overflow: visible; }
+/* ZCode ships a white Z on a black plate; Lane's surface is light, so the
+   plate is dropped and the Z kept as dark ink, like the other two logos.
+   The plate is contained in the same 36px box as the others — letting it
+   overflow pushed the trio's visual center off the name below. */
+.zcode-logo { background: transparent; overflow: hidden; }
 .zcode-logo img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: contain;
-  transform: scale(1.32);
 }
 .codex-logo { overflow: hidden; background: #fff; }
 .codex-logo img, .agent-icon.codex img {
@@ -382,10 +391,11 @@ h1 {
   display: block;
   object-fit: contain;
 }
-.provider-node { min-height: 128px; padding: 14px 17px; }
-.provider-node .node-logo { width: 29px; height: 29px; margin-bottom: 6px; }
-.provider-node strong { max-width: 100%; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.provider-node .node-state { margin-top: 6px; }
+/* The provider node keeps its own accents only; its size now comes from
+   the shared .route-node rule, same as the other two nodes. */
+.provider-node .node-logo { width: 42px; height: 42px; margin-bottom: 10px; }
+.provider-node strong { max-width: 100%; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-node .node-state { margin-top: 11px; }
 .node-credits {
   max-width: 100%;
   margin-top: 4px;
@@ -416,25 +426,31 @@ h1 {
 .health-grid small { font-size: 8px; }
 
 .agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.agent-card { padding: 24px; }
-.agent-title { display: flex; align-items: center; gap: 12px; }
+/* The icon and the name share a centred column: the mark sits directly above
+   the title, so all three cards read as one shape regardless of name length. */
+.agent-card { position: relative; padding: 28px 24px 24px; }
+.agent-title { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.agent-name { display: grid; justify-items: center; gap: 4px; }
 .agent-title h2 { font: 600 18px/1.3 var(--font-display); letter-spacing: -.35px; }
-.agent-title p { margin-top: 3px; color: var(--muted); font-size: 10px; }
-.agent-icon { width: 36px; height: 36px; display: grid; place-items: center; overflow: hidden; border-radius: 10px; font-size: 18px; }
-.agent-icon.codex { background: #fff; }
-.agent-icon.claude { padding: 7px; background: #f2e9dd; }
-.agent-icon.claude img { width: 100%; height: 100%; display: block; object-fit: contain; }
-/* The card's icon box matches the others; ZCode's plate is scaled to fill
-   it the way its own window shows it. */
-.agent-icon.zcode { background: transparent; overflow: visible; }
-.agent-icon.zcode img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-  transform: scale(1.32);
+.agent-title p { margin-top: 0; color: var(--muted); font-size: 10px; }
+/* Each mark is sized by how much of its own art is ink, not by the art's
+   canvas: Codex's tile and ZCode's plate carry their own padding, while
+   Claude's asterisk is full-bleed, so the sizes differ to look equal. */
+.agent-icon { width: 52px; height: 52px; display: grid; place-items: center; }
+.agent-icon img { display: block; object-fit: contain; }
+.agent-icon.codex img { width: 48px; height: 48px; }
+.agent-icon.claude img { width: 36px; height: 36px; }
+.agent-icon.zcode img { width: 44px; height: 44px; }
+.connection-state {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 9px;
 }
-.connection-state { margin-left: auto; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 9px; }
 .connection-state.on { border-color: #d2e3d6; color: #46785a; background: #edf5ef; }
 .agent-detail { display: flex; justify-content: space-between; gap: 10px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--line-soft); font-size: 10px; }
 .agent-detail span { color: var(--faint); }
@@ -443,9 +459,13 @@ h1 {
 .card-actions { margin-top: 18px; }
 .card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 10px; box-shadow: none; }
 .models-panel { overflow: hidden; padding: 0; }
+/* Head and rows share one track definition, so the columns always line up;
+   equal widths keep the table calm — the name cell ellipsizes, not jumps. */
+.model-head, .model-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
 .model-head {
   display: grid;
-  grid-template-columns: 2.1fr .9fr .85fr .9fr .72fr;
   gap: 12px;
   padding: 13px 22px;
   border-bottom: 1px solid var(--line);
@@ -457,7 +477,6 @@ h1 {
 }
 .model-row {
   display: grid;
-  grid-template-columns: 2.1fr .9fr .85fr .9fr .72fr;
   align-items: center;
   gap: 12px;
   padding: 15px 22px;
@@ -477,6 +496,11 @@ h1 {
 .setting-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line-soft); font-size: 10px; }
 .setting-row span { width: 64px; color: var(--faint); }
 .setting-row code { flex: 1; overflow: hidden; color: #777a73; text-overflow: ellipsis; white-space: nowrap; }
+#gateway-port { width: 74px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; font: 600 11px/1.2 monospace; color: #4a564b; background: #fff; }
+#gateway-port:focus { outline: none; border-color: #2d6f4a; }
+#gateway-port::-webkit-outer-spin-button, #gateway-port::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+#gateway-port-note { margin: 0; padding: 0 0 10px; color: #79967f; font-size: 10px; line-height: 1.6; }
+#gateway-port-note.error { color: #a2543f; }
 .switch input { display: none; }
 .switch span { position: relative; display: block; width: 35px; height: 20px; border-radius: 20px; background: #d1d2cc; transition: .18s; }
 .switch span:after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.14); transition: .18s; }
@@ -743,17 +767,20 @@ h1 {
 @media (min-width: 1500px) {
   .view { max-width: 1390px; }
   .route-canvas { min-height: 352px; }
+  .route-node { min-height: 172px; }
+  .lane-node { width: 220px; height: 220px; }
 }
 @media (max-width: 1150px) {
   .sidebar { width: 196px; }
   main { width: calc(100% - 196px); margin-left: 196px; }
   .view { padding-right: 29px; padding-left: 29px; }
-  .route-canvas { grid-template-columns: .92fr 1.02fr 1.24fr; gap: 22px; padding-right: 36px; padding-left: 34px; }
+  .route-canvas { grid-template-columns: 1.08fr 190px 1.08fr; gap: 22px; padding-right: 36px; padding-left: 34px; }
+  .lane-node { width: 190px; height: 190px; }
   .flow-rail, .flow-stream { right: 26%; left: 23%; }
 }
 @media (max-width: 930px) {
   .sidebar { width: 66px; padding-right: 9px; padding-left: 9px; }
-  .nav span, nav p, .side-status { display: none; }
+  .nav span, nav p { display: none; }
   .nav { justify-content: center; padding: 11px 0; }
   .nav i { font-size: 18px; }
   main { width: calc(100% - 66px); margin-left: 66px; }
@@ -765,10 +792,11 @@ h1 {
     --canvas-pad-top: 25px;
     --canvas-pad-bottom: 95px;
     min-height: 320px;
-    grid-template-columns: 1fr 1.02fr 1.2fr;
+    grid-template-columns: 1.08fr 170px 1.08fr;
     gap: 9px;
     padding: var(--canvas-pad-top) 13px var(--canvas-pad-bottom);
   }
+  .lane-node { width: 170px; height: 170px; }
   .flow-rail, .flow-stream { right: 24%; left: 22%; }
 }
 @media (max-height: 760px) {
@@ -782,8 +810,7 @@ h1 {
     padding-top: var(--canvas-pad-top);
     padding-bottom: var(--canvas-pad-bottom);
   }
-  .route-node { min-height: 124px; }
-  .lane-node { min-height: 145px; }
+  .route-node { min-height: 140px; }
 }
 
 /* ---- accounts & daily check-in ------------------------------------------ */
@@ -986,21 +1013,6 @@ h1 {
   font-size: 10px;
 }
 .checkin-progress-head b { color: var(--ink-soft); font: 600 12px/1 var(--font-mono); letter-spacing: .2px; }
-.checkin-meter {
-  height: 4px;
-  margin-top: 9px;
-  overflow: hidden;
-  border-radius: 4px;
-  background: #e9e8e3;
-}
-.checkin-meter i {
-  display: block;
-  width: 0;
-  height: 100%;
-  border-radius: 4px;
-  background: var(--green);
-  transition: width .3s ease;
-}
 
 .checkin-list { margin-top: 13px; }
 .checkin-list[hidden] { display: none; }

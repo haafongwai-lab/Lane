@@ -33,7 +33,7 @@ export function anthropicToChat(body) {
       messages.push({
         role: "tool",
         tool_call_id: result.tool_use_id,
-        content: textOf(result.content) || (typeof result.content === "string" ? result.content : "")
+        content: toolResultContent(result.content)
       });
     }
     const visible = parts.filter((part) => part.type !== "tool_result");
@@ -89,6 +89,23 @@ function toolChoice(choice) {
   return "auto";
 }
 
+// A tool result can carry the screenshot a tool took, not only text; the
+// parts the chat shape can carry are forwarded so an image coming back from
+// a coding agent is not dropped on the way upstream.
+function toolResultContent(content) {
+  if (typeof content === "string") return content;
+  const parts = contentParts(content);
+  if (!parts.some((part) => part?.type === "image")) {
+    return textOf(parts);
+  }
+  return parts.map((part) => {
+    if (part.type === "image") {
+      return { type: "image_url", image_url: { url: dataURLOf(part.source) } };
+    }
+    return { type: "text", text: part.text || "" };
+  });
+}
+
 export function chatToAnthropic(payload, model, id) {
   const choice = payload?.choices?.[0];
   const message = choice?.message || {};
@@ -142,6 +159,9 @@ export function anthropicStreamFromChat(chunkText, state, model) {
     if (!state.started) {
       startAnthropic(out, state, model, payload.usage);
     }
+    // A payload after message_stop would open a new block the protocol has
+    // no place for; the stream has said everything it is going to.
+    if (state.finished) continue;
     if (delta.content) {
       openAnthropicText(out, state);
       out.push(sseData({
@@ -155,11 +175,13 @@ export function anthropicStreamFromChat(chunkText, state, model) {
     }
     if (choice.finish_reason && !state.finished) {
       state.finished = true;
-      closeAnthropicBlock(out, state);
+      finishAnthropicBlocks(out, state);
       out.push(sseData({
         type: "message_delta",
         delta: { stop_reason: anthropicStop(choice.finish_reason), stop_sequence: null },
-        usage: { output_tokens: payload.usage?.completion_tokens || 0 }
+        usage: {
+          output_tokens: payload.usage?.completion_tokens || state.usage?.completion_tokens || 0
+        }
       }));
       out.push(sseData({ type: "message_stop" }));
     }
@@ -224,7 +246,7 @@ export function anthropicMessageFromStream(chunkText, state, model) {
       block.text += delta.content;
     }
     for (const call of delta.tool_calls || []) {
-      if (!block || block.type !== "tool_use" || block._index !== call.index) {
+      if (!block || block.type !== "tool_use" || (call.index ?? 0) !== block._index) {
         flush();
         block = {
           type: "tool_use",
@@ -253,6 +275,7 @@ function startAnthropic(out, state, model, usage) {
   state.block = -1;
   state.openType = "";
   state.toolBlocks = new Map();
+  state.textBlocks = [];
   out.push(sseData({
     type: "message_start",
     message: {
@@ -270,8 +293,8 @@ function startAnthropic(out, state, model, usage) {
 
 function openAnthropicText(out, state) {
   if (state.openType === "text") return;
-  closeAnthropicBlock(out, state);
   state.block += 1;
+  state.textBlocks.push(state.block);
   state.openType = "text";
   out.push(sseData({
     type: "content_block_start",
@@ -280,11 +303,15 @@ function openAnthropicText(out, state) {
   }));
 }
 
+// An OpenAI-shaped upstream may interleave the deltas of parallel tool
+// calls, while the Anthropic stream addresses deltas by block index. Blocks
+// therefore stay open for the whole stream — a delta arriving for a block
+// that already closed could not be said again — and every block closes in
+// the order it opened once the message finishes.
 function openAnthropicTool(out, state, call) {
   const index = call.index ?? 0;
   let block = state.toolBlocks.get(index);
   if (!block) {
-    closeAnthropicBlock(out, state);
     state.block += 1;
     block = {
       index: state.block,
@@ -294,7 +321,6 @@ function openAnthropicTool(out, state, call) {
     };
     state.toolBlocks.set(index, block);
     state.openType = "tool";
-    state.openTool = block;
     out.push(sseData({
       type: "content_block_start",
       index: block.index,
@@ -311,20 +337,26 @@ function openAnthropicTool(out, state, call) {
   }
 }
 
-function closeAnthropicBlock(out, state) {
-  if (state.openType === "tool" && state.openTool && !state.openTool.args) {
-    out.push(sseData({
-      type: "content_block_delta",
-      index: state.openTool.index,
-      delta: { type: "input_json_delta", partial_json: "{}" }
-    }));
+function finishAnthropicBlocks(out, state) {
+  const blocks = [
+    ...state.toolBlocks.values(),
+    ...state.textBlocks.map((index) => ({ index, text: true }))
+  ].sort((a, b) => a.index - b.index);
+  for (const block of blocks) {
+    // A tool the upstream named but never argued gets an empty object, the
+    // same shape a completed call leaves behind.
+    if (!block.text && !block.args) {
+      out.push(sseData({
+        type: "content_block_delta",
+        index: block.index,
+        delta: { type: "input_json_delta", partial_json: "{}" }
+      }));
+    }
+    out.push(sseData({ type: "content_block_stop", index: block.index }));
   }
-  if (state.openType) {
-    const index = state.openType === "tool" ? state.openTool.index : state.block;
-    out.push(sseData({ type: "content_block_stop", index }));
-  }
+  state.toolBlocks.clear();
+  state.textBlocks = [];
   state.openType = "";
-  state.openTool = null;
 }
 
 function upstreamStreamError(error) {

@@ -108,10 +108,10 @@ Build the Windows installer and portable executable:
 npm run build
 ```
 
-The outputs are:
+The outputs are named after the version in package.json:
 
-- `dist\Lane Setup 0.1.0.exe` - per-user installer
-- `dist\Lane 0.1.0.exe` - portable executable
+- `dist\Lane Setup <version>.exe` - per-user installer
+- `dist\Lane <version>.exe` - portable executable
 
 ## Commands
 

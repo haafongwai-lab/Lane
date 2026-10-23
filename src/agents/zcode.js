@@ -45,7 +45,6 @@ export async function connectZcode({
 } = {}) {
   const paths = zcodePaths(env);
   const state = await readState(env);
-  const previous = state.zcode || {};
   const text = await readText(paths.config);
   const hadFile = text !== "";
   let document;

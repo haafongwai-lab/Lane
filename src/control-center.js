@@ -20,10 +20,13 @@ export function createControlCenter({
   port = 3426,
   host = "127.0.0.1",
   onSignIn = () => {},
-  checkins = false
+  checkins = false,
+  // A secondary window attached to a gateway another Lane owns: its journal
+  // follows the owner's file instead of serving the snapshot from start-up.
+  shared = false
 } = {}) {
   const root = dataDir(env);
-  const journal = new RequestJournal({ dir: root });
+  const journal = new RequestJournal({ dir: root, shared });
   const gateway = `http://${host}:${port}`;
   let provider;
   // Keyed by site: the two builds sign in independently, and a pending
@@ -68,6 +71,10 @@ export function createControlCenter({
     });
     return value;
   };
+  // A finished request has just spent credits upstream, so the cached figure
+  // is stale the moment it lands; dropping it here makes the next status
+  // poll read the balance as it is now, not up to a minute late.
+  const invalidateUsage = () => usageCache.clear();
   // Switching, switching off or removing the route invalidates every entry:
   // the figure that matters is always the current account's.
   const forgetUsage = () => usageCache.clear();
@@ -87,12 +94,59 @@ export function createControlCenter({
     return (await instance.accounts()).find((account) => account.id === id) || null;
   };
 
+  const applyConnect = async (agent, options) => {
+    const target = options.gateway || gateway;
+    if (agent === "codex") {
+      const instance = await getProvider();
+      return connectCodex({
+        env,
+        gateway: target,
+        providerModels: () => instance.listModels()
+      });
+    }
+    if (agent === "claude-desktop") {
+      return connectClaudeDesktop({ env, gateway: target });
+    }
+    if (agent === "zcode") {
+      const instance = await getProvider();
+      return connectZcode({
+        env,
+        gateway: target,
+        providerModels: () => instance.listModels()
+      });
+    }
+    throw new Error(`unknown agent: ${agent}`);
+  };
+
+  const applyDisconnect = async (agent) => {
+    if (agent === "codex") return disconnectCodex({ env });
+    if (agent === "claude-desktop") return disconnectClaudeDesktop({ env });
+    if (agent === "zcode") return disconnectZcode({ env });
+    throw new Error(`unknown agent: ${agent}`);
+  };
+
+  // Every wiring change reads, edits and rewrites the one wiring.json; two
+  // changes at once (each agent's toggle clicked in quick succession) would
+  // have the second read the state before the first wrote it, and the file
+  // would remember only one of them.
+  let wiringQueue = Promise.resolve();
+  const serializeWiring = (task) => {
+    const next = wiringQueue.then(task, task);
+    wiringQueue = next.catch(() => {});
+    return next;
+  };
+
   return {
     journal,
 
+    invalidateUsage,
+
     async status() {
       const instance = await getProvider();
-      const models = await instance.listModels();
+      // The status snapshot carries fields that need no network (accounts,
+      // wiring, autostart); a catalogue the upstream cannot serve right now
+      // must not take those down with it.
+      const models = await instance.listModels().catch(() => []);
       const state = await readState(env);
       await syncCodexCatalog({ env, models }).catch(() => {});
       let signedIn = false;
@@ -177,11 +231,21 @@ export function createControlCenter({
       const result = await instance.authorize(site);
       signInPending.set(site, result);
       signInError = "";
-      onSignIn(result);
+      // The plugin polls for at most five minutes; a user who never finishes
+      // the browser round trip would otherwise leave this site's sign-in
+      // slot occupied until Lane restarts.
+      const pendingTimeout = setTimeout(() => signInPending.delete(site), 6 * 60 * 1000);
+      pendingTimeout.unref?.();
+      // No event is sent for the start: the window that asked for the sign-in
+      // already opens the URL from this call's return value, and an event
+      // here would read as "signed in" before the browser is even open.
       result.callback()
         .then(async (auth) => {
           if (auth?.type !== "success") throw new Error(auth?.error || "WorkBuddy sign-in failed");
-          return instance.finishSignIn(result, site);
+          // The outcome is handed over rather than waited for again inside
+          // finishSignIn: the plugin's callback polls a token endpoint that
+          // a second call with the same state need not answer.
+          return instance.finishSignIn(result, site, auth);
         })
         // The window refreshes its status on this second call; the account
         // itself is read from that status, so only clear the error here.
@@ -193,7 +257,10 @@ export function createControlCenter({
           console.error(`WorkBuddy sign-in (${site}) failed: ${signInError}`);
           onSignIn(null, error);
         })
-        .finally(() => { signInPending.delete(site); });
+        .finally(() => {
+          clearTimeout(pendingTimeout);
+          signInPending.delete(site);
+        });
       return { pending: true, url: result.url, site, instructions: result.instructions || "" };
     },
 
@@ -236,6 +303,8 @@ export function createControlCenter({
         force: true,
         only: id ? [id] : null
       });
+      // A check-in tops the balance up, so the old figure must not linger.
+      invalidateUsage();
       return { ...run, overview: await checkinOverview(instance, env) };
     },
 
@@ -249,34 +318,17 @@ export function createControlCenter({
       return checkinOverview(instance, env);
     },
 
-    async connect(agent) {
-      if (agent === "codex") {
-        const instance = await getProvider();
-        return connectCodex({
-          env,
-          gateway,
-          providerModels: () => instance.listModels()
-        });
-      }
-      if (agent === "claude-desktop") {
-        return connectClaudeDesktop({ env, gateway });
-      }
-      if (agent === "zcode") {
-        const instance = await getProvider();
-        return connectZcode({
-          env,
-          gateway,
-          providerModels: () => instance.listModels()
-        });
-      }
-      throw new Error(`unknown agent: ${agent}`);
+    // `options.gateway` overrides the address this control center was built
+    // with: the settings page saves a new port while the running gateway
+    // still owns the old one, and the wirings it rewrites must carry the
+    // address the gateway will listen on after the restart, not the one it
+    // listens on now.
+    async connect(agent, options = {}) {
+      return serializeWiring(() => applyConnect(agent, options));
     },
 
     async disconnect(agent) {
-      if (agent === "codex") return disconnectCodex({ env });
-      if (agent === "claude-desktop") return disconnectClaudeDesktop({ env });
-      if (agent === "zcode") return disconnectZcode({ env });
-      throw new Error(`unknown agent: ${agent}`);
+      return serializeWiring(() => applyDisconnect(agent));
     },
 
     async autostart(enabled, options = {}) {
@@ -313,8 +365,12 @@ export function createControlCenter({
       return report;
     },
 
-    stop() {
+    async stop() {
       scheduler?.stop();
+      // The journal's writes are debounced; a shutdown that skips the flush
+      // loses the tail of the day's requests. Awaited so the CLI and the
+      // desktop can let it land before the process goes.
+      await journal.flush?.();
     }
   };
 }

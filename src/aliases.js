@@ -46,7 +46,7 @@ export function nearestEffort(want, levels) {
   const rank = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
   if (want === "ultra") {
     want = "max";
-    levels = levels.filter((level) => level !== "ultra");
+    if (levels) levels = levels.filter((level) => level !== "ultra");
   }
   const at = rank.indexOf(want);
   if (!levels?.length || at < 0 || levels.includes(want)) return want;

@@ -21,18 +21,13 @@
         <button class="nav" data-view="activity"><i>≡</i><span>请求记录</span></button>
         <button class="nav" data-view="settings"><i>⚙</i><span>设置</span></button>
       </nav>
-
-      <div class="side-status">
-        <div class="status-line"><span class="dot" id="side-dot"></span><span id="side-status">正在连接</span></div>
-        <small>127.0.0.1:3426</small>
-      </div>
     </aside>
 
     <main id="main">
       <section class="view active" id="view-routing">
         <div class="heading-row">
           <div>
-            <div class="eyebrow"><span class="live-dot"></span> 本地链路</div>
+            <div class="eyebrow">本地链路</div>
             <h1>一条链路，清晰好用</h1>
             <p class="sub">Codex、Claude Desktop 与 ZCode 共用一个 WorkBuddy 出口。</p>
           </div>
@@ -77,9 +72,9 @@
 
             <div class="route-node lane-node">
               <span class="node-kicker">LOCAL GATEWAY</span>
-              <div class="lane-emblem"><img src="assets/lane-glyph.png" alt=""></div>
+              <div class="lane-emblem"><img src="assets/lane-emblem.png" alt=""></div>
               <strong class="wordmark">Lane</strong>
-              <span>127.0.0.1:3426</span>
+              <span id="lane-address">127.0.0.1:3426</span>
               <div class="node-state"><i></i><span id="lane-state">运行中</span></div>
             </div>
 
@@ -98,7 +93,7 @@
           <article class="panel health-panel">
             <div class="panel-head"><div><span class="overline">运行状态</span><h3>本机服务</h3></div><span class="health-badge">运行正常</span></div>
             <div class="health-grid">
-              <div><span>网关</span><strong>127.0.0.1:3426</strong><small>HTTP Responses</small></div>
+              <div><span>网关</span><strong id="health-address">127.0.0.1:3426</strong><small>HTTP Responses</small></div>
               <div><span>账号</span><strong id="health-account">—</strong><small id="health-domain">WorkBuddy</small></div>
               <div><span>Codex</span><strong id="health-codex">未接入</strong><small>自动写入配置</small></div>
               <div><span>Claude</span><strong id="health-claude">未接入</strong><small>独立 3p 配置</small></div>
@@ -117,35 +112,35 @@
 
         <div class="agent-grid">
           <article class="agent-card">
+            <span class="connection-state" id="codex-connect-state">未接入</span>
             <div class="agent-title">
               <div class="agent-icon codex"><img src="assets/codex-official.svg" alt=""></div>
-              <div><h2>Codex</h2><p>OpenAI Responses</p></div>
-              <span class="connection-state" id="codex-connect-state">未接入</span>
+              <div class="agent-name"><h2>Codex</h2><p>OpenAI Responses</p></div>
             </div>
             <div class="agent-detail"><span>模型</span><b>Hy3 · WorkBuddy</b></div>
-            <div class="agent-detail"><span>网关</span><code>127.0.0.1:3426/v1</code></div>
+            <div class="agent-detail"><span>网关</span><code id="codex-address">127.0.0.1:3426/v1</code></div>
             <p class="agent-note">写入 Codex Provider 和模型目录。接入后新建会话。</p>
             <div class="card-actions"><button class="primary" id="codex-connect">接入 Codex</button><button class="ghost" id="codex-disconnect">断开</button></div>
           </article>
 
           <article class="agent-card">
+            <span class="connection-state" id="claude-connect-state">未接入</span>
             <div class="agent-title">
               <div class="agent-icon claude"><img src="assets/claude-official.svg" alt=""></div>
-              <div><h2>Claude Desktop</h2><p>Anthropic Messages</p></div>
-              <span class="connection-state" id="claude-connect-state">未接入</span>
+              <div class="agent-name"><h2>Claude Desktop</h2><p>Anthropic Messages</p></div>
             </div>
             <div class="agent-detail"><span>模式</span><b>3p Gateway Profile</b></div>
-            <div class="agent-detail"><span>网关</span><code>127.0.0.1:3426</code></div>
+            <div class="agent-detail"><span>网关</span><code id="claude-address">127.0.0.1:3426</code></div>
             <p class="agent-note">写入独立的 Lane 3p 配置，不影响其他设置。</p>
             <div class="card-actions"><button class="primary" id="claude-connect">接入 Claude</button><button class="ghost" id="claude-disconnect">断开</button></div>
           </article>
 
 
           <article class="agent-card">
+            <span class="connection-state" id="zcode-connect-state">未接入</span>
             <div class="agent-title">
               <div class="agent-icon zcode"><img src="assets/zcode-official-256.png" alt=""></div>
-              <div><h2>ZCode</h2><p>Anthropic Messages</p></div>
-              <span class="connection-state" id="zcode-connect-state">未接入</span>
+              <div class="agent-name"><h2>ZCode</h2><p>Anthropic Messages</p></div>
             </div>
             <div class="agent-detail"><span>方式</span><b>自定义提供方</b></div>
             <div class="agent-detail"><span>配置</span><code>~/.zcode/v2/provider_config.json</code></div>
@@ -198,7 +193,6 @@
 
             <div class="checkin-progress" id="checkin-progress">
               <div class="checkin-progress-head"><span>今日进度</span><b id="checkin-ratio">—</b></div>
-              <div class="checkin-meter"><i id="checkin-fill"></i></div>
             </div>
 
             <div class="checkin-list" id="checkin-list" hidden></div>
@@ -224,9 +218,9 @@
           <div class="heading-actions">
             <span class="usage-updated" id="usage-updated"></span>
             <div class="segmented" id="usage-range" role="tablist">
-              <button class="active" data-range="today" role="tab">今天</button>
-              <button data-range="7d" role="tab">近 7 天</button>
-              <button data-range="30d" role="tab">近 30 天</button>
+              <button data-range="today" role="tab">今天</button>
+              <button class="active" data-range="7d" role="tab">近 7 天</button>
+              <button data-range="15d" role="tab">近 15 天</button>
             </div>
             <button class="ghost" id="refresh-activity">↻ 刷新</button>
           </div>
@@ -275,9 +269,9 @@
         <div class="settings-grid">
           <article class="panel">
             <div class="panel-head"><div><span class="overline">启动</span><h3>开机时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
-            <p class="setting-copy">Windows 启动后自动运行 Lane，不弹出窗口，只驻留系统托盘。托盘菜单的「退出」才会真正停止网关。</p>
-            <div class="setting-row"><span>网关</span><code id="gateway-address">127.0.0.1:3426</code></div>
-            <div class="setting-row"><span>常驻方式</span><code>系统托盘 · 无窗口</code></div>
+            <p class="setting-copy">开机自动运行，只在托盘驻留。</p>
+            <div class="setting-row"><span>网关地址</span><code>127.0.0.1:<input type="number" id="gateway-port" min="1024" max="65535" step="1" inputmode="numeric"></code><button class="text-button" id="gateway-port-save">保存</button></div>
+            <p class="setting-copy" id="gateway-port-note" hidden></p>
           </article>
 
           <article class="panel">

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from "electron";
+import net from "node:net";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -6,13 +7,18 @@ import { createControlCenter } from "../src/control-center.js";
 import { createServer } from "../src/server.js";
 import { WorkBuddyProvider } from "../src/workbuddy.js";
 import { dataDir } from "../src/config.js";
+import { readSettings, writeSettings } from "../src/settings.js";
+import { readState } from "../src/agents/store.js";
 
-const PORT = 3426;
 const HOST = "127.0.0.1";
-const GATEWAY = `http://${HOST}:${PORT}`;
 const isSmokeTest = process.argv.includes("--smoke-test");
 const startHidden = process.argv.includes("--hidden");
 const DESKTOP_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// The port is a setting: read before the gateway starts, written by the
+// settings page. Cached here because every fetch in this file addresses it.
+let PORT = 3426;
+let GATEWAY = `http://${HOST}:${PORT}`;
 
 let window;
 let tray;
@@ -22,27 +28,41 @@ let quitting = false;
 let starting;
 let ownsGateway = false;
 let logStream;
+let consolePatched = false;
 
 app.setAppUserModelId("local.lane.control");
 if (!isSmokeTest) {
   if (!app.requestSingleInstanceLock()) app.exit(0);
-  app.on("second-instance", () => showWindow());
+  // A second launch that was itself started hidden (the autostart entry)
+  // must not pop the window the first instance is keeping in the tray; a
+  // second launch by hand — no --hidden — is a user asking for the window.
+  app.on("second-instance", (_event, argv) => {
+    if (quitting) return;
+    if (!argv.includes("--hidden")) showWindow();
+  });
 }
 
 async function startGateway() {
   if (server?.listening) return;
   if (starting) return starting;
   starting = (async () => {
+    // The port comes from settings.json (or LANE_PORT) and must be known
+    // before both the health probe and the listen call below.
+    const settings = await readSettings().catch(() => ({ port: PORT }));
+    PORT = settings.port;
+    GATEWAY = `http://${HOST}:${PORT}`;
     let alreadyRunning = false;
     try {
       alreadyRunning = await healthy();
     } catch {}
     if (alreadyRunning) {
-      // Another Lane owns the gateway, so it also owns the daily check-in.
+      // Another Lane owns the gateway, so it also owns the daily check-in and
+      // the journal; this window follows the journal's file as it changes.
       control = createControlCenter({
         port: PORT,
         host: HOST,
         checkins: false,
+        shared: true,
         onSignIn: (result, error) => {
           // The plugin's authorize result holds a callback, which cannot cross
           // the IPC boundary; only the URL is any use to the window.
@@ -56,16 +76,26 @@ async function startGateway() {
     }
     const provider = await new WorkBuddyProvider().init();
     await fs.mkdir(dataDir(), { recursive: true });
-    logStream = await fs.open(path.join(dataDir(), "desktop.log"), "a");
-    if (logStream) {
+    if (!logStream) {
+      logStream = await fs.open(path.join(dataDir(), "desktop.log"), "a");
+    }
+    if (!consolePatched) {
+      // Patched once: a retry after a failed start used to wrap console
+      // again, double-writing every line through the previous wrapper and
+      // leaking the earlier file handle.
+      consolePatched = true;
       const originalLog = console.log;
       const originalError = console.error;
+      const writeLine = (line) => {
+        const written = logStream?.write(line);
+        if (written) written.catch(() => {});
+      };
       console.log = (...args) => {
-        logStream.write(`${new Date().toISOString()} ${args.join(" ")}\n`).catch(() => {});
+        writeLine(`${new Date().toISOString()} ${args.join(" ")}\n`);
         originalLog(...args);
       };
       console.error = (...args) => {
-        logStream.write(`${new Date().toISOString()} ERROR ${args.join(" ")}\n`).catch(() => {});
+        writeLine(`${new Date().toISOString()} ERROR ${args.join(" ")}\n`);
         originalError(...args);
       };
     }
@@ -81,10 +111,20 @@ async function startGateway() {
       }
     });
     server = createServer({ provider, control });
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(PORT, HOST, resolve);
-    });
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(PORT, HOST, resolve);
+      });
+    } catch (error) {
+      // A start that failed after the control was built must not leave its
+      // check-in scheduler running behind it, nor a stopped control that
+      // lane:status would mistake for a live gateway and never retry.
+      server = null;
+      await control?.stop?.();
+      control = null;
+      throw error;
+    }
     await writePid();
     ownsGateway = true;
   })();
@@ -98,9 +138,19 @@ async function startGateway() {
 async function stopGateway() {
   await logStream?.close().catch(() => {});
   logStream = null;
+  if (control) {
+    // Stops the check-in scheduler and flushes the debounced journal before
+    // the process goes. A locked pid file must not abort the quit.
+    await control.stop?.().catch(() => {});
+  }
   if (!server) return;
-  await new Promise((resolve) => server.close(resolve));
-  await fs.rm(path.join(dataDir(), "lane.pid"), { force: true });
+  await new Promise((resolve) => {
+    // In-flight SSE streams would otherwise hold close() open until each
+    // generation ends on its own; the gateway is stopping, so they go.
+    server.closeAllConnections?.();
+    server.close(resolve);
+  });
+  await fs.rm(path.join(dataDir(), "lane.pid"), { force: true }).catch(() => {});
   server = null;
   control = null;
   ownsGateway = false;
@@ -109,7 +159,11 @@ async function stopGateway() {
 async function healthy() {
   try {
     const response = await fetch(`${GATEWAY}/healthz`, { signal: AbortSignal.timeout(1200) });
-    return response.ok;
+    if (!response.ok) return false;
+    // A 200 alone can be any local server that happens to answer /healthz;
+    // only another Lane is one this window should follow.
+    const body = await response.json().catch(() => ({}));
+    return body?.name === "lane";
   } catch {
     return false;
   }
@@ -193,7 +247,7 @@ function createTray() {
         label: "退出",
         click: async () => {
           quitting = true;
-          await stopGateway();
+          await stopGateway().catch(() => {});
           app.quit();
         }
       }
@@ -252,10 +306,96 @@ ipcMain.handle("lane:checkin-settings", async (_event, patch) => {
   await startGateway();
   return control.checkinSettings(patch || {});
 });
+ipcMain.handle("lane:gateway-settings", async () => {
+  await startGateway();
+  const settings = await readSettings();
+  return { ...settings, portInUse: PORT, host: HOST };
+});
+async function autostartOn() {
+  const startup = path.join(
+    process.env.APPDATA || "",
+    "Microsoft", "Windows", "Start Menu", "Programs", "Startup"
+  );
+  try {
+    await Promise.any([
+      fs.access(path.join(startup, "Lane Gateway.lnk")),
+      fs.access(path.join(startup, "Lane.lnk"))
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
+  await startGateway();
+  const port = Number(patch?.port);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error("端口需为 1024–65535 之间的整数");
+  }
+  if (port === PORT) return { changed: false, port: PORT, host: HOST };
+  // Probe before saving: a port something else already listens on would
+  // only fail at the next start, which reads as a broken gateway instead
+  // of a bad setting.
+  const busy = await new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(true));
+    probe.once("listening", () => probe.close(() => resolve(false)));
+    probe.listen(port, HOST);
+  });
+  if (busy) throw new Error(`端口 ${port} 已被其他程序占用`);
+  await writeSettings({ port });
+  // The agent wirings carry the old address; rewrite the ones that are on
+  // with the address the gateway will listen on after the restart. Calling
+  // connect() without the override would stamp the port the control center
+  // was built with — the old one — back into every config, and the three
+  // clients would keep pointing at a port nothing listens on.
+  // A LANE_PORT env override still wins after a restart, so the effective
+  // port comes from readSettings, not from the value just saved.
+  const effectivePort = (await readSettings().catch(() => ({ port }))).port;
+  const nextGateway = `http://${HOST}:${effectivePort}`;
+  const state = await readState().catch(() => ({}));
+  const stateKey = { codex: "lane", "claude-desktop": "claude-desktop", zcode: "zcode" };
+  const rewritten = [];
+  for (const agent of ["codex", "claude-desktop", "zcode"]) {
+    try {
+      // Only rewrite wirings that are on: an agent the user disconnected
+      // must not be silently reconnected by a port save.
+      if (!state[stateKey[agent]]?.connected) continue;
+      const result = await control.connect(agent, { gateway: nextGateway });
+      if (result?.connected !== false) rewritten.push(agent);
+    } catch {}
+  }
+  // The autostart runner carries the old port in the node branch's --addr;
+  // an installed autostart is rewritten with the new one so the next logon
+  // starts the gateway where the settings say it will be.
+  let autostartUpdated = false;
+  if (await autostartOn().catch(() => false)) {
+    try {
+      await control.autostart(true, {
+        ...(app.isPackaged ? { desktopExe: process.execPath } : {}),
+        port: effectivePort
+      });
+      autostartUpdated = true;
+    } catch {}
+  }
+  return {
+    changed: true,
+    port: effectivePort,
+    host: HOST,
+    rewritten,
+    autostartUpdated,
+    restartNeeded: ownsGateway
+  };
+});
 ipcMain.handle("lane:open", async (_event, target) => {
   if (target === "data") return shell.openPath(dataDir());
   if (target === "log") {
-    const file = ownsGateway ? path.join(dataDir(), "desktop.log") : path.join(dataDir(), "lane.log");
+    // The owner writes desktop.log; a node runner writes lane.log. Either
+    // window should open whichever of them exists.
+    const laneLog = path.join(dataDir(), "lane.log");
+    const hasLaneLog = await fs.access(laneLog).then(() => true, () => false);
+    const file = ownsGateway || !hasLaneLog ? path.join(dataDir(), "desktop.log") : laneLog;
     return shell.openPath(file);
   }
   return "";
@@ -265,13 +405,18 @@ ipcMain.handle("lane:open-url", async (_event, url) => {
 });
 ipcMain.handle("lane:test", async () => {
   await startGateway();
+  // Ask the live catalogue which model to try: a fixed name would report a
+  // broken link whenever the account's catalogue does not carry it.
+  const model = await control.status()
+    .then((status) => status.models?.[0]?.id || "")
+    .catch(() => "");
   const started = Date.now();
   try {
     const response = await fetch(`${GATEWAY}/v1/responses`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "hy3",
+        model: model || undefined,
         input: "Reply with exactly LANE_OK",
         stream: false
       }),
@@ -298,15 +443,20 @@ ipcMain.handle("lane:view", async (_event, view) => {
 });
 ipcMain.handle("lane:quit", async () => {
   quitting = true;
-  await stopGateway();
+  // A locked file during shutdown must not leave a windowless process
+  // behind; the quit proceeds either way.
+  await stopGateway().catch(() => {});
   app.quit();
 });
 
 app.whenReady().then(async () => {
   createWindow();
+  // The tray exists before the gateway starts: a start that fails leaves a
+  // window whose close button hides it, and without a tray the process
+  // could only be killed from the task manager.
+  createTray();
   try {
     await startGateway();
-    createTray();
   } catch (error) {
     if (!isSmokeTest) {
       dialog.showErrorBox("Lane 无法启动", error?.stack || error?.message || String(error));

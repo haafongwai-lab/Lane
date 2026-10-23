@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -8,12 +9,36 @@ const MAX_ROWS = 6000;
 // time would repeat tens of kilobytes that only the usage page reads.
 const MAX_RECENT = 20;
 const TRIM_EVERY = 200;
+// start/note/usage arrive in bursts inside one request's lifetime; merging
+// them into one write keeps a busy gateway from sync-writing megabytes of
+// pretty JSON several times per request. finish() flushes at once, so a
+// completed request is on disk before its answer leaves.
+const SAVE_DEBOUNCE_MS = 250;
+
+// EPERM says the pid exists but belongs to someone else; only ESRCH says it
+// is gone. Anything unknown reads as alive, so a live owner's rows are never
+// mistaken for a crash.
+function processAlive(pid) {
+  if (!Number.isFinite(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
 
 export class RequestJournal {
-  constructor({ dir }) {
+  constructor({ dir, shared = false }) {
     this.dir = dir;
     this.file = path.join(dir, "activity.json");
+    // A secondary window owns no requests; it reads the file the gateway's
+    // process writes and follows it as it changes.
+    this.shared = shared;
     this.requests = [];
+    this.saveTimer = null;
+    this.writing = Promise.resolve();
+    this.writeFailed = false;
     this.load();
   }
 
@@ -26,12 +51,19 @@ export class RequestJournal {
       this.requests = rows
         .filter((request) => Number.isFinite(request?.startedAt))
         .slice(0, MAX_ROWS);
-      for (const request of this.requests) {
-        if (request.status === "running" && request.owner !== process.pid) {
-          request.status = "error";
-          request.error = "Lane 上次退出时请求尚未完成";
-          request.finishedAt = request.finishedAt || Date.now();
-          request.durationMs = request.finishedAt - request.startedAt;
+      // Only the process that owns the file rewrites rows left running: its
+      // own are in flight. Another Lane's rows are that Lane's business — a
+      // second process used to mark them failed on sight, breaking the
+      // owner's own view of its live requests; now only a pid that no longer
+      // exists counts as a crash.
+      if (!this.shared) {
+        for (const request of this.requests) {
+          if (request.status === "running" && request.owner !== process.pid && !processAlive(request.owner)) {
+            request.status = "error";
+            request.error = "Lane 上次退出时请求尚未完成";
+            request.finishedAt = request.finishedAt || Date.now();
+            request.durationMs = request.finishedAt - request.startedAt;
+          }
         }
       }
       this.prune();
@@ -93,7 +125,9 @@ export class RequestJournal {
       finishedAt: Date.now()
     });
     request.durationMs = request.finishedAt - request.startedAt;
-    this.save();
+    // The request is over: its final state reaches the disk now, so a crash
+    // right after cannot leave it running forever.
+    this.flush();
   }
 
   usage(id, usage = {}) {
@@ -121,21 +155,63 @@ export class RequestJournal {
   }
 
   list() {
+    // The gateway's own journal changes only through its requests, so its
+    // copy is the truth. A reader's copy would go stale, so it re-reads
+    // the file on every read instead.
+    if (this.shared) this.load();
     return this.requests;
   }
 
   // What the status snapshot carries: enough for the route card and the
   // activity list, without repeating the whole journal every poll.
   recent(limit = MAX_RECENT) {
-    return this.requests.slice(0, limit);
+    return this.list().slice(0, limit);
   }
 
+  // Merges a burst of changes into one write, shortly from now.
   save() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.write();
+    }, SAVE_DEBOUNCE_MS);
+    this.saveTimer.unref?.();
+  }
+
+  // Cancels the debounce and writes now. Awaited by shutdown and by every
+  // request's finish.
+  flush() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    return this.write();
+  }
+
+  write() {
+    // A shared journal follows the owner's file; flushing its own stale
+    // snapshot over the owner's newer rows would lose them, so a reader
+    // never writes.
+    if (this.shared) return Promise.resolve();
+    const run = this.writing.then(() => this.writeNow());
+    this.writing = run.catch(() => {});
+    return run;
+  }
+
+  async writeNow() {
     try {
-      fs.mkdirSync(this.dir, { recursive: true });
+      await fsp.mkdir(this.dir, { recursive: true });
       const target = `${this.file}.${process.pid}.tmp`;
-      fs.writeFileSync(target, `${JSON.stringify(this.requests, null, 2)}\n`, "utf8");
-      fs.renameSync(target, this.file);
-    } catch {}
+      await fsp.writeFile(target, `${JSON.stringify(this.requests, null, 2)}\n`, "utf8");
+      await fsp.rename(target, this.file);
+    } catch (error) {
+      // A journal that cannot be written must at least say so once: losing
+      // the day's accounting silently (disk full, directory deleted) reads
+      // as a gateway that records nothing.
+      if (!this.writeFailed) {
+        this.writeFailed = true;
+        console.error(`lane: cannot save the request journal to ${this.file}: ${error?.message || error}`);
+      }
+    }
   }
 }

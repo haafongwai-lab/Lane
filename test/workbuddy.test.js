@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { WorkBuddyProvider } from "../src/workbuddy.js";
 
 // A provider with one account already signed in, and hooks standing in for
@@ -195,4 +198,51 @@ test("a switched-off account is not the route", async () => {
   provider.sessions.set("u1", { id: "u1", auth: { access: "first" }, hooks: {}, loader: null });
 
   assert.equal(await provider.signedIn(), false);
+});
+
+test("model discovery asks the plugin once per burst, not once per caller", async () => {
+  let asked = 0;
+  const provider = providerWith({
+    config(config) {
+      config.provider.workbuddy = { models: {} };
+    },
+    provider: {
+      models: async () => {
+        asked += 1;
+        return { hy3: { name: "Hy3" } };
+      }
+    }
+  });
+
+  // The model routes ask twice per request (resolve, then rate); one load
+  // must serve both.
+  const [a, b] = await Promise.all([provider.listModels(), provider.listModels()]);
+  assert.deepEqual(a, b);
+  assert.equal(asked, 1);
+  // And the second burst inside the cache window is not a new ask either.
+  await provider.listModels();
+  assert.equal(asked, 1);
+});
+
+test("an awaited sign-in result is stored without polling the callback again", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lane-signin-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { LANE_DATA_DIR: dir };
+  let polls = 0;
+  const result = {
+    site: "workbuddy",
+    callback: async () => {
+      polls += 1;
+      return { type: "success", access: "a", refresh: "r", uid: "u9", accountId: "ninth" };
+    }
+  };
+  const provider = new WorkBuddyProvider({ env });
+  await provider.init();
+  // The control center waits for the callback itself, then hands the outcome
+  // over; the store must not poll the same state a second time.
+  const auth = await result.callback();
+  const stored = await provider.finishSignIn(result, "workbuddy", auth);
+  assert.equal(stored.id, "u9");
+  assert.equal(polls, 1);
+  assert.equal(await provider.activeId(), "u9");
 });
