@@ -613,7 +613,10 @@ h1 {
   align-items: flex-end;
   justify-content: center;
   gap: 3px;
-  height: 100%;
+  /* The rest of the column after the date label — a height:100% here would
+     resolve against the whole column and push bars past the chart's top. */
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0 6%;
   border-bottom: 1px solid var(--line-soft);
 }

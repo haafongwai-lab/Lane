@@ -558,14 +558,30 @@ function renderUsageChart(series) {
         const height = (value) => (empty ? 0.6 : Math.max(value, 1.5)).toFixed(1);
         return `<div class="usage-bar${empty ? " quiet" : ""}" data-tip="${esc(detail)}">
           <div class="usage-bar-track">
-            <i class="credits" style="height:${height(creditHeight)}%"></i>
-            ${showTokens ? `<i class="tokens" style="height:${height(tokenHeight)}%"></i>` : ""}
+            <i class="credits" data-h="${height(creditHeight)}" style="height:0%"></i>
+            ${showTokens ? `<i class="tokens" data-h="${height(tokenHeight)}" style="height:0%"></i>` : ""}
           </div>
           <span>${esc(label)}</span>
         </div>`;
       }).join("")}
     </div>
     <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)}（¥${rmb(peak.credits)}） · 请求 ${peak.requests} 次</p>`;
+  growUsageBars(node);
+}
+
+// The bars' entrance: they start at zero and grow to their day's height,
+// staggered left to right — the same easing and stagger language as the
+// donut's sweep-in. Motion-averse settings get the finished chart.
+function growUsageBars(node) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  node.querySelectorAll(".usage-bar-track i").forEach((bar, i) => {
+    const target = bar.dataset.h;
+    if (!target) return;
+    bar.style.transition = "none";
+    bar.getBoundingClientRect();
+    bar.style.transition = `height .7s cubic-bezier(.25,.7,.3,1) ${i * 40}ms`;
+    bar.style.height = `${target}%`;
+  });
 }
 
 // WorkBuddy's own meter: the cycle's credits against what the plan grants.
