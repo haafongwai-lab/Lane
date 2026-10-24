@@ -229,6 +229,7 @@ function render() {
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
   $("#log-name").textContent = snapshot.ownsGateway === false ? "lane.log" : "desktop.log";
+  $("#app-version").textContent = snapshot.version ? `v${snapshot.version}` : "—";
   // A toggle that is still running its command keeps its own state: the
   // autostart call spawns PowerShell with a 30s timeout, and a poll tick
   // that lands first would visibly snap the switch back and invite a second

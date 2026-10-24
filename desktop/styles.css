@@ -802,6 +802,18 @@ h1 {
 .about-panel { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .about-panel h3 { margin-top: 5px; }
 .about-panel p { margin-top: 4px; color: var(--muted); font-size: 11px; }
+/* The version sits beside the quit button, quiet enough not to compete with
+   the card's own copy. */
+.about-side { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.about-version {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--faint);
+  background: rgba(255, 255, 255, .5);
+  font: 600 11px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 
 /* The app's own hover popup, standing in for the browser's title tooltip:
    white and rounded, up as soon as the pointer arrives. Newlines in the

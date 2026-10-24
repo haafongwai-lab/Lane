@@ -288,14 +288,18 @@ ipcMain.handle("lane:status", async () => {
       console.error(`lane: gateway start failed: ${message}`);
     }
   }
+  // `version` is this app's own every time, not a followed gateway's: the
+  // settings page reports the build the user installed. The external
+  // gateway's /lane/status may name a different Lane.
   if (control && ownsGateway) {
     return {
       ...await control.status(),
       ownsGateway: true,
+      version: app.getVersion(),
       executable: app.isPackaged ? process.execPath : ""
     };
   }
-  return fetchExternalStatus();
+  return { ...await fetchExternalStatus(), version: app.getVersion() };
 });
 ipcMain.handle("lane:usage", async (_event, { range } = {}) => {
   await startGateway();
