@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { summary, rangeDays, localDateKey } from "../src/usage.js";
+import { summary, rangeDays, localDateKey, billedRates } from "../src/usage.js";
 
 const at = (iso) => new Date(iso).getTime();
 
@@ -76,10 +76,10 @@ test("billed credits are summed from what the upstream charged", () => {
 
 test("a row the upstream did not cost is an estimate, never a billed credit", () => {
   // Rows written before the journal read the upstream's `credit` carry no
-  // source; the token formula fills in, and the summary keeps it apart —
-  // measured on real traffic it is a different quantity on a smaller scale.
+  // source; the token formula fills in, priced by the calibrated
+  // credits-per-million rate — the row's declared multiple never costs.
   const rows = [request({ id: "a", creditsSource: undefined, credits: undefined, rate: 0.5 })];
-  const report = summary(rows, { range: "today", now: NOW });
+  const report = summary(rows, { range: "today", now: NOW, rateFor: () => 0.5 });
   assert.equal(report.totals.credits, 0);
   assert.ok(Math.abs(report.totals.estimatedCredits - 0.5) < 1e-9);
   assert.equal(report.models[0].rate, 0.5);
@@ -98,9 +98,31 @@ test("billed and estimated credits are never added", () => {
     request({ id: "a", credits: 7.28, creditsSource: "upstream" }),
     request({ id: "b", credits: undefined, creditsSource: "estimate", rate: 0.11, inputTokens: 45_000, outputTokens: 500, totalTokens: 45_500 })
   ];
-  const report = summary(rows, { range: "today", now: NOW });
+  const report = summary(rows, { range: "today", now: NOW, rateFor: () => 0.11 });
   assert.equal(report.totals.credits, 7.28);
   assert.ok(Math.abs(report.totals.estimatedCredits - 45_500 / 1e6 * 0.11) < 1e-9);
+});
+
+test("billedRates calibrates a price only from enough billed traffic", () => {
+  const rows = [
+    request({ id: "a", model: "glm", credits: 5.4, creditsSource: "upstream", inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 }),
+    request({ id: "b", model: "glm", credits: 5.4, creditsSource: "upstream", inputTokens: 500_000, outputTokens: 0, totalTokens: 500_000 }),
+    // Too little billed traffic to trust an average.
+    request({ id: "c", model: "tiny", credits: 0.01, creditsSource: "upstream", inputTokens: 500, outputTokens: 0, totalTokens: 500 }),
+    // Estimate rows never feed the calibration.
+    request({ id: "d", model: "deepseek", credits: 9, creditsSource: "estimate", inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 })
+  ];
+  const rates = billedRates(rows);
+  assert.ok(Math.abs(rates.get("glm") - 7.2) < 1e-9);
+  assert.equal(rates.has("tiny"), false);
+  assert.equal(rates.has("deepseek"), false);
+
+  // With no calibrated price, uncosted rows contribute tokens but no credits.
+  const report = summary(
+    [request({ id: "e", model: "deepseek", credits: undefined, creditsSource: undefined, rate: 0.11 })],
+    { range: "today", now: NOW, rateFor: (id) => rates.get(id) ?? null }
+  );
+  assert.equal(report.totals.estimatedCredits, 0);
 });
 
 test("cached input never exceeds the input it came from", () => {

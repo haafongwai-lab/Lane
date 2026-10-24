@@ -6,11 +6,12 @@
  *   - billed credits: what WorkBuddy itself charged, from the `credit` field
  *     of the usage report its stream carries. Measured against a real
  *     account, this is the number the quota meter moves by.
- *   - estimated credits: Lane's own `(tokens ÷ 1,000,000) × rate` arithmetic,
- *     for rows written before the upstream number was read and for upstreams
- *     that do not report one. Measured on the same traffic, it lands around
- *     1/230th of the billed figure — a different quantity on a smaller scale,
- *     which is why mixing them would understate every billed total.
+ *   - estimated credits: `(tokens ÷ 1,000,000) × price`, for rows written
+ *     before the upstream number was read and for upstreams that do not
+ *     report one. The price is calibrated from the journal's own billed rows
+ *     (`billedRates` below) — the catalogue's `rate` is a relative multiple
+ *     (×0.08), not a credits-per-million price, and costing with it
+ *     understated WorkBuddy's charge by two orders of magnitude.
  *
  * Context capacity and cache hit are computed per project (the working
  * directory a request came from): one long-running repository and a one-shot
@@ -91,25 +92,56 @@ function accumulate(row, { input, output, total, cached, credits, estimatedCredi
  * A row the upstream cost carries `creditsSource: "upstream"`; rows written
  * before that field existed carry no source at all, and every one of them was
  * costed by the token formula — so both read as estimates, and only the
- * upstream's own number counts as billed.
+ * upstream's own number counts as billed. The formula's price comes from
+ * `rateFor` alone: the row's own `rate` field is the catalogue's relative
+ * multiple (×0.08), not a credits-per-million price, so it never costs
+ * anything here.
  */
 function creditSplit(request, rateFor) {
   if (request.creditsSource === "upstream" && Number.isFinite(request.credits)) {
     return { credits: request.credits, estimatedCredits: 0 };
   }
-  const rate = Number.isFinite(request.rate) ? request.rate : Number(rateFor(request.model)) || 0;
-  const estimated = Number.isFinite(rate) && rate > 0
-    ? ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * rate
+  const price = Number(rateFor(request.model)) || 0;
+  const estimated = price > 0
+    ? ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * price
     : 0;
   return { credits: 0, estimatedCredits: estimated };
 }
 
 /**
+ * The calibrated price of each model, as credits per million tokens, read
+ * from the journal's own upstream-billed rows. A model needs at least
+ * CALIBRATION_MIN_TOKENS billed tokens before its average is trusted: one
+ * tiny request makes a wildly wrong price, and no price at all is better
+ * than a fabricated one.
+ */
+export function billedRates(requests = []) {
+  const billed = new Map();
+  for (const request of requests) {
+    if (request?.creditsSource !== "upstream" || !Number.isFinite(request.credits) || request.credits <= 0) continue;
+    const tokens = (request.inputTokens || 0) + (request.outputTokens || 0);
+    if (tokens <= 0) continue;
+    const entry = billed.get(request.model) || { credits: 0, tokens: 0 };
+    entry.credits += request.credits;
+    entry.tokens += tokens;
+    billed.set(request.model, entry);
+  }
+  const rates = new Map();
+  for (const [model, { credits, tokens }] of billed) {
+    if (tokens >= CALIBRATION_MIN_TOKENS) rates.set(model, credits / (tokens / 1_000_000));
+  }
+  return rates;
+}
+
+const CALIBRATION_MIN_TOKENS = 100_000;
+
+/**
  * `summary(requests, { range, now, rateFor })`
  *
- * `rateFor(model)` fills in the multiple for requests recorded before the
- * journal kept one — it costs estimates only, never billed credits.
- * `requests` is the journal's list, newest first.
+ * `rateFor(model)` is the calibrated credits-per-million price (see
+ * `billedRates`) — it costs estimates only, never billed credits. A row's
+ * own `rate` field is the catalogue's declared multiple and is kept for
+ * display, not for costing. `requests` is the journal's list, newest first.
  */
 export function summary(requests = [], { range = "today", now = Date.now(), rateFor = () => null } = {}) {
   const days = rangeDays(range);
@@ -133,7 +165,9 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     const day = localDateKey(new Date(request.startedAt));
     if (!wanted.has(day)) continue;
 
-    const rate = Number.isFinite(request.rate) ? request.rate : Number(rateFor(request.model)) || 0;
+    // The declared multiple is display-only (the models table shows ×rate);
+    // costing goes through the calibrated price inside creditSplit.
+    const rate = Number.isFinite(request.rate) ? request.rate : null;
     const { credits, estimatedCredits } = creditSplit(request, rateFor);
     const input = request.inputTokens || 0;
     const output = request.outputTokens || 0;
