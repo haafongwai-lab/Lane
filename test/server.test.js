@@ -486,6 +486,52 @@ test("a chat completion that asks for a stream keeps the upstream events", async
   }
 });
 
+test("a streamed upstream error event is forwarded and journalled as an error", async () => {
+  // The plain-answer path already failed the assembly on an error event;
+  // the streamed path used to forward it and still record the request as
+  // complete, hiding the failure from the activity list.
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      return new Response([
+        `data: ${JSON.stringify({ id: "c1", model: "auto", created: 1, choices: [{ index: 0, delta: { content: "par" } }] })}\n\n`,
+        `data: ${JSON.stringify({ error: { message: "quota exhausted" } })}\n\n`,
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const finished = [];
+  const control = {
+    journal: {
+      start: () => ({ id: "r1", startedAt: Date.now() }),
+      note() {},
+      usage() {},
+      finish: (id, values) => finished.push(values)
+    },
+    invalidateUsage() {}
+  };
+  const server = createServer({ provider, control });
+  const base = await listen(server);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }], stream: true })
+    });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    // The client sees the error event exactly as the upstream sent it, and
+    // the stream still terminates cleanly.
+    assert.match(text, /quota exhausted/);
+    assert.match(text, /data: \[DONE\]/);
+    assert.equal(finished.length, 1);
+    assert.equal(finished[0].status, "error");
+    assert.match(finished[0].error, /quota exhausted/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("a non-stream chat completion stitches tool calls back together", async () => {
   const provider = {
     async listModels() { return [{ id: "auto", name: "Auto" }]; },

@@ -219,7 +219,12 @@ export function responsesStreamError(error) {
 export function responsesObjectFromStream(chunkText, state, model) {
   const events = parseSSEData(chunkText);
   const whole = events.find((payload) => payload?.object === "response");
-  if (whole) return whole;
+  // Even a whole-object passthrough leaves its usage on the state, so the
+  // journal's cost hook still sees what the upstream reported.
+  if (whole) {
+    if (whole.usage && typeof whole.usage === "object") state.usage = whole.usage;
+    return whole;
+  }
   const output = [];
   let text = "";
   const calls = new Map();

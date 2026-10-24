@@ -462,6 +462,14 @@ async function relayChat(res, upstream, body, options = {}) {
   let firstText = false;
   let finishReason = null;
   let seen = 0;
+  let streamError = null;
+  // The message an upstream error event carries, for both answer shapes.
+  const errorOf = (event) => {
+    if (!event?.error) return null;
+    return typeof event.error === "string"
+      ? event.error
+      : event.error.message || "upstream stream failed";
+  };
 
   // The response head waits: a client that asked for a plain answer gets
   // JSON, and one that asked for a stream gets events, so the head is only
@@ -502,13 +510,15 @@ async function relayChat(res, upstream, body, options = {}) {
       for (const event of parseSSEData(decoder.push(chunk))) {
         collect(event, false);
         res.write(`data: ${JSON.stringify(event)}\n\n`);
+        streamError ||= errorOf(event);
       }
     }
     for (const event of parseSSEData(decoder.finish())) {
       collect(event, false);
       res.write(`data: ${JSON.stringify(event)}\n\n`);
+      streamError ||= errorOf(event);
     }
-    if (!finishReason) {
+    if (!finishReason && !streamError) {
       // An upstream that ended without a finish_reason would leave a strict
       // client waiting for one; the same ending proxyProtocol synthesizes.
       if (!seen) throw new Error("upstream stream ended without a response");
@@ -520,11 +530,8 @@ async function relayChat(res, upstream, body, options = {}) {
     res.end();
   } else {
     const failUpstream = (event) => {
-      if (!event?.error) return false;
-      const message = typeof event.error === "string"
-        ? event.error
-        : event.error.message || "upstream stream failed";
-      throw Object.assign(new Error(message), { status: 502 });
+      const message = errorOf(event);
+      if (message) throw Object.assign(new Error(message), { status: 502 });
     };
     for await (const chunk of upstream.body || []) {
       for (const event of parseSSEData(decoder.push(chunk))) {
@@ -586,8 +593,13 @@ async function relayChat(res, upstream, body, options = {}) {
     });
   }
 
+  // A stream that carried an upstream error event reached the client as one,
+  // but the journal must not call that request complete — the same rule the
+  // plain-answer path enforces by failing the assembly.
   if (usage) journal?.usage(record?.id, usage);
-  journal?.finish(record?.id, { status: "complete" });
+  journal?.finish(record?.id, streamError
+    ? { status: "error", error: streamError }
+    : { status: "complete" });
   options.control?.invalidateUsage?.();
 }
 
@@ -732,12 +744,17 @@ async function proxyProtocol(res, provider, chat, options) {
         if (!res.writableEnded) upstream.body?.cancel?.()?.catch?.(() => {});
       });
       const decoder = new SSEDecoder();
+      // First *content*, not first byte: heartbeats and usage-only pings are
+      // chunks too, and the converters raise state.started only on a payload
+      // with choices.
+      let notedText = false;
       for await (const chunk of upstream.body || []) {
-        if (!state.started && options.record) {
-          options.control?.journal.note(options.record.id, { firstTextMs: Date.now() - options.record.startedAt });
-        }
         const converted = options.streamConvert(decoder.push(chunk), state);
         if (converted) res.write(converted);
+        if (!notedText && state.started && options.record) {
+          notedText = true;
+          options.control?.journal.note(options.record.id, { firstTextMs: Date.now() - options.record.startedAt });
+        }
       }
       const tail = options.streamConvert(decoder.finish(), state);
       if (tail) res.write(tail);
