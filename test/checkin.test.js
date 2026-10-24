@@ -195,6 +195,40 @@ test("concurrent settings saves never corrupt the file", async () => {
   }
 });
 
+test("check-in settings work on a data directory that does not exist yet", async () => {
+  // The check-in lock had the same missing-mkdir defect as the accounts lock:
+  // the lock file was opened before anything created the directory, so
+  // `lane checkin on|off|at` failed with ENOENT on a fresh install.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lane-checkin-fresh-"));
+  const env = { LANE_DATA_DIR: path.join(root, "lane") };
+  try {
+    await assert.rejects(fs.access(env.LANE_DATA_DIR), { code: "ENOENT" });
+    const settings = await updateSettings({ hour: 8, minute: 30 }, env);
+    assert.equal(settings.hour, 8);
+    assert.equal(settings.minute, 30);
+    assert.equal((await readCheckin(env)).settings.hour, 8);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty stale check-in lock does not wedge the settings", async () => {
+  // The same empty-lock-reads-as-pid-0 wedge as accounts.json.lock.
+  const { env, dir } = await tempEnv();
+  try {
+    const lock = path.join(dir, "checkin.json.lock");
+    await fs.writeFile(lock, "");
+    const old = new Date(Date.now() - 120_000);
+    await fs.utimes(lock, old, old);
+
+    const settings = await updateSettings({ enabled: false }, env);
+    assert.equal(settings.enabled, false);
+    await assert.rejects(fs.access(lock), { code: "ENOENT" });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("the check-in call carries the account's own headers", () => {
   const headers = signHeaders(
     { access: "tok", uid: "uid-1", domain: "www.workbuddy.cn", enterpriseId: "ent-9" },

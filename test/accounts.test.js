@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import {
   loadAccounts,
   readAccounts,
@@ -10,7 +11,8 @@ import {
   activateAccount,
   setAccountEnabled,
   removeAccount,
-  publicAccount
+  publicAccount,
+  crossProcessLock
 } from "../src/accounts.js";
 
 async function tempEnv() {
@@ -140,6 +142,75 @@ test("an account with no uid is not silently merged into another", async () => {
     () => upsertAccount({ type: "oauth", access: "x" }, env),
     /no account id/
   );
+});
+
+test("a data directory that does not exist yet is created before the lock", async () => {
+  // 0.2.7's `lane doctor`, `login`, `checkin` and `accounts` all died with
+  // ENOENT on a fresh install: the lock file was opened without ever creating
+  // the directory it lives in — only `lane serve` worked, because claiming the
+  // seat happened to create it first.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lane-accounts-fresh-"));
+  const env = { LANE_DATA_DIR: path.join(root, "lane") };
+  try {
+    await assert.rejects(fs.access(env.LANE_DATA_DIR), { code: "ENOENT" });
+    const state = await loadAccounts(env);
+    assert.equal(state.accounts.length, 0);
+    const saved = await upsertAccount(authFor("uid-1", "first"), env);
+    assert.equal(saved.id, "uid-1");
+    assert.equal((await readAccounts(env)).activeId, "uid-1");
+    // And the directory the lock lives in is the one the state landed in.
+    assert.ok(await fs.stat(env.LANE_DATA_DIR));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty stale lock file does not wedge the store", async () => {
+  // A holder killed between creating the lock and writing its pid leaves an
+  // empty file. It reads as pid 0, and `kill(0, 0)` succeeds on Windows, so
+  // the stale-takeover branch treated it as a live holder and every account
+  // and check-in command failed until the file was deleted by hand.
+  const { env, dir } = await tempEnv();
+  try {
+    const lock = path.join(dir, "accounts.json.lock");
+    await fs.writeFile(lock, "");
+    const old = new Date(Date.now() - 120_000);
+    await fs.utimes(lock, old, old);
+
+    const saved = await upsertAccount(authFor("uid-1", "first"), env);
+    assert.equal(saved.id, "uid-1");
+    assert.equal((await readAccounts(env)).activeId, "uid-1");
+    await assert.rejects(fs.access(lock), { code: "ENOENT" });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a lock held by a live process is still respected", async () => {
+  // The fix above must not turn every lock into a free-for-all: a live
+  // holder's lock is refused, even when it is older than the stale window.
+  const { env, dir } = await tempEnv();
+  const other = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"]);
+    child.once("spawn", () => resolve(child));
+    child.once("error", reject);
+  });
+  try {
+    const lock = path.join(dir, "accounts.json.lock");
+    await fs.writeFile(lock, `${other.pid} ${new Date().toISOString()}`);
+    const old = new Date(Date.now() - 120_000);
+    await fs.utimes(lock, old, old);
+
+    // A short wait keeps the test quick; the production wait is 15 s.
+    await assert.rejects(
+      () => crossProcessLock(path.join(dir, "accounts.json"), async () => "ran", { waitMs: 200 }),
+      /locked by another Lane/
+    );
+    assert.ok(await fs.stat(lock), "the live holder's lock is left in place");
+  } finally {
+    other.kill();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("a corrupted accounts.json is kept aside, not silently replaced", async () => {

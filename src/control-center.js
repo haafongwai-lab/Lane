@@ -370,9 +370,11 @@ export function createControlCenter({
     },
 
     /**
-     * Token and credit totals for the usage view. The cost per request comes
-     * from the model's credit multiple; the account's own credits, as
-     * WorkBuddy reports them, are a separate figure and are not mixed in.
+     * Token and credit totals for the usage view. Billed credits come from
+     * the upstream's own `credit` report; the token formula costs only the
+     * rows that predate it, as clearly separate estimates. The account's own
+     * credits, as WorkBuddy reports them, are a separate figure (`quota`) and
+     * are not mixed in.
      */
     async usage(range = "today") {
       const instance = await getProvider();

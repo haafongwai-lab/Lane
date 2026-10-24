@@ -132,20 +132,92 @@ test("a reader journal that flushes does not overwrite the owner's file", async 
   assert.equal(onDisk.length, 2, "the owner's newer rows survive the reader's flush");
 });
 
-test("a request costs the model's multiple per million tokens, on both sides", async (t) => {
+test("credits come from the upstream's own report, not from arithmetic", async (t) => {
   const dir = tempDir(t);
   const journal = new RequestJournal({ dir });
+  // The exact usage object WorkBuddy's stream carries (measured on a real
+  // account): `credit` is what the quota meter moves by — 8.60 credits for a
+  // 45k-token request — while the token formula would have said 0.03.
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "glm-5.3", rate: 0.69 });
+  journal.usage(record.id, {
+    prompt_tokens: 45_000,
+    completion_tokens: 500,
+    total_tokens: 45_500,
+    prompt_cache_hit_tokens: 0,
+    credit: 7.28
+  });
+  const [row] = journal.list();
+  assert.equal(row.credits, 7.28);
+  assert.equal(row.creditsSource, "upstream");
+  await journal.flush();
+});
+
+test("cache hits are read from the field the upstream actually fills", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // This build's `cached_tokens` stays 0 while prompt_tokens_details carries
+  // the hit; reading only the first made every row look uncached.
+  const record = journal.start({ agent: "claude-desktop", endpoint: "/v1/messages", model: "deepseek-v4.1-flash", rate: 0.11 });
+  journal.usage(record.id, {
+    prompt_tokens: 20_013,
+    completion_tokens: 50,
+    total_tokens: 20_063,
+    cached_tokens: 0,
+    prompt_tokens_details: { cached_tokens: 19_840 },
+    credit: 0.01
+  });
+  const [row] = journal.list();
+  assert.equal(row.cachedTokens, 19_840);
+  assert.equal(row.credits, 0.01);
+  await journal.flush();
+});
+
+test("a cache hit larger than its input is clamped to the input", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "claude-desktop", endpoint: "/v1/messages", model: "hy3", rate: 0 });
+  journal.usage(record.id, { prompt_tokens: 1000, completion_tokens: 0, prompt_cache_hit_tokens: 5000 });
+  assert.equal(journal.list()[0].cachedTokens, 1000);
+  await journal.flush();
+});
+
+test("a request the upstream does not cost is an estimate, labelled as one", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // A usage report with no `credit` — an older build's upstream, or a proxy
+  // that strips it — falls back to the token formula, but marked as an
+  // estimate so the summary never sums it with billed credits.
   const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3", rate: 2 });
   journal.usage(record.id, { prompt_tokens: 250_000, completion_tokens: 250_000 });
   const [row] = journal.list();
   assert.equal(row.totalTokens, 500_000);
   assert.equal(row.credits, 1);
+  assert.equal(row.creditsSource, "estimate");
 
   // A model whose multiple the provider could not report stays uncosted
   // rather than being counted as free.
   const unknown = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "mystery" });
   journal.usage(unknown.id, { prompt_tokens: 1000, completion_tokens: 0 });
   assert.equal(journal.list()[0].credits, null);
+  await journal.flush();
+});
+
+test("a request remembers the project it came from", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  journal.start({
+    agent: "codex", endpoint: "/v1/responses", model: "hy3",
+    project: "c:\\repo\\lane", projectName: "lane"
+  });
+  const [row] = journal.list();
+  assert.equal(row.project, "c:\\repo\\lane");
+  assert.equal(row.projectName, "lane");
+
+  // A client that names no directory keeps an empty project rather than a
+  // made-up bucket.
+  journal.start({ agent: "openai", endpoint: "/v1/chat/completions", model: "hy3" });
+  assert.equal(journal.list()[0].project, "");
+  assert.equal(journal.list()[0].projectName, "");
   await journal.flush();
 });
 

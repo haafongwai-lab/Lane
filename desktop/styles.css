@@ -688,6 +688,11 @@ h1 {
   border-bottom: 1px solid var(--line-soft);
   font-size: 10.5px;
 }
+/* The per-project rows inside the context card reuse the same grid minus the
+   share column their model table carries. */
+#usage-context-projects .usage-table-row {
+  grid-template-columns: minmax(0, 1.2fr) .5fr 1.6fr .7fr;
+}
 .usage-table-head {
   padding-top: 0;
   border-bottom-color: var(--line);

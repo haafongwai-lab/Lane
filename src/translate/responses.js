@@ -154,6 +154,9 @@ export function responsesStreamFromChat(chunkText, state, model) {
         : payload.error.message || "upstream stream failed";
       throw Object.assign(new Error(message), { status: 502 });
     }
+    // The raw report rides on the state: `credit` and the cache fields it
+    // carries are what the journal records, and the three fields the client
+    // shape spells would lose them.
     if (payload.usage) state.usage = payload.usage;
     const choice = payload.choices?.[0];
     if (!choice) continue;
@@ -228,7 +231,12 @@ export function responsesObjectFromStream(chunkText, state, model) {
         : payload.error.message || "upstream stream failed";
       throw Object.assign(new Error(message), { status: 502 });
     }
-    if (payload.usage) usage = payload.usage;
+    // The raw report lands on the state for the journal: `credit` and the
+    // cache fields it carries would not survive the three-field client shape.
+    if (payload.usage) {
+      usage = payload.usage;
+      state.usage = payload.usage;
+    }
     const choice = payload.choices?.[0];
     if (!choice) continue;
     const delta = choice.delta || {};

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { processAlive } from "./pid.js";
 
 const KEEP_DAYS = 120;
 const MAX_ROWS = 6000;
@@ -20,17 +21,24 @@ const SAVE_DEBOUNCE_MS = 250;
 // by whatever process inherited the pid. Longer than any real generation.
 const MAX_RUN_MS = 24 * 60 * 60 * 1000;
 
-// EPERM says the pid exists but belongs to someone else; only ESRCH says it
-// is gone. Anything unknown reads as alive, so a live owner's rows are never
-// mistaken for a crash.
-function processAlive(pid) {
-  if (!Number.isFinite(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
+// The pid rules live in pid.js: a live owner's rows are never mistaken for a
+// crash, and a row that names no process at all (pid 0, an empty owner) is not
+// a live owner.
+
+// The credits WorkBuddy says the request cost, in the unit its billing page
+// counts. Absent (undefined) when the upstream did not send one, which is not
+// the same as free — a free model still sends 0.
+export function credited(usage = {}) {
+  const value = usage.credit ?? usage.credits;
+  return Number.isFinite(value) ? value : undefined;
+}
+
+// The token formula, for rows the upstream does not cost on its own. It is
+// Lane's own arithmetic and does not equal the meter — on real traffic it
+// lands around 1/230th of it — so callers label the result an estimate.
+export function estimatedCredits(request = {}) {
+  if (!Number.isFinite(request.rate)) return null;
+  return ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * request.rate;
 }
 
 export class RequestJournal {
@@ -107,11 +115,16 @@ export class RequestJournal {
       .slice(0, MAX_ROWS);
   }
 
-  start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow }) {
+  start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow, project, projectName }) {
     const request = {
       id: randomUUID().replaceAll("-", ""),
       owner: process.pid,
       agent,
+      // The working directory the request came from, as `projectOf` read it;
+      // empty when the client names none, which the usage page reports as
+      // unattributed rather than bucketing it under a made-up project.
+      project: project || "",
+      projectName: projectName || "",
       endpoint,
       requestedModel: requestedModel || "",
       model: model || requestedModel || "",
@@ -131,7 +144,9 @@ export class RequestJournal {
       outputTokens: 0,
       totalTokens: 0,
       cachedTokens: 0,
-      credits: 0,
+      // Null until the upstream reports a cost: 0 would claim the request was
+      // free, which is a different thing from "not billed yet".
+      credits: null,
       firstTextMs: null,
       error: ""
     };
@@ -159,6 +174,23 @@ export class RequestJournal {
     return this.flush();
   }
 
+  /**
+   * The numbers WorkBuddy itself reported for the request.
+   *
+   * `credit` is the one that matters: it is what the request drew from the
+   * account's quota, in the same credits the billing page counts. Lane used
+   * to cost a request as `(tokens ÷ 1,000,000) × rate` and call that credits;
+   * measured against a real account that figure came out about 1/230th of
+   * what the quota actually moved, because `rate` is a per-million-token
+   * multiple on a much smaller scale than the meter. The upstream number is
+   * kept as sent and only the token formula (now labelled an estimate) is
+   * left for rows the upstream does not cost.
+   *
+   * Cache reads are reported three ways and any of them may be the one the
+   * upstream fills: `cached_tokens` is 0 on this build while
+   * `prompt_cache_hit_tokens` and `prompt_tokens_details.cached_tokens`
+   * carry the hit — reading only the first made every row look uncached.
+   */
   usage(id, usage = {}) {
     const request = this.requests.find((entry) => entry.id === id);
     if (!request) return;
@@ -166,13 +198,26 @@ export class RequestJournal {
     request.outputTokens = usage.output_tokens || usage.completion_tokens || request.outputTokens;
     request.totalTokens = usage.total_tokens || request.totalTokens ||
       request.inputTokens + request.outputTokens;
-    request.cachedTokens = usage.input_tokens_details?.cached_tokens ||
-      usage.prompt_tokens_details?.cached_tokens || request.cachedTokens;
-    // WorkBuddy bills a model by the multiple it shows in the picker, so the
-    // request's cost is that multiple per million tokens on both sides.
-    request.credits = Number.isFinite(request.rate)
-      ? ((request.inputTokens + request.outputTokens) / 1_000_000) * request.rate
-      : null;
+    const cached = usage.input_tokens_details?.cached_tokens
+      || usage.prompt_tokens_details?.cached_tokens
+      || usage.prompt_cache_hit_tokens
+      || usage.cache_read_input_tokens
+      || usage.cached_tokens
+      || 0;
+    // A hit can never exceed the input it came from; the field that says so
+    // outranks a stale one left from an earlier chunk.
+    request.cachedTokens = Math.min(cached, request.inputTokens || cached);
+    const billed = credited(usage);
+    if (billed !== undefined) {
+      request.credits = billed;
+      request.creditsSource = "upstream";
+    } else {
+      // No upstream number: the token formula fills in, but it is an
+      // estimate on a much smaller scale than the meter, and the summary
+      // keeps the two apart.
+      request.credits = estimatedCredits(request);
+      request.creditsSource = "estimate";
+    }
     this.save();
   }
 

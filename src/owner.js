@@ -1,29 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
+import { parsePid, processAlive } from "./pid.js";
 
-// EPERM says the pid exists but belongs to someone else; only ESRCH says it
-// is gone. pid 0 never names another process — kill(0) targets the caller's
-// own process group and Windows reports pid 0 as EPERM — so it and every
-// non-pid read as "nobody home": a missing, empty, or half-written seat file
-// must never block a fresh install (a released build once refused to start
-// with "pid 0 owns the data directory" for exactly that reason).
-function processAlive(pid) {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
-// Anything that is not a positive integer — an absent file, an empty line,
-// trailing whitespace — is no owner at all, not pid 0.
-function parsePid(text) {
-  const value = Number(String(text ?? "").trim());
-  return Number.isFinite(value) && value > 0 ? value : NaN;
-}
+// The pid rules — pid 0 is nobody, an empty or half-written file names no
+// owner — live in pid.js so the seat check and the file locks answer them the
+// same way. A released build once refused to start with "pid 0 owns the data
+// directory", and the same defect later wedged the accounts lock, because the
+// two checks were two copies.
 
 /**
  * The gateway seat of a data directory, held in lane.pid. Both owners — the

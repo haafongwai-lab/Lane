@@ -1,15 +1,21 @@
 /**
- * The usage figures the desktop app shows: what the gateway spent, read from
- * the request journal rather than from WorkBuddy's billing page.
+ * The usage figures the desktop app shows, read from the request journal.
  *
- * A request's cost is the model's credit multiple (the `×0.03` WorkBuddy's
- * picker shows) applied per million tokens, on input and output alike. The
- * multiple is kept on each request when it starts, so a catalogue that
- * changes later does not rewrite history.
+ * Two kinds of credits live side by side here, and they are never added:
  *
- * Cached input is billed at the same multiple here: WorkBuddy's billing page
- * reports whole-account credits, which cannot be split per request, so these
- * figures are Lane's own accounting and are labelled as such in the UI.
+ *   - billed credits: what WorkBuddy itself charged, from the `credit` field
+ *     of the usage report its stream carries. Measured against a real
+ *     account, this is the number the quota meter moves by.
+ *   - estimated credits: Lane's own `(tokens ÷ 1,000,000) × rate` arithmetic,
+ *     for rows written before the upstream number was read and for upstreams
+ *     that do not report one. Measured on the same traffic, it lands around
+ *     1/230th of the billed figure — a different quantity on a smaller scale,
+ *     which is why mixing them would understate every billed total.
+ *
+ * Context capacity and cache hit are computed per project (the working
+ * directory a request came from): one long-running repository and a one-shot
+ * question are not comparable, and averaging them hides which of the two is
+ * filling the window.
  */
 
 export const RANGES = [
@@ -18,8 +24,9 @@ export const RANGES = [
   { key: "15d", label: "近 15 天", days: 15 }
 ];
 
-// Credits are shown to two decimals, but a single flash-model request costs
-// a ten-thousandth of one; rounding before summing would lose it entirely.
+// Credits are shown to more decimals than the meter, but a billed credit is
+// quantized to 0.01 upstream; the digits only matter for estimates, which a
+// single flash-model request puts in the ten-thousandths.
 const CREDIT_DIGITS = 6;
 
 export function rangeDays(key) {
@@ -53,17 +60,56 @@ function dayKeys(days, now) {
   return keys;
 }
 
-function creditsOf(request) {
-  if (Number.isFinite(request.credits)) return request.credits;
-  if (!Number.isFinite(request.rate)) return 0;
-  return ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * request.rate;
+const newCounter = () => ({
+  requests: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  cachedTokens: 0,
+  billableTokens: 0,
+  credits: 0,
+  estimatedCredits: 0,
+  failed: 0
+});
+
+// A running total's view of one request.
+function accumulate(row, { input, output, total, cached, credits, estimatedCredits, failed }) {
+  row.requests += 1;
+  row.inputTokens += input;
+  row.outputTokens += output;
+  row.totalTokens += total;
+  row.cachedTokens += cached;
+  row.billableTokens += input - cached + output;
+  row.credits += credits;
+  row.estimatedCredits += estimatedCredits;
+  if (failed) row.failed += 1;
+}
+
+/**
+ * What one request cost, split by where the number came from.
+ *
+ * A row the upstream cost carries `creditsSource: "upstream"`; rows written
+ * before that field existed carry no source at all, and every one of them was
+ * costed by the token formula — so both read as estimates, and only the
+ * upstream's own number counts as billed.
+ */
+function creditSplit(request, rateFor) {
+  if (request.creditsSource === "upstream" && Number.isFinite(request.credits)) {
+    return { credits: request.credits, estimatedCredits: 0 };
+  }
+  const rate = Number.isFinite(request.rate) ? request.rate : Number(rateFor(request.model)) || 0;
+  const estimated = Number.isFinite(rate) && rate > 0
+    ? ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * rate
+    : 0;
+  return { credits: 0, estimatedCredits: estimated };
 }
 
 /**
  * `summary(requests, { range, now, rateFor })`
  *
  * `rateFor(model)` fills in the multiple for requests recorded before the
- * journal kept one. `requests` is the journal's list, newest first.
+ * journal kept one — it costs estimates only, never billed credits.
+ * `requests` is the journal's list, newest first.
  */
 export function summary(requests = [], { range = "today", now = Date.now(), rateFor = () => null } = {}) {
   const days = rangeDays(range);
@@ -71,26 +117,16 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
   const wanted = new Set(keys);
   const startAt = new Date(`${keys[0]}T00:00:00`).getTime();
 
-  const totals = {
-    requests: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    cachedTokens: 0,
-    credits: 0,
-    failed: 0
-  };
-  const byDay = new Map(keys.map((key) => [key, {
-    date: key,
-    requests: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    credits: 0
-  }]));
+  const totals = newCounter();
+  const byDay = new Map(keys.map((key) => [key, { date: key, ...newCounter() }]));
   const byModel = new Map();
   const byAgent = new Map();
-  const context = { used: null, window: null, model: "", fill: null, cacheHit: null };
+  const byProject = new Map();
+  // Per project, the newest request whose input landed in a window the
+  // catalogue named — a chat request resends the whole conversation, so that
+  // input is the conversation's context size. The journal is newest first,
+  // so the first request that qualifies wins for its project.
+  const projectContext = new Map();
 
   for (const request of requests) {
     if (!Number.isFinite(request?.startedAt) || request.startedAt < startAt) continue;
@@ -98,80 +134,71 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     if (!wanted.has(day)) continue;
 
     const rate = Number.isFinite(request.rate) ? request.rate : Number(rateFor(request.model)) || 0;
-    const credit = Number.isFinite(request.credits)
-      ? request.credits
-      : creditsOf({ ...request, rate });
+    const { credits, estimatedCredits } = creditSplit(request, rateFor);
     const input = request.inputTokens || 0;
     const output = request.outputTokens || 0;
     const total = request.totalTokens || input + output;
+    // A cache hit can never exceed the input it came from.
     const cached = Math.min(request.cachedTokens || 0, input);
+    const failed = request.status === "error";
+    const piece = { input, output, total, cached, credits, estimatedCredits, failed };
 
-    // The capacity gauge reads the newest request in the range whose input
-    // landed in a window the catalogue named: a chat request resends the
-    // whole conversation, so that input is the conversation's context size.
-    // The journal is newest first, so the first request that qualifies wins.
-    if (context.used === null && input > 0 && request.contextWindow > 0) {
-      context.used = input;
-      context.window = request.contextWindow;
-      context.model = request.model || "";
-      context.fill = input / request.contextWindow;
-    }
-
-    totals.requests += 1;
-    totals.inputTokens += input;
-    totals.outputTokens += output;
-    totals.totalTokens += total;
-    totals.cachedTokens += cached;
-    totals.credits += credit;
-    if (request.status === "error") totals.failed += 1;
-
+    accumulate(totals, piece);
     const column = byDay.get(day);
-    if (column) {
-      column.requests += 1;
-      column.inputTokens += input;
-      column.outputTokens += output;
-      column.totalTokens += total;
-      column.credits += credit;
-    }
+    if (column) accumulate(column, piece);
 
     const model = request.model || "unknown";
     const modelRow = byModel.get(model) || {
       model,
-      requests: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-      cachedTokens: 0,
-      credits: 0,
-      rate
+      ...newCounter(),
+      rate: Number.isFinite(rate) && rate > 0 ? rate : null
     };
-    modelRow.requests += 1;
-    modelRow.inputTokens += input;
-    modelRow.outputTokens += output;
-    modelRow.totalTokens += total;
-    modelRow.cachedTokens += cached;
-    modelRow.credits += credit;
-    if (!Number.isFinite(modelRow.rate)) modelRow.rate = rate;
+    accumulate(modelRow, piece);
     byModel.set(model, modelRow);
 
     const agent = request.agent || "unknown";
-    const agentRow = byAgent.get(agent) || { agent, requests: 0, totalTokens: 0, credits: 0 };
-    agentRow.requests += 1;
-    agentRow.totalTokens += total;
-    agentRow.credits += credit;
+    const agentRow = byAgent.get(agent) || { agent, ...newCounter() };
+    accumulate(agentRow, piece);
     byAgent.set(agent, agentRow);
+
+    // The project the request came from; an unreadable one stays
+    // unattributed rather than being bucketed under a made-up name.
+    const projectId = request.project || "";
+    const projectRow = byProject.get(projectId) || {
+      id: projectId,
+      name: request.projectName || (projectId ? projectId : ""),
+      ...newCounter()
+    };
+    accumulate(projectRow, piece);
+    byProject.set(projectId, projectRow);
+    if (input > 0 && request.contextWindow > 0 && !projectContext.has(projectId)) {
+      projectContext.set(projectId, {
+        used: input,
+        window: request.contextWindow,
+        model: request.model || "",
+        fill: input / request.contextWindow
+      });
+    }
   }
 
-  const models = [...byModel.values()].sort((a, b) => b.credits - a.credits || b.totalTokens - a.totalTokens);
+  const order = (a, b) =>
+    b.credits - a.credits || b.estimatedCredits - a.estimatedCredits || b.totalTokens - a.totalTokens;
+
+  const models = [...byModel.values()].sort(order);
+  const billedTotal = totals.credits;
   models.forEach((row) => {
-    row.share = totals.credits > 0 ? row.credits / totals.credits : 0;
+    row.share = billedTotal > 0 ? row.credits / billedTotal : 0;
   });
 
-  // Cache hit is weighted by input tokens, not averaged per request: a tiny
-  // request's 100% says less than a large one's 90%.
-  context.cacheHit = totals.inputTokens > 0 ? totals.cachedTokens / totals.inputTokens : null;
+  const projects = [...byProject.values()].map((row) => ({
+    ...row,
+    // Cache hit is weighted by input tokens, not averaged per request: a
+    // tiny request's 100% says less than a large one's 90%.
+    cacheHit: row.inputTokens > 0 ? row.cachedTokens / row.inputTokens : null,
+    context: projectContext.get(row.id) || null
+  })).sort(order);
 
-  const previous = previousTotals(requests, { keys, startAt, rateFor, now });
+  const previous = previousTotals(requests, { keys, startAt, rateFor });
 
   return {
     range,
@@ -181,8 +208,11 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     totals: round(totals),
     series: [...byDay.values()].map(round),
     models,
-    context,
-    agents: [...byAgent.values()].sort((a, b) => b.credits - a.credits),
+    projects,
+    agents: [...byAgent.values()].sort(order),
+    // The newest request overall that named a window, for clients that have
+    // not caught up with the per-project view.
+    context: projectContext.get("") || [...projectContext.values()][0] || null,
     // The same length of time immediately before this range, for the
     // "vs 上一周期" line. Undefined when the journal does not reach back.
     previous
@@ -197,16 +227,15 @@ function previousTotals(requests, { keys, startAt, rateFor }) {
   firstPrevious.setDate(firstPrevious.getDate() - keys.length);
   const from = firstPrevious.getTime();
   const until = startAt;
-  const seen = { requests: 0, credits: 0, totalTokens: 0 };
+  const seen = { requests: 0, credits: 0, estimatedCredits: 0, totalTokens: 0 };
   for (const request of requests) {
     if (!Number.isFinite(request?.startedAt)) continue;
     if (request.startedAt < from || request.startedAt >= until) continue;
-    const rate = Number.isFinite(request.rate) ? request.rate : Number(rateFor(request.model)) || 0;
+    const { credits, estimatedCredits } = creditSplit(request, rateFor);
     seen.requests += 1;
     seen.totalTokens += request.totalTokens || (request.inputTokens || 0) + (request.outputTokens || 0);
-    seen.credits += Number.isFinite(request.credits)
-      ? request.credits
-      : creditsOf({ ...request, rate });
+    seen.credits += credits;
+    seen.estimatedCredits += estimatedCredits;
   }
   return round(seen);
 }
@@ -215,5 +244,8 @@ function previousTotals(requests, { keys, startAt, rateFor }) {
 function round(row) {
   const out = { ...row };
   if (Number.isFinite(out.credits)) out.credits = Number(out.credits.toFixed(CREDIT_DIGITS));
+  if (Number.isFinite(out.estimatedCredits)) {
+    out.estimatedCredits = Number(out.estimatedCredits.toFixed(CREDIT_DIGITS));
+  }
   return out;
 }

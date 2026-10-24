@@ -465,12 +465,18 @@ function percent(value) {
 
 function renderUsage() {
   if (!usage) return;
-  const { totals, series, models, quota, context } = usage;
+  const { totals, series, models, quota, context, projects } = usage;
 
   // One line of headline figures replaces the four metric cards: the totals
-  // still read at a glance, and the chart below carries the detail.
+  // still read at a glance, and the chart below carries the detail. The
+  // credits figure is what WorkBuddy charged (its own `credit` report); the
+  // token-formula estimates on rows it did not cost are a different quantity
+  // and are named as such rather than summed in.
+  const estimateNote = totals.estimatedCredits > 0
+    ? ` <span class="soft-label">另计约 ${credits(totals.estimatedCredits)} 估算积分（未上报扣费的旧记录）</span>`
+    : "";
   $("#usage-summary").innerHTML = [
-    `<b>${credits(totals.credits)}</b> 积分`,
+    `<b>${credits(totals.credits)}</b> 积分${estimateNote}`,
     `<b>${compact(totals.totalTokens)}</b> Token`,
     `<b>${compact(totals.inputTokens)}</b> 输入 / <b>${compact(totals.outputTokens)}</b> 输出`,
     `<b>${totals.requests}</b> 次请求`
@@ -491,13 +497,13 @@ function renderUsage() {
   renderUsageChart(series);
   renderUsageQuota(quota);
   renderUsageModels(models, totals);
-  renderUsageContext(context);
+  renderUsageContext(context, projects);
   renderUsageRecent();
 }
 
-// Bars are paired per day: credits and tokens share the column but not the
-// scale, since one credit is a multiple of a million tokens. A range where
-// nothing ran at all says so instead of drawing a flat empty chart.
+// Bars are paired per day: billed credits and tokens share the column but not
+// the scale. A range where nothing ran at all says so instead of drawing a
+// flat empty chart.
 function renderUsageChart(series) {
   const node = $("#usage-chart");
   const active = series.filter((item) => (item.requests || 0) > 0);
@@ -505,14 +511,18 @@ function renderUsageChart(series) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
     return;
   }
-  const creditMax = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
+  const creditMax = Math.max(...series.map((item) => (Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0)), 0);
   const tokenMax = Math.max(...series.map((item) => Number(item.totalTokens) || 0), 0);
   const showTokens = series.length > 1;
-  const peak = series.reduce((best, item) => ((Number(item.credits) || 0) > (Number(best.credits) || 0) ? item : best), series[0]);
+  const peak = series.reduce((best, item) => (
+    ((Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0)) >
+    ((Number(best.credits) || 0) + (Number(best.estimatedCredits) || 0)) ? item : best
+  ), series[0]);
   node.innerHTML = `
     <div class="usage-bars${showTokens ? "" : " single"}">
       ${series.map((item) => {
-        const creditHeight = creditMax ? (Number(item.credits) || 0) / creditMax * 100 : 0;
+        const dayCredits = (Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0);
+        const creditHeight = creditMax ? dayCredits / creditMax * 100 : 0;
         const tokenHeight = tokenMax ? (Number(item.totalTokens) || 0) / tokenMax * 100 : 0;
         const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
         // One line per figure: the popup renders data-tip verbatim, with
@@ -520,6 +530,7 @@ function renderUsageChart(series) {
         const detail = [
           `${item.date}`,
           `积分 ${credits(item.credits)}`,
+          ...(Number(item.estimatedCredits) > 0 ? [`估算 ${credits(item.estimatedCredits)}`] : []),
           `Token ${compact(item.totalTokens)}`,
           `请求 ${item.requests} 次`
         ].join("\n");
@@ -536,7 +547,7 @@ function renderUsageChart(series) {
         </div>`;
       }).join("")}
     </div>
-    <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)} · 请求 ${peak.requests} 次</p>`;
+    <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits((Number(peak.credits) || 0) + (Number(peak.estimatedCredits) || 0))} · 请求 ${peak.requests} 次</p>`;
 }
 
 // WorkBuddy's own meter: the cycle's credits against what the plan grants.
@@ -588,7 +599,7 @@ function renderUsageModels(models, totals) {
         <div class="usage-model"><b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
         <span>${row.requests}</span>
         <span class="usage-io">${compact(row.inputTokens)} <i>/</i> ${compact(row.outputTokens)}</span>
-        <span class="usage-cost">${credits(row.credits)}</span>
+        <span class="usage-cost">${credits(row.credits)}${row.estimatedCredits > 0 ? ` <i class="soft-label">≈${credits(row.estimatedCredits)}</i>` : ""}</span>
         <div class="usage-share"><div class="share-track"><i style="width:${(row.share * 100).toFixed(1)}%"></i></div><span>${percent(row.share)}</span></div>
       </div>`).join("")}
     <div class="usage-table-foot">
@@ -598,18 +609,22 @@ function renderUsageModels(models, totals) {
     </div>`;
 }
 
-// The context card answers two questions the totals cannot: how much of the
-// model's window the newest request filled — a chat request resends the whole
-// conversation, so its input is the context size — and how much of the
-// range's input the upstream served from cache.
-function renderUsageContext(context) {
+// The context card answers two questions the totals cannot, per project —
+// one long-running repository and a one-shot question are not comparable, so
+// the newest request's window fill and the range's cache hit are computed for
+// each working directory separately, newest first. The two single meters at
+// the top show the busiest project; the rows below carry the rest.
+function renderUsageContext(context, projects = []) {
   const capacity = $("#usage-context-capacity");
   const meter = $("#usage-context-meter");
   const cache = $("#usage-context-cache");
   const cacheMeter = $("#usage-cache-meter");
   const model = $("#usage-context-model");
   const note = $("#usage-context-note");
-  if (!context || context.used == null || !context.window) {
+
+  const attributed = projects.filter((row) => row.context);
+  const featured = attributed[0];
+  if (!featured) {
     capacity.textContent = "—";
     meter.style.width = "0";
     cache.textContent = "—";
@@ -618,12 +633,39 @@ function renderUsageContext(context) {
     note.textContent = "所选区间内还没有记录到上下文窗口的请求。";
     return;
   }
-  capacity.textContent = `${compact(context.used)} / ${compact(context.window)}（${percent(context.fill)}）`;
-  meter.style.width = `${gaugeWidth(context.fill)}%`;
-  cache.textContent = context.cacheHit == null ? "—" : percent(context.cacheHit);
-  cacheMeter.style.width = `${gaugeWidth(context.cacheHit || 0)}%`;
-  model.textContent = context.model || "";
-  note.textContent = "最近一次请求的输入占模型上下文窗口。";
+  const fill = featured.context;
+  capacity.textContent = `${compact(fill.used)} / ${compact(fill.window)}（${percent(fill.fill)}）`;
+  meter.style.width = `${gaugeWidth(fill.fill)}%`;
+  cache.textContent = featured.cacheHit == null ? "—" : percent(featured.cacheHit);
+  cacheMeter.style.width = `${gaugeWidth(featured.cacheHit || 0)}%`;
+  model.textContent = fill.model || "";
+  note.textContent = `「${featured.name || "未归属"}」最近一次请求的输入占模型上下文窗口。`;
+
+  // One row per project with requests in the range: capacity from its own
+  // newest request, cache hit over its own traffic. Unattributed requests
+  // (a client that names no working directory) show as such.
+  const list = $("#usage-context-projects");
+  if (!list) return;
+  const rows = projects.filter((row) => row.requests > 0);
+  if (rows.length <= 1) {
+    list.innerHTML = "";
+    list.hidden = true;
+    return;
+  }
+  list.hidden = false;
+  list.innerHTML = rows.map((row) => {
+    const ctx = row.context;
+    const fillText = ctx
+      ? `${compact(ctx.used)} / ${compact(ctx.window)} · ${percent(ctx.fill)}`
+      : "—";
+    const hit = row.cacheHit == null ? "—" : percent(row.cacheHit);
+    return `<div class="usage-table-row">
+      <div class="usage-model"><b>${esc(row.name || "未归属")}</b><code>${esc(row.id ? "" : "无目录信息")}</code></div>
+      <span>${row.requests}</span>
+      <span class="usage-io">${fillText}</span>
+      <span class="usage-cost">${hit}</span>
+    </div>`;
+  }).join("");
 }
 
 // A near-empty gauge is invisible at its true width, so a non-zero share
@@ -660,6 +702,13 @@ function renderUsageRecent() {
     const cacheKnown = item.cachedTokens != null;
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成";
+    // A billed credit is WorkBuddy's own number; an estimate is the token
+    // formula, a different quantity, and says so instead of passing as one.
+    const cost = item.creditsSource === "upstream"
+      ? credits(item.credits ?? 0)
+      : item.creditsSource === "estimate"
+        ? `≈${credits(item.credits ?? 0)}`
+        : "—";
     return `<div class="recent-row">
       <span class="recent-time">${esc(when)}</span>
       <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
@@ -668,7 +717,7 @@ function renderUsageRecent() {
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
       <span class="recent-tokens">${compact(item.totalTokens)}</span>
-      <span class="recent-cost">${credits(item.credits ?? 0)}</span>
+      <span class="recent-cost">${cost}</span>
     </div>`;
   }).join("");
 }

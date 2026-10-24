@@ -231,6 +231,9 @@ export function anthropicMessageFromStream(chunkText, state, model) {
     if (payload.usage) {
       message.usage.input_tokens = payload.usage.prompt_tokens || message.usage.input_tokens;
       message.usage.output_tokens = payload.usage.completion_tokens || message.usage.output_tokens;
+      // The raw report lands on the state for the journal: `credit` and the
+      // cache fields it carries would not survive the two-field client shape.
+      state.usage = payload.usage;
     }
     const delta = choice.delta || {};
     if (delta.content) {

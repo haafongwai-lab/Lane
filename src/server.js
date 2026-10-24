@@ -19,6 +19,7 @@ import {
 } from "./translate/responses.js";
 import { randomUUID } from "node:crypto";
 import { withAliases, resolveModel, nearestEffort } from "./aliases.js";
+import { projectOf } from "./project.js";
 import { SSEDecoder } from "./translate/stream.js";
 import { parseSSEData } from "./translate/common.js";
 
@@ -170,7 +171,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           model: body.model,
           accountId: await activeAccountId(provider),
           rate: meta.rate,
-          contextWindow: meta.contextWindow
+          contextWindow: meta.contextWindow,
+          ...projectFields(projectOf(body, req.headers))
         });
         return;
       }
@@ -202,7 +204,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           model: body.model,
           accountId: await activeAccountId(provider),
           rate: meta.rate,
-          contextWindow: meta.contextWindow
+          contextWindow: meta.contextWindow,
+          ...projectFields(projectOf(body, req.headers))
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -247,7 +250,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           model: body.model,
           accountId: await activeAccountId(provider),
           rate: meta.rate,
-          contextWindow: meta.contextWindow
+          contextWindow: meta.contextWindow,
+          ...projectFields(projectOf(body, req.headers))
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -366,6 +370,11 @@ function estimateTokens(body) {
   return Math.round(cjk + (text.length - cjk) / 4);
 }
 
+// The journal keeps two flat fields; projectOf returns an object or null.
+function projectFields(project) {
+  return project ? { project: project.id, projectName: project.name } : { project: "", projectName: "" };
+}
+
 async function proxyChat(res, provider, body, options = {}) {
   const record = options.control?.journal.start({
     agent: options.agent || "openai",
@@ -374,7 +383,8 @@ async function proxyChat(res, provider, body, options = {}) {
     model: body.model,
     accountId: options.accountId,
     rate: options.rate,
-    contextWindow: options.contextWindow
+    contextWindow: options.contextWindow,
+    ...projectFields(options.project)
   });
   // A client that hangs up mid-generation must not keep the upstream running:
   // WorkBuddy bills the whole stream whether anyone reads it or not.
@@ -762,7 +772,18 @@ async function proxyProtocol(res, provider, chat, options) {
       }
     }
     const output = isSSE(raw) ? options.gather(raw, state) : options.convert(JSON.parse(raw));
-    options.control?.journal.usage(options.record?.id, output.usage);
+    // A non-SSE body carries its usage report inside the JSON; the journal
+    // reads it from there, so `credit` and the cache fields survive.
+    if (!isSSE(raw) && !state.usage) {
+      try {
+        const upstreamUsage = JSON.parse(raw)?.usage;
+        if (upstreamUsage && typeof upstreamUsage === "object") state.usage = upstreamUsage;
+      } catch {}
+    }
+    // The journal reads the upstream's own report — `credit` and the cache
+    // fields ride on state.usage when the gather saw them — and falls back
+    // to the converted shape's numbers only when no raw report landed.
+    options.control?.journal.usage(options.record?.id, state.usage || output.usage);
     options.control?.journal.finish(options.record?.id, { status: "complete" });
     options.control?.invalidateUsage?.();
     json(res, 200, output);

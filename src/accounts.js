@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
 import { readAuth, writeAuth } from "./auth-store.js";
+import { parsePid, processAlive } from "./pid.js";
 
 /**
  * WorkBuddy keeps several accounts at once: every account that has signed in
@@ -39,22 +40,9 @@ const queues = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// EPERM says the pid exists but belongs to someone else; only ESRCH says it
-// is gone. Anything unknown reads as alive, so a live holder's lock is never
-// mistaken for a crashed one.
-function processAlive(pid) {
-  if (!Number.isFinite(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
 async function lockHolder(file) {
   try {
-    return Number(String(await fs.readFile(file, "utf8")).split(" ")[0]);
+    return parsePid(await fs.readFile(file, "utf8"));
   } catch {
     return Number.NaN;
   }
@@ -67,13 +55,20 @@ async function lockHolder(file) {
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 15_000;
 
-export async function crossProcessLock(key, work) {
+export async function crossProcessLock(key, work, { waitMs = LOCK_WAIT_MS } = {}) {
   const lock = `${key}.lock`;
   const start = Date.now();
   const wait = async (message = "accounts file is locked by another Lane; try again") => {
-    if (Date.now() - start > LOCK_WAIT_MS) throw new Error(message);
+    if (Date.now() - start > waitMs) throw new Error(message);
     await sleep(75);
   };
+  // The lock is created beside the file it guards, so the directory has to
+  // exist before the first `open(…, "wx")`. It used to be created only by the
+  // writer inside the critical section — after this point — which made every
+  // CLI command fail with ENOENT on a fresh install: `lane doctor`, `login`,
+  // `checkin` and `accounts` all died on the missing lock directory, while
+  // only `lane serve` worked, because claiming the seat happens to create it.
+  await fs.mkdir(path.dirname(lock), { recursive: true, mode: 0o700 });
   for (;;) {
     try {
       const handle = await fs.open(lock, "wx", 0o600);
@@ -98,7 +93,7 @@ export async function crossProcessLock(key, work) {
     const moved = await fs.rename(lock, aside).then(() => true, () => false);
     if (!moved) continue;
     const breaker = await lockHolder(aside);
-    if (Number.isFinite(breaker) && breaker !== process.pid && processAlive(breaker)) {
+    if (!Number.isNaN(breaker) && breaker !== process.pid && processAlive(breaker)) {
       await fs.rename(aside, lock).catch(() => fs.rm(aside, { force: true }).catch(() => {}));
       await wait();
       continue;
