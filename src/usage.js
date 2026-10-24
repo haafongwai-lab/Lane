@@ -90,6 +90,7 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
   }]));
   const byModel = new Map();
   const byAgent = new Map();
+  const context = { used: null, window: null, model: "", fill: null, cacheHit: null };
 
   for (const request of requests) {
     if (!Number.isFinite(request?.startedAt) || request.startedAt < startAt) continue;
@@ -104,6 +105,17 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     const output = request.outputTokens || 0;
     const total = request.totalTokens || input + output;
     const cached = Math.min(request.cachedTokens || 0, input);
+
+    // The capacity gauge reads the newest request in the range whose input
+    // landed in a window the catalogue named: a chat request resends the
+    // whole conversation, so that input is the conversation's context size.
+    // The journal is newest first, so the first request that qualifies wins.
+    if (context.used === null && input > 0 && request.contextWindow > 0) {
+      context.used = input;
+      context.window = request.contextWindow;
+      context.model = request.model || "";
+      context.fill = input / request.contextWindow;
+    }
 
     totals.requests += 1;
     totals.inputTokens += input;
@@ -155,6 +167,10 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     row.share = totals.credits > 0 ? row.credits / totals.credits : 0;
   });
 
+  // Cache hit is weighted by input tokens, not averaged per request: a tiny
+  // request's 100% says less than a large one's 90%.
+  context.cacheHit = totals.inputTokens > 0 ? totals.cachedTokens / totals.inputTokens : null;
+
   const previous = previousTotals(requests, { keys, startAt, rateFor, now });
 
   return {
@@ -165,6 +181,7 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     totals: round(totals),
     series: [...byDay.values()].map(round),
     models,
+    context,
     agents: [...byAgent.values()].sort((a, b) => b.credits - a.credits),
     // The same length of time immediately before this range, for the
     // "vs 上一周期" line. Undefined when the journal does not reach back.

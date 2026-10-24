@@ -88,6 +88,36 @@ test("cached input never exceeds the input it came from", () => {
   assert.equal(report.totals.cachedTokens, 1000);
 });
 
+test("the context gauge reads the newest request's window fill and the range's cache hit", () => {
+  const rows = [
+    // Newest first, as the journal keeps them: the running request has no
+    // tokens to read yet, so the capacity comes from the one behind it.
+    request({ id: "live", startedAt: at("2026-10-22T17:00:00"), status: "running", inputTokens: 0, totalTokens: 0 }),
+    request({ id: "new", startedAt: at("2026-10-22T16:00:00"), model: "hy3", inputTokens: 50_000, outputTokens: 10_000, totalTokens: 60_000, cachedTokens: 45_000, contextWindow: 192_000 }),
+    request({ id: "old", startedAt: at("2026-10-22T10:00:00"), inputTokens: 10_000, totalTokens: 10_000, cachedTokens: 9_000, contextWindow: 168_000 })
+  ];
+  const report = summary(rows, { range: "today", now: NOW });
+  assert.equal(report.context.used, 50_000);
+  assert.equal(report.context.window, 192_000);
+  assert.equal(report.context.model, "hy3");
+  assert.equal(report.context.fill, 50_000 / 192_000);
+  // Weighted by input tokens: (45_000 + 9_000) / (50_000 + 10_000).
+  assert.equal(report.context.cacheHit, 54_000 / 60_000);
+});
+
+test("a range without context windows leaves the gauge unknown", () => {
+  // Rows recorded before the journal kept a window carry none.
+  const report = summary([request({ inputTokens: 1_000, totalTokens: 1_000 })], { range: "today", now: NOW });
+  assert.equal(report.context.used, null);
+  assert.equal(report.context.window, null);
+  assert.equal(report.context.fill, null);
+  assert.equal(report.context.cacheHit, 0);
+
+  const empty = summary([], { range: "today", now: NOW });
+  assert.equal(empty.context.used, null);
+  assert.equal(empty.context.cacheHit, null);
+});
+
 test("the previous period is the same length immediately before", () => {
   const rows = [
     request({ id: "now", startedAt: at("2026-10-22T12:00:00"), credits: 0.03, totalTokens: 1000 }),

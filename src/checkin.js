@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
+import { crossProcessLock } from "./accounts.js";
 
 /**
  * WorkBuddy hands out a daily check-in reward per account. Its own client
@@ -29,12 +30,15 @@ const queues = new Map();
 
 // A forced run from the window and the scheduler's tick read the file, claim
 // and write back; run at the same moment, the later write loses the earlier
-// one's results. Serialised per data directory, like accounts.json, so the
-// second run reads what the first wrote.
+// one's results. Serialised per data directory — the in-process queue orders
+// this Lane's runs, and the cross-process lock (the same one accounts.json
+// uses) keeps a `lane checkin` in a terminal from claiming against the
+// gateway's tick in another process.
 function serial(env, work) {
   const key = fileOf(env);
   const previous = queues.get(key) || Promise.resolve();
-  const next = previous.then(work, work);
+  const run = () => crossProcessLock(key, work);
+  const next = previous.then(run, run);
   queues.set(key, next.catch(() => {}));
   return next;
 }

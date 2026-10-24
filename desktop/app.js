@@ -4,6 +4,11 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 let snapshot = null;
 let activeView = "routing";
 let refreshing = false;
+let refreshQueued = null;
+// Toggles still waiting on their command, so a status poll that lands first
+// cannot render the old state over the user's click.
+let autostartPending = false;
+const enabledPending = new Map();
 
 function esc(value = "") {
   return String(value)
@@ -89,6 +94,51 @@ function toast(message, error = false) {
   toast.timer = setTimeout(() => { node.className = "toast"; }, 3600);
 }
 
+// One shared hover popup stands in for the browser's title tooltips: white
+// and rounded in the app's own style, and up the moment the pointer arrives
+// — a title tooltip waits about a second before it shows at all. Content
+// goes in data-tip; newlines render as line breaks (pre-line).
+const tipNode = $("#tooltip");
+const TIP_MARGIN = 8;
+const TIP_GAP = 6;
+
+document.addEventListener("mouseover", (event) => {
+  const host = event.target.closest?.("[data-tip]");
+  if (!host) {
+    tipNode.hidden = true;
+    return;
+  }
+  showTip(host);
+});
+
+function showTip(host) {
+  tipNode.textContent = host.dataset.tip || "";
+  tipNode.hidden = false;
+  const box = host.getBoundingClientRect();
+  const tip = tipNode.getBoundingClientRect();
+  // Below the host when it fits, else above; a wide tip at the screen edge
+  // is clamped back into view rather than sliding off.
+  let top = box.bottom + TIP_GAP;
+  if (top + tip.height > window.innerHeight - TIP_MARGIN) {
+    top = box.top - tip.height - TIP_GAP;
+  }
+  let left = box.left + box.width / 2 - tip.width / 2;
+  left = Math.max(TIP_MARGIN, Math.min(left, window.innerWidth - tip.width - TIP_MARGIN));
+  tipNode.style.left = `${Math.round(left)}px`;
+  tipNode.style.top = `${Math.round(Math.max(top, TIP_MARGIN))}px`;
+}
+
+// The popup follows the pointer, not the layout: once the page scrolls or
+// resizes under it, it is pointing at the wrong thing, so it goes away.
+window.addEventListener("scroll", () => { tipNode.hidden = true; }, true);
+window.addEventListener("resize", () => { tipNode.hidden = true; });
+// Leaving the window fires no mouseover to clear it, and a pointer standing
+// still over an element that a re-render just replaced fires none either —
+// both leave the popup frozen where it was.
+document.addEventListener("mouseout", (event) => {
+  if (!event.relatedTarget) tipNode.hidden = true;
+});
+
 function go(view) {
   activeView = view;
   // Entering the page always re-reads it: the status poll is paused while
@@ -99,7 +149,13 @@ function go(view) {
 }
 
 async function refresh({ quiet = false } = {}) {
-  if (refreshing) return;
+  // A read that lands while another is in flight must not be dropped: an
+  // action that just changed state would leave the page showing the old
+  // state for up to one poll period. One trailing reload is enough.
+  if (refreshing) {
+    refreshQueued = quiet;
+    return;
+  }
   refreshing = true;
   try {
     snapshot = await window.lane.status();
@@ -108,11 +164,19 @@ async function refresh({ quiet = false } = {}) {
     if (!quiet) toast(`读取状态失败：${error.message}`, true);
   } finally {
     refreshing = false;
+    if (refreshQueued !== null) {
+      const queuedQuiet = refreshQueued;
+      refreshQueued = null;
+      refresh({ quiet: queuedQuiet });
+    }
   }
 }
 
 function render() {
   if (!snapshot) return;
+  // The re-render replaces the elements any visible popup is attached to;
+  // a tip frozen over detached content reads as a bug, so it goes first.
+  tipNode.hidden = true;
   const { signedIn, account, agents, models, recent = [] } = snapshot;
   const running = recent.filter((item) => item.status === "running");
   const last = recent[0];
@@ -165,7 +229,11 @@ function render() {
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
   $("#log-name").textContent = snapshot.ownsGateway === false ? "lane.log" : "desktop.log";
-  $("#autostart").checked = Boolean(snapshot.autostart);
+  // A toggle that is still running its command keeps its own state: the
+  // autostart call spawns PowerShell with a 30s timeout, and a poll tick
+  // that lands first would visibly snap the switch back and invite a second
+  // flip.
+  if (!autostartPending) $("#autostart").checked = Boolean(snapshot.autostart);
 
   renderModels(models || []);
   renderUsageRecent();
@@ -206,13 +274,16 @@ function renderAccounts() {
   const checkin = new Map((snapshot.checkin?.accounts || []).map((item) => [item.id, item]));
   list.innerHTML = accounts.map((account) => {
     const active = account.id === activeId;
+    // An enable toggle still waiting on its command shows the state the user
+    // asked for, not the snapshot from before the click.
+    const enabled = enabledPending.get(account.id) ?? account.enabled;
     const tags = [
       active ? '<em class="tag-on">当前</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
       account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : ""
     ].filter(Boolean).join("");
     return `
-    <div class="account-row${active ? " active" : ""}${account.enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
+    <div class="account-row${active ? " active" : ""}${enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
       <div class="account-avatar"><img src="assets/workbuddy-official.svg" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(account.label)}</b>${tags}</div>
@@ -220,17 +291,17 @@ function renderAccounts() {
           <span class="account-host">${esc(account.domain || "WorkBuddy")}</span>
           <i>·</i>
           <code>${esc(account.id.slice(0, 8))}</code>
-          ${checkinChip(checkin.get(account.id), account)}
+          ${checkinChip(checkin.get(account.id), { ...account, enabled })}
         </div>
       </div>
       <div class="account-actions">
-        <button class="mini" data-act="activate"${active || !account.enabled ? " disabled" : ""}>${active ? "使用中" : "切换"}</button>
-        <label class="switch small" title="${account.enabled ? "关闭该账号" : "启用该账号"}">
-          <input type="checkbox" data-act="enabled"${account.enabled ? " checked" : ""}>
+        <button class="mini" data-act="activate"${active || !enabled ? " disabled" : ""}>${active ? "使用中" : "切换"}</button>
+        <label class="switch small" data-tip="${enabled ? "关闭该账号" : "启用该账号"}">
+          <input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}>
           <span></span>
         </label>
         <button class="mini quiet" data-act="checkin">签到</button>
-        <button class="icon-mini" data-act="remove" title="移除账号" aria-label="移除账号">✕</button>
+        <button class="icon-mini" data-act="remove" data-tip="移除账号" aria-label="移除账号">✕</button>
       </div>
     </div>`;
   }).join("");
@@ -382,7 +453,10 @@ function credits(value, digits = 4) {
   if (number === 0) return "0";
   if (number >= 1000) return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(number);
   if (number >= 1) return number.toFixed(2).replace(/\.?0+$/, "");
-  return number.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+  const text = number.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+  // The journal keeps six decimals because a flash-model request can cost a
+  // ten-thousandth of one credit; rendering that as "0" reads as free.
+  return text === "0" ? `<0.${"0".repeat(digits - 1)}1` : text;
 }
 
 function percent(value) {
@@ -391,7 +465,7 @@ function percent(value) {
 
 function renderUsage() {
   if (!usage) return;
-  const { totals, series, models, quota } = usage;
+  const { totals, series, models, quota, context } = usage;
 
   // One line of headline figures replaces the four metric cards: the totals
   // still read at a glance, and the chart below carries the detail.
@@ -417,6 +491,7 @@ function renderUsage() {
   renderUsageChart(series);
   renderUsageQuota(quota);
   renderUsageModels(models, totals);
+  renderUsageContext(context);
   renderUsageRecent();
 }
 
@@ -440,17 +515,19 @@ function renderUsageChart(series) {
         const creditHeight = creditMax ? (Number(item.credits) || 0) / creditMax * 100 : 0;
         const tokenHeight = tokenMax ? (Number(item.totalTokens) || 0) / tokenMax * 100 : 0;
         const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+        // One line per figure: the popup renders data-tip verbatim, with
+        // newlines as breaks.
         const detail = [
           `${item.date}`,
           `积分 ${credits(item.credits)}`,
           `Token ${compact(item.totalTokens)}`,
           `请求 ${item.requests} 次`
-        ].join(" · ");
+        ].join("\n");
         const empty = !(item.requests || 0);
         // An empty day keeps a 1px stub (the class supplies its colour);
         // a busy day always shows at least 1.5% so it is never invisible.
         const height = (value) => (empty ? 0.6 : Math.max(value, 1.5)).toFixed(1);
-        return `<div class="usage-bar${empty ? " quiet" : ""}" title="${esc(detail)}">
+        return `<div class="usage-bar${empty ? " quiet" : ""}" data-tip="${esc(detail)}">
           <div class="usage-bar-track">
             <i class="credits" style="height:${height(creditHeight)}%"></i>
             ${showTokens ? `<i class="tokens" style="height:${height(tokenHeight)}%"></i>` : ""}
@@ -521,6 +598,43 @@ function renderUsageModels(models, totals) {
     </div>`;
 }
 
+// The context card answers two questions the totals cannot: how much of the
+// model's window the newest request filled — a chat request resends the whole
+// conversation, so its input is the context size — and how much of the
+// range's input the upstream served from cache.
+function renderUsageContext(context) {
+  const capacity = $("#usage-context-capacity");
+  const meter = $("#usage-context-meter");
+  const cache = $("#usage-context-cache");
+  const cacheMeter = $("#usage-cache-meter");
+  const model = $("#usage-context-model");
+  const note = $("#usage-context-note");
+  if (!context || context.used == null || !context.window) {
+    capacity.textContent = "—";
+    meter.style.width = "0";
+    cache.textContent = "—";
+    cacheMeter.style.width = "0";
+    model.textContent = "";
+    note.textContent = "所选区间内还没有记录到上下文窗口的请求。";
+    return;
+  }
+  capacity.textContent = `${compact(context.used)} / ${compact(context.window)}（${percent(context.fill)}）`;
+  meter.style.width = `${gaugeWidth(context.fill)}%`;
+  cache.textContent = context.cacheHit == null ? "—" : percent(context.cacheHit);
+  cacheMeter.style.width = `${gaugeWidth(context.cacheHit || 0)}%`;
+  model.textContent = context.model || "";
+  note.textContent = "最近一次请求的输入占模型上下文窗口。";
+}
+
+// A near-empty gauge is invisible at its true width, so a non-zero share
+// keeps the chart bars' floor; zero stays zero, or "no cache used" would
+// read as a full bar.
+function gaugeWidth(share) {
+  const value = Number(share || 0) * 100;
+  if (value <= 0) return 0;
+  return Math.min(Math.max(value, 1.5), 100).toFixed(1);
+}
+
 function renderUsageRecent() {
   // Never truncate the snapshot in place: the route card and the activity
   // page read the same array, and a shorter list would silently shrink them.
@@ -532,16 +646,28 @@ function renderUsageRecent() {
     node.innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
     return;
   }
-  node.innerHTML = rows.map((item) => {
+  // The head repeats the cells' own classes, so the narrow-width rule that
+  // hides a column hides its label with it.
+  const head = `<div class="recent-row recent-head">
+    <span>时间</span><span>来源</span><span>模型</span><span>状态</span>
+    <span>上下文</span><span>缓存</span>
+    <span class="recent-tokens">Token</span><span class="recent-cost">积分</span>
+  </div>`;
+  node.innerHTML = head + rows.map((item) => {
     const when = new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    const cache = item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
+    // Rows written before the journal kept cachedTokens have no figure to
+    // show: a missing value is unknown, not a zero percent.
+    const cacheKnown = item.cachedTokens != null;
+    const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成";
     return `<div class="recent-row">
       <span class="recent-time">${esc(when)}</span>
       <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
       <span class="recent-model">${esc(item.model)}</span>
       <span class="recent-state ${item.status === "error" ? "err" : item.status === "running" ? "live" : "ok"}">${state}</span>
-      <span class="recent-tokens">${compact(item.totalTokens)}<i>${cache ? ` · 缓存 ${percent(cache)}` : ""}</i></span>
+      <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
+      <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
+      <span class="recent-tokens">${compact(item.totalTokens)}</span>
       <span class="recent-cost">${credits(item.credits ?? 0)}</span>
     </div>`;
   }).join("");
@@ -622,7 +748,13 @@ $("#account-list").addEventListener("change", (event) => {
   const input = event.target.closest('input[data-act="enabled"]');
   if (!input) return;
   const id = input.closest("[data-id]")?.dataset.id;
-  if (id) accountAction("enabled", id, { enabled: input.checked });
+  if (!id) return;
+  enabledPending.set(id, input.checked);
+  accountAction("enabled", id, { enabled: input.checked }).finally(() => {
+    // The command is over: the next snapshot (this action's own refresh, or
+    // the poll behind it) is the truth.
+    enabledPending.delete(id);
+  });
 });
 $("#checkin-enabled").addEventListener("change", (event) => {
   saveCheckinSettings({ enabled: event.target.checked },
@@ -689,9 +821,14 @@ $("#test-route").addEventListener("click", async () => {
     button.textContent = "测试链路";
   }
 });
-$("#autostart").addEventListener("change", (event) => {
-  command("autostart", { enabled: event.target.checked },
-    event.target.checked ? "已开启登录启动" : "已关闭登录启动");
+$("#autostart").addEventListener("change", async (event) => {
+  autostartPending = true;
+  try {
+    await command("autostart", { enabled: event.target.checked },
+      event.target.checked ? "已开启登录启动" : "已关闭登录启动");
+  } finally {
+    autostartPending = false;
+  }
 });
 $("#open-data").addEventListener("click", () => window.lane.open("data"));
 $("#open-log").addEventListener("click", () => window.lane.open("log"));

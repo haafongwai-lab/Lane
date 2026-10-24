@@ -39,6 +39,27 @@ const queues = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// EPERM says the pid exists but belongs to someone else; only ESRCH says it
+// is gone. Anything unknown reads as alive, so a live holder's lock is never
+// mistaken for a crashed one.
+function processAlive(pid) {
+  if (!Number.isFinite(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function lockHolder(file) {
+  try {
+    return Number(String(await fs.readFile(file, "utf8")).split(" ")[0]);
+  } catch {
+    return Number.NaN;
+  }
+}
+
 // The in-process queue keeps one Lane's writes in order; a lock file keeps
 // two processes (the gateway and a `lane` CLI command) from reading the same
 // state and dropping each other's change. A lock left by a crashed holder is
@@ -46,9 +67,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 15_000;
 
-async function crossProcessLock(key, work) {
+export async function crossProcessLock(key, work) {
   const lock = `${key}.lock`;
   const start = Date.now();
+  const wait = async (message = "accounts file is locked by another Lane; try again") => {
+    if (Date.now() - start > LOCK_WAIT_MS) throw new Error(message);
+    await sleep(75);
+  };
   for (;;) {
     try {
       const handle = await fs.open(lock, "wx", 0o600);
@@ -59,13 +84,26 @@ async function crossProcessLock(key, work) {
       if (error?.code !== "EEXIST") throw error;
     }
     const mtime = await fs.stat(lock).then((info) => info.mtimeMs, () => 0);
-    if (!mtime || Date.now() - mtime > LOCK_STALE_MS) {
-      await fs.rm(lock, { force: true }).catch(() => {});
-    } else if (Date.now() - start > LOCK_WAIT_MS) {
-      throw new Error("accounts file is locked by another Lane; try again");
-    } else {
-      await sleep(75);
+    if (mtime && Date.now() - mtime <= LOCK_STALE_MS) {
+      await wait();
+      continue;
     }
+    // The lock looks stale. Breaking it is a rename, not a delete: a rename
+    // is exclusive, so two waiters that both judged the lock stale cannot
+    // both come out holding the seat. The moved file is checked before it is
+    // dropped — if it belongs to a holder that went live in the meantime,
+    // putting it back costs a retry instead of stranding that holder
+    // unlocked with a second writer inside the critical section.
+    const aside = `${lock}.${process.pid}.${randomUUID().slice(0, 8)}.stale`;
+    const moved = await fs.rename(lock, aside).then(() => true, () => false);
+    if (!moved) continue;
+    const breaker = await lockHolder(aside);
+    if (Number.isFinite(breaker) && breaker !== process.pid && processAlive(breaker)) {
+      await fs.rename(aside, lock).catch(() => fs.rm(aside, { force: true }).catch(() => {}));
+      await wait();
+      continue;
+    }
+    await fs.rm(aside, { force: true }).catch(() => {});
   }
   try {
     return await work();
@@ -131,6 +169,10 @@ export async function readAccounts(env = process.env) {
 export async function writeAccounts(state, env = process.env) {
   const target = fileOf(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  // mode 0o600 keeps other *POSIX* users out; on Windows Node cannot map it
+  // to an ACL, so the file inherits the profile's default permissions. That
+  // is the accepted threat model here — one user's own machine, no other
+  // local accounts to defend against.
   const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(temp, target);

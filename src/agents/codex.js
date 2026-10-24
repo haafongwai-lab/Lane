@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { codexConfigPath } from "./paths.js";
-import { readState, writeState } from "./store.js";
+import { readState, writeState, writeTextAtomic } from "./store.js";
 import { gatewayBase } from "../config.js";
 
 const PROVIDER = "lane";
@@ -113,9 +113,9 @@ export async function connectCodex({ env = process.env, gateway = gatewayBase(),
   // the commit step, and a failure above it leaves the machine untouched.
   if (models) {
     const catalogPath = path.join(path.dirname(configPath), "lane-models.json");
-    await fs.writeFile(catalogPath, catalogText(models));
+    await writeTextAtomic(catalogPath, catalogText(models));
   }
-  await fs.writeFile(configPath, next, "utf8");
+  await writeTextAtomic(configPath, next);
   state[PROVIDER] = { ...saved, connected: true, gateway, configPath };
   await writeState(state, env);
   return { agent: "codex", connected: true, gateway, restartRequired: true };
@@ -147,7 +147,7 @@ export async function syncCodexCatalog({ env = process.env, models = [] } = {}) 
     if (error?.code !== "ENOENT") throw error;
   }
   if (current === next) return { changed: false };
-  await fs.writeFile(catalogPath, next);
+  await writeTextAtomic(catalogPath, next);
   return { changed: true };
 }
 
@@ -173,7 +173,7 @@ export async function disconnectCodex({ env = process.env } = {}) {
   } else if (!saved.previous?.hadProviderTable) {
     text = removeProviderTable(text);
   }
-  await fs.writeFile(configPath, text, "utf8");
+  await writeTextAtomic(configPath, text);
   if (!saved.previous?.model_catalog_json) {
     await fs.rm(path.join(path.dirname(configPath), "lane-models.json"), { force: true });
   }

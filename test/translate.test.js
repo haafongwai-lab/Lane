@@ -13,6 +13,7 @@ import {
   responsesObjectFromStream
 } from "../src/translate/responses.js";
 import { SSEDecoder } from "../src/translate/stream.js";
+import { parseSSEData } from "../src/translate/common.js";
 
 test("Anthropic messages become Chat Completions messages", () => {
   const out = anthropicToChat({
@@ -254,6 +255,54 @@ test("a tool call that omits its index stays one call", () => {
   assert.equal(tools.length, 1);
   assert.equal(tools[0].name, "exec");
   assert.deepEqual(tools[0].input, { cmd: "ls" });
+});
+
+test("interleaved parallel tool calls stay whole in the non-stream path", () => {
+  // The gather path sees the whole stream at once, but it must survive the
+  // same interleaving the streaming path already does: index-keyed blocks,
+  // not a split that turns one call into broken blocks with empty inputs.
+  const stream = [
+    'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"one","arguments":"{\\"n\\":"}}]}}]}',
+    'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_b","function":{"name":"two","arguments":"{\\"m\\":"}}]}}]}',
+    'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}',
+    'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"2}"}}]}}]}',
+    'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}',
+    ""
+  ].join("\n\n");
+  const message = anthropicMessageFromStream(stream, { id: "abc" }, "auto");
+  const tools = message.content.filter((block) => block.type === "tool_use");
+  assert.equal(tools.length, 2);
+  assert.deepEqual(tools[0].input, { n: 1 });
+  assert.deepEqual(tools[1].input, { m: 2 });
+  assert.equal(tools[0].id, "call_a");
+  assert.equal(tools[1].id, "call_b");
+});
+
+test("chat tool calls without ids keep distinct fallback ids", () => {
+  const out = chatToAnthropic({
+    choices: [{
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { type: "function", function: { name: "one", arguments: "{}" } },
+          { type: "function", function: { name: "two", arguments: "{}" } }
+        ]
+      },
+      finish_reason: "tool_calls"
+    }]
+  }, "auto", "msg_abc");
+  const [first, second] = out.content;
+  assert.notEqual(first.id, second.id, "the client cannot tell two identical ids apart");
+  assert.ok(first.id.startsWith("toolu_msg_abc_"));
+});
+
+test("a data payload wrapped across two SSE lines arrives as one event", () => {
+  // The SSE spec concatenates the data: lines of one event with a newline;
+  // wrapped or pretty-printed JSON is one document, not two broken ones.
+  const events = parseSSEData('data: {"choices":[{"index":0,\ndata:  "delta":{"content":"hi"}}]}\n\n');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].choices[0].delta.content, "hi");
 });
 
 test("a tool result's image parts are forwarded, not dropped", () => {

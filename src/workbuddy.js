@@ -214,8 +214,11 @@ export class WorkBuddyProvider {
   }
 
   // A route change or a new sign-in can change what the catalogue says;
-  // those are the moments the cached catalogues stop being trusted.
+  // those are the moments the cached catalogues stop being trusted. The
+  // generation rises per invalidation so a load that started before the
+  // switch cannot re-cache the old catalogue after it lands.
   invalidateModels() {
+    this.modelGeneration = (this.modelGeneration || 0) + 1;
     this.modelCache.clear();
   }
 
@@ -231,11 +234,14 @@ export class WorkBuddyProvider {
     // load serves them all rather than racing N upstream fetches.
     const existing = this.modelLoads.get(key);
     if (existing) return existing;
+    const generation = this.modelGeneration || 0;
     const load = this.loadModels(id).finally(() => this.modelLoads.delete(key));
     this.modelLoads.set(key, load);
     const models = await load;
-    this.modelCache.set(key, { at: Date.now(), value: models });
-    this.models = models;
+    if (generation === (this.modelGeneration || 0)) {
+      this.modelCache.set(key, { at: Date.now(), value: models });
+      this.models = models;
+    }
     return models;
   }
 
@@ -321,19 +327,22 @@ export class WorkBuddyProvider {
       clearTimeout(timer);
     }
     // A refusal names no client and no word, so the only way to find the
-    // offending wording is to keep what was actually sent. This runs only on
-    // a refusal, and only the system prompt's head is kept.
+    // offending wording is to keep what was actually sent. User content in
+    // the persistent log is a cost, though: it is written only when request
+    // tracing is on, and only the system prompt's head is kept.
     if (response.status === 400) {
       const text = await response.clone().text().catch(() => "");
       if (/unapproved channel|illegal api invocation/i.test(text)) {
-        const system = (prepared.body?.messages || [])
-          .filter((message) => message?.role === "system")
-          .map((message) => typeof message.content === "string"
-            ? message.content
-            : (message.content || []).map((part) => part?.text || "").join(""))
-          .join("\n")
-          .slice(0, 600);
-        console.error(`WorkBuddy refused a prompt. System prompt head:\n${system}`);
+        if (process.env.LANE_TRACE_REQUEST === "1") {
+          const system = (prepared.body?.messages || [])
+            .filter((message) => message?.role === "system")
+            .map((message) => typeof message.content === "string"
+              ? message.content
+              : (message.content || []).map((part) => part?.text || "").join(""))
+            .join("\n")
+            .slice(0, 600);
+          console.error(`WorkBuddy refused a prompt. System prompt head:\n${system}`);
+        }
       }
     }
     return restoreToolNames(response, prepared.names);

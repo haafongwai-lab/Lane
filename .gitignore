@@ -10,3 +10,4 @@ deliver/
 coverage/
 *.log
 .env
+.mimosa/

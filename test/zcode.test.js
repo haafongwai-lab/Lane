@@ -109,6 +109,39 @@ test("reconnecting updates the lane rule instead of adding a second one", async 
   assert.equal(doc.config.providerOrder.filter((id) => id === "lane").length, 1);
 });
 
+test("a reconnect keeps the user's own provider order", async () => {
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  // The user demoted Lane below their default; a reconnect (a port change,
+  // a reinstall) must not silently restore Lane to first place.
+  const config = zcodePaths(env).config;
+  const doc = await readConfig(env);
+  doc.config.providerOrder = ["deepseek", "lane"];
+  await fs.writeFile(config, JSON.stringify(doc, null, 2));
+
+  await connectZcode({ env, gateway: "http://127.0.0.1:3427", providerModels: async () => MODELS });
+  const after = await readConfig(env);
+  assert.deepEqual(after.config.providerOrder, ["deepseek", "lane"]);
+});
+
+test("wiring.json keeps no copy of the provider config's text", async () => {
+  const { env, root } = await temp();
+  const config = zcodePaths(env).config;
+  await fs.mkdir(path.dirname(config), { recursive: true });
+  // The provider config carries the user's API keys; wiring.json must not
+  // become a second plaintext copy of them. The marker below is a fixture,
+  // not a credential — it only needs to be distinctive enough to grep for.
+  const marker = "fixture-user-key-not-a-credential";
+  await fs.writeFile(config, JSON.stringify({
+    apiKey: marker,
+    config: { providerConfigRules: { providerRules: [] } }
+  }));
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  const wiring = await fs.readFile(path.join(root, "data", "wiring.json"), "utf8");
+  assert.ok(!wiring.includes(marker), "the key stays out of wiring.json");
+  assert.ok(!wiring.includes("savedConfig"));
+});
+
 test("a connect with no readable model list still declares Lane's own catalogue", async () => {
   const { env } = await temp();
   await connectZcode({

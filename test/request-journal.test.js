@@ -163,3 +163,53 @@ test("a burst of notes becomes one write, a finish reaches the disk at once", as
   assert.equal(rows[0].status, "complete");
   assert.equal(rows[0].firstTextMs, 20);
 });
+
+test("a request remembers the context window it was served in", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3", contextWindow: 192_000 });
+  assert.equal(journal.list()[0].contextWindow, 192_000);
+
+  // The upstream says 0 when it cannot say, and a start without the field is
+  // the same: both read as unknown rather than a zero-wide window.
+  journal.start({ agent: "codex", endpoint: "/v1/responses", model: "mystery", contextWindow: 0 });
+  journal.start({ agent: "codex", endpoint: "/v1/responses", model: "mystery" });
+  assert.equal(journal.list()[0].contextWindow, null);
+  assert.equal(journal.list()[1].contextWindow, null);
+  await journal.flush();
+});
+
+test("a corrupt journal is set aside, not overwritten", async (t) => {
+  const dir = tempDir(t);
+  fs.writeFileSync(path.join(dir, "activity.json"), "{ not json");
+  const journal = new RequestJournal({ dir });
+  assert.equal(journal.list().length, 0);
+  // The broken file survives for forensics instead of being erased by the
+  // next save, which would lose the history twice over.
+  assert.equal(fs.existsSync(path.join(dir, "activity.json.corrupt")), true);
+  journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  await journal.flush();
+  const rows = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
+  assert.equal(rows.length, 1);
+  assert.equal(fs.existsSync(path.join(dir, "activity.json.corrupt")), true);
+});
+
+test("a running row older than a day counts as crashed even if its pid lives", async (t) => {
+  const dir = tempDir(t);
+  // Windows recycles pids: whatever process now owns the recorded pid does
+  // not make the row alive. Older than any real generation settles it.
+  const other = await livePid();
+  t.after(() => other.kill());
+  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify([{
+    id: "zombie",
+    owner: other.pid,
+    status: "running",
+    startedAt: Date.now() - 25 * 60 * 60 * 1000,
+    finishedAt: null,
+    durationMs: null
+  }]));
+  const journal = new RequestJournal({ dir });
+  const [row] = journal.list();
+  assert.equal(row.status, "error");
+  assert.match(row.error, /尚未完成/);
+});

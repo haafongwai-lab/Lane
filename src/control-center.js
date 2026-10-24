@@ -34,12 +34,30 @@ export function createControlCenter({
   const signInPending = new Map();
   let signInError = "";
   let scheduler = null;
+  // Set when the control is stopped; a scheduler that finishes mounting
+  // afterwards must not start behind a control that is already gone.
+  let disposed = false;
+  let mounting = null;
 
-  const getProvider = async () => {
-    if (!provider) {
-      provider = await new WorkBuddyProvider({ env }).init();
-    }
-    return provider;
+  // The promise is what is memoized, not the result: callers that overlap
+  // with init() must wait for one provider, not each build their own — two
+  // instances race the same rotating refresh tokens, and the loser's write
+  // leaves a dead token in accounts.json until the user signs in again.
+  let providerLoading = null;
+  const getProvider = () => {
+    if (provider) return Promise.resolve(provider);
+    providerLoading ??= new WorkBuddyProvider({ env }).init()
+      .then((instance) => {
+        provider = instance;
+        return instance;
+      })
+      .catch((error) => {
+        // A failed init must not poison every later call: forget the
+        // promise so the next caller tries again.
+        providerLoading = null;
+        throw error;
+      });
+    return providerLoading;
   };
 
   // WorkBuddy's usage hook is two billing calls, and both the window's status
@@ -82,9 +100,14 @@ export function createControlCenter({
   // Only the process that owns the gateway runs the daily check-in; a
   // second Lane window attaches to it instead of claiming twice.
   if (checkins) {
-    getProvider()
+    mounting = getProvider()
       .then((instance) => {
-        scheduler = startCheckinScheduler({ provider: instance, env });
+        // stop() can overtake this mount when a gateway start fails on its
+        // listen call: the scheduler must not come up behind a control
+        // that is already gone.
+        if (!disposed) {
+          scheduler = startCheckinScheduler({ provider: instance, env });
+        }
       })
       .catch(() => {});
   }
@@ -147,7 +170,12 @@ export function createControlCenter({
       // wiring, autostart); a catalogue the upstream cannot serve right now
       // must not take those down with it.
       const models = await instance.listModels().catch(() => []);
-      const state = await readState(env);
+      // A truncated wiring.json is one agent-wiring file gone wrong; the
+      // accounts, activity and models it must not take down with it.
+      let state = {};
+      try {
+        state = await readState(env);
+      } catch {}
       await syncCodexCatalog({ env, models }).catch(() => {});
       let signedIn = false;
       try {
@@ -366,7 +394,13 @@ export function createControlCenter({
     },
 
     async stop() {
+      disposed = true;
+      // The scheduler may still be mounting its provider; wait for that to
+      // settle, then stop what actually mounted. Stopping an already-stopped
+      // control is a no-op on every line.
+      await mounting?.catch(() => {});
       scheduler?.stop();
+      scheduler = null;
       // The journal's writes are debounced; a shutdown that skips the flush
       // loses the tail of the day's requests. Awaited so the CLI and the
       // desktop can let it land before the process goes.

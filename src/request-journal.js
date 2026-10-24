@@ -11,9 +11,14 @@ const MAX_RECENT = 20;
 const TRIM_EVERY = 200;
 // start/note/usage arrive in bursts inside one request's lifetime; merging
 // them into one write keeps a busy gateway from sync-writing megabytes of
-// pretty JSON several times per request. finish() flushes at once, so a
-// completed request is on disk before its answer leaves.
+// pretty JSON several times per request. finish() cancels the debounce and
+// flushes at once, so a completed request is written the moment it ends;
+// the write itself is async, and a final flush is awaited at shutdown.
 const SAVE_DEBOUNCE_MS = 250;
+// A request that has been "running" for a day is not running: Windows
+// recycles pids, so the liveness check on the recorded owner can be fooled
+// by whatever process inherited the pid. Longer than any real generation.
+const MAX_RUN_MS = 24 * 60 * 60 * 1000;
 
 // EPERM says the pid exists but belongs to someone else; only ESRCH says it
 // is gone. Anything unknown reads as alive, so a live owner's rows are never
@@ -43,9 +48,18 @@ export class RequestJournal {
   }
 
   load() {
+    let saved;
     try {
-      const saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
-      const rows = Array.isArray(saved) ? saved : [];
+      saved = fs.readFileSync(this.file, "utf8");
+    } catch {
+      // No file yet, or a transient read error (an indexer or antivirus
+      // holding the file). Starting empty is right either way; a file that
+      // exists is left exactly as it is.
+      this.requests = [];
+      return;
+    }
+    try {
+      const rows = JSON.parse(saved);
       // A row without a starting time can't be placed in a day; drop it
       // rather than let it count towards a total nothing can attribute.
       this.requests = rows
@@ -58,7 +72,10 @@ export class RequestJournal {
       // exists counts as a crash.
       if (!this.shared) {
         for (const request of this.requests) {
-          if (request.status === "running" && request.owner !== process.pid && !processAlive(request.owner)) {
+          if (request.status !== "running") continue;
+          const crashed = (request.owner !== process.pid && !processAlive(request.owner))
+            || Date.now() - request.startedAt > MAX_RUN_MS;
+          if (crashed) {
             request.status = "error";
             request.error = "Lane 上次退出时请求尚未完成";
             request.finishedAt = request.finishedAt || Date.now();
@@ -68,7 +85,15 @@ export class RequestJournal {
       }
       this.prune();
     } catch {
+      // A file that does not parse is corrupt — a crash can land a
+      // half-written file on disk. It is set aside for forensics rather than
+      // deleted: the next save would otherwise overwrite the only copy of
+      // the history with a journal that holds nothing.
+      const quarantined = `${this.file}.corrupt`;
+      try { fs.rmSync(quarantined, { force: true }); } catch {}
+      try { fs.renameSync(this.file, quarantined); } catch {}
       this.requests = [];
+      console.error(`lane: the request journal at ${this.file} is unreadable; it is kept as ${path.basename(quarantined)} and a new journal starts`);
     }
   }
 
@@ -82,7 +107,7 @@ export class RequestJournal {
       .slice(0, MAX_ROWS);
   }
 
-  start({ agent, endpoint, requestedModel, model, accountId, rate }) {
+  start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow }) {
     const request = {
       id: randomUUID().replaceAll("-", ""),
       owner: process.pid,
@@ -94,6 +119,10 @@ export class RequestJournal {
       // The model's credit multiple at the time of the request: a catalogue
       // that changes later must not rewrite what this request already cost.
       rate: Number.isFinite(rate) ? rate : null,
+      // The model's context window under the same rule: the request's tokens
+      // are read against the window it was actually served in. The upstream
+      // reports 0 when it cannot say, which reads as unknown here.
+      contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : null,
       status: "running",
       startedAt: Date.now(),
       finishedAt: null,
@@ -119,15 +148,15 @@ export class RequestJournal {
 
   finish(id, values = {}) {
     const request = this.requests.find((entry) => entry.id === id);
-    if (!request) return;
+    if (!request) return Promise.resolve();
     Object.assign(request, values, {
       status: values.status || "complete",
       finishedAt: Date.now()
     });
     request.durationMs = request.finishedAt - request.startedAt;
-    // The request is over: its final state reaches the disk now, so a crash
+    // The request is over: cancel the debounce and write now, so a crash
     // right after cannot leave it running forever.
-    this.flush();
+    return this.flush();
   }
 
   usage(id, usage = {}) {
@@ -204,10 +233,14 @@ export class RequestJournal {
       const target = `${this.file}.${process.pid}.tmp`;
       await fsp.writeFile(target, `${JSON.stringify(this.requests, null, 2)}\n`, "utf8");
       await fsp.rename(target, this.file);
+      // Solved is solved: a failure after a successful write must be
+      // reported again, not swallowed by the last outage's flag.
+      this.writeFailed = false;
     } catch (error) {
-      // A journal that cannot be written must at least say so once: losing
-      // the day's accounting silently (disk full, directory deleted) reads
-      // as a gateway that records nothing.
+      // A journal that cannot be written must at least say so: losing the
+      // day's accounting silently (disk full, directory deleted) reads as a
+      // gateway that records nothing. Once per failure streak — the flag
+      // clears on the first successful write.
       if (!this.writeFailed) {
         this.writeFailed = true;
         console.error(`lane: cannot save the request journal to ${this.file}: ${error?.message || error}`);

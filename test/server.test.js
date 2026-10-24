@@ -551,7 +551,7 @@ test("the journal records the account carrying the request", async () => {
     invalidateUsage: () => {}
   };
   const provider = {
-    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async listModels() { return [{ id: "auto", name: "Auto", context: 168000 }]; },
     async activeId() { return "uid-9"; },
     async chat() {
       const chunk = (delta, finish = null) => `data: ${JSON.stringify({
@@ -572,6 +572,7 @@ test("the journal records the account carrying the request", async () => {
     });
     assert.equal(chat.status, 200);
     assert.equal(started[0].accountId, "uid-9");
+    assert.equal(started[0].contextWindow, 168000);
 
     const messages = await fetch(`${base}/v1/messages`, {
       method: "POST",
@@ -580,6 +581,53 @@ test("the journal records the account carrying the request", async () => {
     });
     assert.equal(messages.status, 200);
     assert.equal(started[1].accountId, "uid-9");
+    assert.equal(started[1].contextWindow, 168000);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a 200 with a non-JSON body is an upstream error, not a 500", async () => {
+  // A captive portal or broken proxy answers 200 with HTML; the client must
+  // hear "upstream failed", not an internal parse error.
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      return new Response("<html>portal</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.equal(body.error.type, "upstream_error");
+    assert.match(body.error.message, /invalid JSON/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("count_tokens answers a number for whatever body arrives", async () => {
+  const server = createServer({ provider: { async listModels() { return []; } } });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/messages/count_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tools: [null, "x"], messages: "oops" })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(typeof body.input_tokens, "number");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

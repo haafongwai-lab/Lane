@@ -259,6 +259,22 @@
             <div class="panel-head"><div><span class="overline">请求明细</span><h3>最近的请求</h3></div><span class="soft-label" id="usage-recent-count">0 条</span></div>
             <div class="usage-recent" id="usage-recent"><div class="empty">还没有请求。先用 Codex 发起一轮对话。</div></div>
           </article>
+
+          <article class="panel usage-context-panel">
+            <div class="panel-head"><div><span class="overline">上下文</span><h3>上下文容量与缓存</h3></div><span class="soft-label" id="usage-context-model"></span></div>
+            <div class="context-columns">
+              <div class="context-col">
+                <div class="context-line"><span>上下文容量</span><b id="usage-context-capacity">—</b></div>
+                <div class="quota-meter"><i id="usage-context-meter" style="width:0"></i></div>
+                <p class="context-note" id="usage-context-note"></p>
+              </div>
+              <div class="context-col">
+                <div class="context-line"><span>平均缓存命中率</span><b id="usage-context-cache">—</b></div>
+                <div class="quota-meter"><i id="usage-cache-meter" style="width:0"></i></div>
+                <p class="context-note">所选区间内缓存输入占输入 Token 的比例</p>
+              </div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -290,6 +306,7 @@
     </main>
   </div>
   <div class="toast" id="toast"></div>
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>

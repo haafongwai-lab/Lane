@@ -7,6 +7,7 @@ import { createControlCenter } from "../src/control-center.js";
 import { createServer } from "../src/server.js";
 import { WorkBuddyProvider } from "../src/workbuddy.js";
 import { dataDir } from "../src/config.js";
+import { claimOwnership, releaseOwnership } from "../src/owner.js";
 import { readSettings, writeSettings } from "../src/settings.js";
 import { readState } from "../src/agents/store.js";
 
@@ -29,6 +30,7 @@ let starting;
 let ownsGateway = false;
 let logStream;
 let consolePatched = false;
+let lastStartError = "";
 
 app.setAppUserModelId("local.lane.control");
 if (!isSmokeTest) {
@@ -73,6 +75,15 @@ async function startGateway() {
         }
       });
       return;
+    }
+    // The health probe only sees a gateway on this address; a `lane serve`
+    // on another port would be invisible to it and race this window for the
+    // journal. The pid seat refuses that before anything is built.
+    const seat = await claimOwnership();
+    if (!seat.claimed) {
+      throw new Error(
+        `另一个 Lane 进程（pid ${seat.owner}）已拥有数据目录，请先退出它再启动`
+      );
     }
     const provider = await new WorkBuddyProvider().init();
     await fs.mkdir(dataDir(), { recursive: true });
@@ -125,7 +136,6 @@ async function startGateway() {
       control = null;
       throw error;
     }
-    await writePid();
     ownsGateway = true;
   })();
   try {
@@ -143,6 +153,9 @@ async function stopGateway() {
     // the process goes. A locked pid file must not abort the quit.
     await control.stop?.().catch(() => {});
   }
+  // The seat is ours from the moment the claim succeeded — even when the
+  // listen call after it failed — so it is always released here.
+  await releaseOwnership().catch(() => {});
   if (!server) return;
   await new Promise((resolve) => {
     // In-flight SSE streams would otherwise hold close() open until each
@@ -150,7 +163,6 @@ async function stopGateway() {
     server.closeAllConnections?.();
     server.close(resolve);
   });
-  await fs.rm(path.join(dataDir(), "lane.pid"), { force: true }).catch(() => {});
   server = null;
   control = null;
   ownsGateway = false;
@@ -167,11 +179,6 @@ async function healthy() {
   } catch {
     return false;
   }
-}
-
-async function writePid() {
-  await fs.mkdir(dataDir(), { recursive: true });
-  await fs.writeFile(path.join(dataDir(), "lane.pid"), String(process.pid));
 }
 
 async function fetchExternalStatus() {
@@ -257,8 +264,22 @@ function createTray() {
 }
 
 ipcMain.handle("lane:status", async () => {
-  if (!control) await startGateway();
-  if (ownsGateway) {
+  // A start that failed (port taken, data directory owned elsewhere) must
+  // not reject the poll: the renderer swallows quiet errors, and the window
+  // would sit on a stale "运行中" forever. fetchExternalStatus answers with
+  // its neutral 启动中 payload when the control never came up. The poll
+  // retries every 3 seconds, so only a change in the failure is logged.
+  try {
+    if (!control) await startGateway();
+    lastStartError = "";
+  } catch (error) {
+    const message = error?.message || String(error);
+    if (message !== lastStartError) {
+      lastStartError = message;
+      console.error(`lane: gateway start failed: ${message}`);
+    }
+  }
+  if (control && ownsGateway) {
     return {
       ...await control.status(),
       ownsGateway: true,
@@ -463,7 +484,7 @@ app.whenReady().then(async () => {
     }
   }
   if (isSmokeTest) {
-    window.webContents.once("did-finish-load", async () => {
+    const runSmokeTest = async () => {
       await new Promise((resolve) => setTimeout(resolve, 1800));
       try {
         await window.webContents.executeJavaScript(
@@ -508,9 +529,27 @@ app.whenReady().then(async () => {
         await stopGateway();
         app.exit(1);
       }
-    });
+    };
+    // startGateway above can outlive the page load: a listener attached
+    // after did-finish-load has already fired would never run and hang the
+    // test with a visible window, so load state decides how it is attached.
+    if (window.webContents.isLoading()) {
+      window.webContents.once("did-finish-load", runSmokeTest);
+    } else {
+      runSmokeTest();
+    }
   }
 });
 
 app.on("window-all-closed", () => {});
-app.on("before-quit", () => { quitting = true; });
+app.on("before-quit", async (event) => {
+  quitting = true;
+  // Quits that do not go through the tray or lane:quit — Windows session
+  // end, a quit asked from elsewhere — would skip the gateway stop and lose
+  // the debounced journal tail. Quitting is held until the stop lands, then
+  // re-issued; a stop that already ran (control gone) lets it through.
+  if (!control) return;
+  event.preventDefault();
+  await stopGateway().catch(() => {});
+  app.quit();
+});

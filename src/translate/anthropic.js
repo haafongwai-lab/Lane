@@ -111,14 +111,17 @@ export function chatToAnthropic(payload, model, id) {
   const message = choice?.message || {};
   const content = [];
   if (message.content) content.push({ type: "text", text: message.content });
-  for (const call of message.tool_calls || []) {
+  for (const [position, call] of (message.tool_calls || []).entries()) {
     let input = {};
     try {
       input = JSON.parse(call.function?.arguments || "{}");
     } catch {}
     content.push({
       type: "tool_use",
-      id: call.id || `toolu_${id}`,
+      // A per-call suffix keeps parallel calls that arrive without ids from
+      // colliding: two blocks sharing one id cannot be told apart when the
+      // client answers them.
+      id: call.id || `toolu_${id}_${position}`,
       name: call.function?.name || "tool",
       input
     });
@@ -212,21 +215,13 @@ export function anthropicMessageFromStream(chunkText, state, model) {
     stop_sequence: null,
     usage: { input_tokens: 0, output_tokens: 0 }
   };
-  let block = null;
-  let blockArgs = "";
-  const flush = () => {
-    if (!block) return;
-    if (block.type === "tool_use") {
-      try {
-        block.input = JSON.parse(blockArgs || "{}");
-      } catch {
-        block.input = {};
-      }
-    }
-    message.content.push(block);
-    block = null;
-    blockArgs = "";
-  };
+  // An OpenAI-shaped upstream interleaves the deltas of parallel tool calls
+  // (call_0, call_1, call_0, …), so blocks are keyed by the call's index and
+  // arguments accumulate on their own block — the same bookkeeping the
+  // streaming path does — instead of closing whenever the index changes.
+  // Blocks appear in the order they first appeared, text included.
+  const open = new Map();
+  let text = null;
   for (const payload of events) {
     if (payload.error) {
       throw upstreamStreamError(payload.error);
@@ -239,33 +234,41 @@ export function anthropicMessageFromStream(chunkText, state, model) {
     }
     const delta = choice.delta || {};
     if (delta.content) {
-      if (!block || block.type !== "text") {
-        flush();
-        block = { type: "text", text: "" };
+      if (!text) {
+        text = { type: "text", text: "" };
+        message.content.push(text);
       }
-      block.text += delta.content;
+      text.text += delta.content;
     }
     for (const call of delta.tool_calls || []) {
-      if (!block || block.type !== "tool_use" || (call.index ?? 0) !== block._index) {
-        flush();
+      const index = call.index ?? 0;
+      let block = open.get(index);
+      if (!block) {
         block = {
           type: "tool_use",
-          id: call.id || `toolu_${state.id}_${call.index || 0}`,
+          id: call.id || `toolu_${state.id}_${index}`,
           name: call.function?.name || "tool",
           input: {}
         };
-        block._index = call.index ?? 0;
+        open.set(index, block);
+        message.content.push(block);
       }
       if (call.id) block.id = call.id;
       if (call.function?.name) block.name = call.function.name;
-      blockArgs += call.function?.arguments || "";
+      block._args = (block._args || "") + (call.function?.arguments || "");
     }
     if (choice.finish_reason) {
       message.stop_reason = anthropicStop(choice.finish_reason);
     }
   }
-  flush();
-  for (const item of message.content) delete item._index;
+  for (const block of open.values()) {
+    try {
+      block.input = JSON.parse(block._args || "{}");
+    } catch {
+      block.input = {};
+    }
+    delete block._args;
+  }
   if (!message.content.length) message.content.push({ type: "text", text: "" });
   return message;
 }

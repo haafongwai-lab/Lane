@@ -1,5 +1,6 @@
 import { createServer } from "./server.js";
 import { DEFAULT_HOST, DEFAULT_PORT, parseAddress } from "./config.js";
+import { claimOwnership, releaseOwnership } from "./owner.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
@@ -52,19 +53,40 @@ async function serve(args) {
       return;
     }
   } catch {}
+  // The probe above only sees a gateway on this address; a desktop Lane on
+  // another port owns the same data directory all the same, and two owners
+  // would take turns overwriting each other's journal rows.
+  const seat = await claimOwnership();
+  if (!seat.claimed) {
+    console.error(`another Lane process (pid ${seat.owner}) owns this data directory; quit it first (tray → 退出)`);
+    process.exitCode = 1;
+    return;
+  }
   const provider = new WorkBuddyProvider();
-  await provider.init();
+  try {
+    await provider.init();
+  } catch (error) {
+    await releaseOwnership();
+    throw error;
+  }
   const control = createControlCenter({ port, host, checkins: true });
   const server = createServer({ provider, control });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, resolve);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, resolve);
+    });
+  } catch (error) {
+    await control.stop?.();
+    await releaseOwnership();
+    throw error;
+  }
   console.log(`lane listening on ${address}`);
   console.log("provider: workbuddy");
   const stop = async () => {
     // Let the journal's final debounced write land before the process goes.
     await control.stop?.();
+    await releaseOwnership();
     server.closeAllConnections?.();
     server.close(() => process.exit(0));
   };

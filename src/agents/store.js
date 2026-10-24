@@ -37,3 +37,14 @@ export async function writeJSON(filePath, value) {
   await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(temp, filePath);
 }
+
+// The same temp-then-rename, for files that hold text rather than JSON —
+// the user's Codex config.toml and ZCode provider_config.json among them.
+// These files are not Lane's own: a crash mid-write must never leave the
+// user's configuration truncated.
+export async function writeTextAtomic(filePath, text) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const temp = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+  await fs.writeFile(temp, text, "utf8");
+  await fs.rename(temp, filePath);
+}

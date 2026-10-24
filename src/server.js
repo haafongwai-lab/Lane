@@ -161,6 +161,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         if (process.env.LANE_TRACE_REQUEST === "1") {
           console.error(`chat request from ${req.socket.remoteAddress}: ${JSON.stringify(body).slice(0, 2000)}`);
         }
+        const meta = await modelMeta(provider, body.model);
         await proxyChat(res, provider, body, {
           control,
           agent: "openai",
@@ -168,7 +169,8 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           endpoint: url.pathname,
           model: body.model,
           accountId: await activeAccountId(provider),
-          rate: await modelRate(provider, body.model)
+          rate: meta.rate,
+          contextWindow: meta.contextWindow
         });
         return;
       }
@@ -192,13 +194,15 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         body.model = await mappedModel(provider, requested, "codex");
         const chat = responsesToChat(body);
         const id = randomUUID().replaceAll("-", "");
+        const meta = await modelMeta(provider, body.model);
         const record = control?.journal.start({
           agent: "codex",
           endpoint: url.pathname,
           requestedModel: requested,
           model: body.model,
           accountId: await activeAccountId(provider),
-          rate: await modelRate(provider, body.model)
+          rate: meta.rate,
+          contextWindow: meta.contextWindow
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -235,13 +239,15 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         fitEffort(body, models.find((model) => model.id === body.model));
         const chat = anthropicToChat(body);
         const id = randomUUID().replaceAll("-", "");
+        const meta = await modelMeta(provider, body.model);
         const record = control?.journal.start({
           agent: "claude-desktop",
           endpoint: url.pathname,
           requestedModel: requested,
           model: body.model,
           accountId: await activeAccountId(provider),
-          rate: await modelRate(provider, body.model)
+          rate: meta.rate,
+          contextWindow: meta.contextWindow
         });
         await proxyProtocol(res, provider, chat, {
           id,
@@ -284,15 +290,17 @@ async function mappedModel(provider, requested, agent) {
   return resolveModel(requested, models, agent);
 }
 
-// The credit multiple WorkBuddy charges for this model, kept on the request
-// so its cost survives a later catalogue change. Undefined when the provider
-// cannot say, which leaves the request uncosted rather than costed at zero.
-async function modelRate(provider, id) {
+// The credit multiple WorkBuddy charges for this model and the context
+// window it advertises, kept on the request so a later catalogue change
+// cannot rewrite what this request cost or which window it ran in. Missing
+// fields stay undefined, which leaves the request uncosted and the window
+// unknown rather than invented.
+async function modelMeta(provider, id) {
   try {
-    const models = await provider.listModels();
-    return models.find((model) => model.id === id)?.rate;
+    const model = (await provider.listModels()).find((model) => model.id === id);
+    return { rate: model?.rate, contextWindow: model?.context };
   } catch {
-    return undefined;
+    return { rate: undefined, contextWindow: undefined };
   }
 }
 
@@ -341,12 +349,17 @@ function estimateTokens(body) {
       .map((value) => (typeof value === "string" ? value : ""))
       .join("");
   };
+  const array = (value) => (Array.isArray(value) ? value : []);
   const system = textOf(body?.system);
-  const messages = (body?.messages || [])
-    .map((message) => textOf(message.content))
+  const messages = array(body?.messages)
+    .map((message) => textOf(message?.content))
     .join("");
-  const tools = (body?.tools || [])
-    .map((tool) => `${tool.name || ""}${tool.description || ""}`)
+  // A client counts tokens before sending; whatever shape it posts, the
+  // answer is an estimate for well-formed parts and a number regardless.
+  const tools = array(body?.tools)
+    .map((tool) => (tool && typeof tool === "object"
+      ? `${tool.name || ""}${tool.description || ""}`
+      : ""))
     .join("");
   const text = system + messages + tools;
   const cjk = (text.match(CJK_CHARS) || []).length;
@@ -360,7 +373,8 @@ async function proxyChat(res, provider, body, options = {}) {
     requestedModel: options.requested || body.model,
     model: body.model,
     accountId: options.accountId,
-    rate: options.rate
+    rate: options.rate,
+    contextWindow: options.contextWindow
   });
   // A client that hangs up mid-generation must not keep the upstream running:
   // WorkBuddy bills the whole stream whether anyone reads it or not.
@@ -734,6 +748,19 @@ async function proxyProtocol(res, provider, chat, options) {
         firstTextMs: Date.now() - options.record.startedAt
       });
     }
+    // A 200 head says nothing about the body: a captive portal or a broken
+    // proxy answers 200 with HTML. That is an upstream failure, reported as
+    // one, not a syntax error thrown from the conversion.
+    if (!isSSE(raw)) {
+      try {
+        JSON.parse(raw);
+      } catch {
+        throw Object.assign(
+          new Error(`upstream returned invalid JSON: ${raw.slice(0, 200) || "(empty body)"}`),
+          { status: 502 }
+        );
+      }
+    }
     const output = isSSE(raw) ? options.gather(raw, state) : options.convert(JSON.parse(raw));
     options.control?.journal.usage(options.record?.id, output.usage);
     options.control?.journal.finish(options.record?.id, { status: "complete" });
@@ -766,6 +793,13 @@ function unavailable(res, error) {
     /not signed in|signed out|sign in again/i.test(error?.message || "")
   ) {
     errorJSON(res, 503, error.message, "provider_unavailable");
+    return;
+  }
+  // A failure the upstream itself produced — a refusal, a non-JSON body —
+  // keeps its status and its type instead of flattening into a 500 that
+  // reads as a gateway bug.
+  if (Number(error?.status) === 502) {
+    errorJSON(res, 502, error.message, "upstream_error");
     return;
   }
   throw error;

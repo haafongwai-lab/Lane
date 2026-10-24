@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { readState, writeState } from "./store.js";
+import { readState, writeState, writeTextAtomic } from "./store.js";
 import { gatewayBase } from "../config.js";
 
 /**
@@ -85,24 +85,27 @@ export async function connectZcode({
   else list.push(rule);
 
   // A fresh config has no order yet; creating one puts Lane ahead of whatever
-  // the user adds later, and an existing order keeps its other entries.
-  const order = Array.isArray(config.providerOrder)
-    ? config.providerOrder.filter((id) => id !== PROVIDER_ID)
-    : [];
-  config.providerOrder = [PROVIDER_ID, ...order];
+  // the user adds later. An existing order that already holds Lane is left
+  // exactly as it is: a reconnect must not undo the user demoting Lane below
+  // their default provider.
+  if (!Array.isArray(config.providerOrder)) {
+    config.providerOrder = [PROVIDER_ID];
+  } else if (!config.providerOrder.includes(PROVIDER_ID)) {
+    config.providerOrder = [PROVIDER_ID, ...config.providerOrder];
+  }
 
-  await fs.mkdir(paths.dir, { recursive: true });
-  await fs.writeFile(paths.config, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  await writeTextAtomic(paths.config, `${JSON.stringify(document, null, 2)}\n`);
 
   state.zcode = {
     connected: true,
     gateway,
     configPath: paths.config,
-    hadFile,
-    // The document as it was before this connect, so a user who wants Lane's
-    // entry gone without other drift can compare; disconnect removes the rule
-    // rather than restoring bytes, because ZCode rewrites the file while running.
-    savedConfig: hadFile ? text : ""
+    hadFile
+    // The file's previous text is deliberately not kept here: it carries the
+    // user's API keys for every provider, and a second plaintext copy in
+    // wiring.json would outlive its purpose — disconnect removes Lane's rule
+    // from the live file rather than restoring bytes, because ZCode rewrites
+    // the file while running.
   };
   await writeState(state, env);
 
@@ -157,8 +160,7 @@ export async function disconnectZcode({ env = process.env } = {}) {
     }
   }
   if (changed) {
-    await fs.mkdir(paths.dir, { recursive: true });
-    await fs.writeFile(paths.config, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    await writeTextAtomic(paths.config, `${JSON.stringify(document, null, 2)}\n`);
   }
   delete state.zcode;
   await writeState(state, env);
