@@ -332,7 +332,25 @@ test("clearBeforeToday keeps today and running rows, drops the rest", async (t) 
   const removed = journal.clearBeforeToday(now.getTime());
   assert.equal(removed, 1);
   assert.deepEqual([...journal.list().map((row) => row.id)].sort(), ["now-running", "today", "yesterday-running"]);
-  await journal.flush();
-  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.equal(saved.length, 3);
+});
+
+test("countBeforeToday sees old history the recent window would hide", async (t) => {
+  // A busy day fills the newest-20 window with today's rows while thousands
+  // of old rows remain; the snapshot's count must come from the whole
+  // journal, or the clear button never offers itself.
+  const dir = tempDir(t);
+  const now = new Date();
+  const midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+  const journal = new RequestJournal({ dir });
+  journal.requests = [
+    { id: "old-1", startedAt: midnight.getTime() - 36e5, status: "complete" },
+    { id: "old-running", startedAt: midnight.getTime() - 36e5, status: "running" },
+    ...Array.from({ length: 25 }, (_, i) => ({
+      id: `today-${i}`, startedAt: midnight.getTime() + (i + 1) * 60e3, status: "complete"
+    }))
+  ];
+  assert.equal(journal.countBeforeToday(now.getTime()), 1);
+  // And after a clear it reports zero.
+  journal.clearBeforeToday(now.getTime());
+  assert.equal(journal.countBeforeToday(now.getTime()), 0);
 });

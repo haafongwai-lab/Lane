@@ -231,7 +231,10 @@ export function createControlCenter({
         autostart,
         signInPending: signInPending.size > 0,
         signInError,
-        recent: journal.recent()
+        recent: journal.recent(),
+        // Counted over the whole journal: the recent window alone hides old
+        // history behind a busy day's traffic.
+        clearableHistory: journal.countBeforeToday()
       };
     },
 

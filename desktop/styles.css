@@ -132,8 +132,11 @@ main {
   background: rgba(255,255,255,.4);
   font-size: 12px;
 }
-.outline:hover { border-color: #b6b7af; background: #fff; }
+.outline:hover { border-color: #b5b6ae; background: #fff; }
 .wide { width: 100%; margin-top: 13px; }
+/* The health panel's sign-in action hugs its text and sits centered: a
+   full-width bar read as padding, not as a button. */
+.signin-btn { display: block; width: max-content; margin: 14px auto 0; padding: 8px 24px; }
 .text-button { padding: 0; color: #537361; font-size: 12px; font-weight: 600; }
 .text-button:hover { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
 

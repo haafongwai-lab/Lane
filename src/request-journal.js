@@ -194,6 +194,21 @@ export class RequestJournal {
     return removed;
   }
 
+  /**
+   * How many rows a clear would drop. The status snapshot carries this so
+   * the UI's button reflects the whole journal - the recent list only holds
+   * the newest rows, and a busy day fills it entirely with today's traffic,
+   * hiding old history that is exactly what the button is for.
+   */
+  countBeforeToday(now = Date.now()) {
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const cutoff = midnight.getTime();
+    return this.requests.filter(
+      (request) => request.startedAt < cutoff && request.status !== "running"
+    ).length;
+  }
+
   start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow, project, projectName }) {
     const request = {
       id: randomUUID().replaceAll("-", ""),

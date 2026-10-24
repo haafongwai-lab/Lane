@@ -812,13 +812,10 @@ function renderUsageRecent() {
   const all = snapshot?.recent || [];
   const rows = all.slice(0, 12);
   $("#usage-recent-count").textContent = rows.length ? `最近 ${rows.length} 条` : "0 条";
-  // The clear button only offers itself when there is history older than
-  // today's midnight to clear.
-  $("#clear-history").hidden = !all.some((item) => {
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    return item.startedAt < midnight.getTime() && item.status !== "running";
-  });
+  // The button offers itself whenever the whole journal holds history older
+  // than today's midnight - the snapshot counts it, since the recent window
+  // can be entirely today's traffic while thousands of old rows remain.
+  $("#clear-history").hidden = !(snapshot.clearableHistory > 0);
   const node = $("#usage-recent");
   if (!rows.length) {
     node.innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
