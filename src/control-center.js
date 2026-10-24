@@ -368,6 +368,14 @@ export function createControlCenter({
       return journal.list();
     },
 
+    // Only the owner's journal may be rewritten; a shared window's clear
+    // request reaches the owner's gateway over the loopback, so this is
+    // simply refused on a reader.
+    clearHistory() {
+      if (journal.shared) throw new Error("只读窗口不能清除历史记录");
+      return journal.clearBeforeToday();
+    },
+
     /**
      * Token and credit totals for the usage view. Billed credits come from
      * the upstream's own `credit` report; the token formula costs only the

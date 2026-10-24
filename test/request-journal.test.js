@@ -317,3 +317,22 @@ test("crash-leftover tmp files are cleaned on load", async (t) => {
   assert.equal(fs.existsSync(path.join(dir, "activity.json.999999.tmp")), false);
   assert.equal(fs.existsSync(path.join(dir, "unrelated.json.999999.tmp")), true);
 });
+
+test("clearBeforeToday keeps today and running rows, drops the rest", async (t) => {
+  const dir = tempDir(t);
+  const now = new Date();
+  const midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+  const journal = new RequestJournal({ dir });
+  journal.requests = [
+    { id: "old", startedAt: midnight.getTime() - 36e5, status: "complete" },
+    { id: "yesterday-running", startedAt: midnight.getTime() - 36e5, status: "running" },
+    { id: "today", startedAt: midnight.getTime() + 60e3, status: "complete" },
+    { id: "now-running", startedAt: midnight.getTime() - 36e5, status: "running" }
+  ];
+  const removed = journal.clearBeforeToday(now.getTime());
+  assert.equal(removed, 1);
+  assert.deepEqual([...journal.list().map((row) => row.id)].sort(), ["now-running", "today", "yesterday-running"]);
+  await journal.flush();
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
+  assert.equal(saved.length, 3);
+});

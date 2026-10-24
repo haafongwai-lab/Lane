@@ -625,6 +625,10 @@ async function controlRoute(req, res, url, control) {
       json(res, 200, { data: control.activity() });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/lane/activity/clear") {
+      json(res, 200, { removed: control.clearHistory() });
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/lane/usage") {
       const range = url.searchParams.get("range") || "today";
       json(res, 200, await control.usage(range));

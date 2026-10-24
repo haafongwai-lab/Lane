@@ -812,6 +812,13 @@ function renderUsageRecent() {
   const all = snapshot?.recent || [];
   const rows = all.slice(0, 12);
   $("#usage-recent-count").textContent = rows.length ? `最近 ${rows.length} 条` : "0 条";
+  // The clear button only offers itself when there is history older than
+  // today's midnight to clear.
+  $("#clear-history").hidden = !all.some((item) => {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    return item.startedAt < midnight.getTime() && item.status !== "running";
+  });
   const node = $("#usage-recent");
   if (!rows.length) {
     node.innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
@@ -872,6 +879,21 @@ $$(".nav").forEach((button) => button.addEventListener("click", () => go(button.
 $("#refresh-agents").addEventListener("click", () => refresh());
 $("#refresh-models").addEventListener("click", () => refresh());
 $("#refresh-activity").addEventListener("click", async () => {
+  await refresh();
+  await loadUsage();
+});
+$("#clear-history").addEventListener("click", async () => {
+  if (!confirm("清除今天凌晨之前的全部请求记录？此操作不可恢复。")) return;
+  const button = $("#clear-history");
+  button.disabled = true;
+  try {
+    const result = await window.lane.clearHistory();
+    toast(`已清除 ${result?.removed ?? 0} 条历史记录`);
+  } catch (error) {
+    toast(error.message || "清除失败", true);
+  } finally {
+    button.disabled = false;
+  }
   await refresh();
   await loadUsage();
 });

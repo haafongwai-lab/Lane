@@ -175,6 +175,25 @@ export class RequestJournal {
     this.rebuildBilledRates();
   }
 
+  /**
+   * Everything from before today's local midnight goes. Rows still running
+   * survive regardless of when they started - a deletion must not erase a
+   * live request the gateway is billing right now.
+   */
+  clearBeforeToday(now = Date.now()) {
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const cutoff = midnight.getTime();
+    const kept = this.requests.filter(
+      (request) => request.startedAt >= cutoff || request.status === "running"
+    );
+    const removed = this.requests.length - kept.length;
+    this.requests = kept.slice(0, MAX_ROWS);
+    this.rebuildBilledRates();
+    this.save();
+    return removed;
+  }
+
   start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow, project, projectName }) {
     const request = {
       id: randomUUID().replaceAll("-", ""),

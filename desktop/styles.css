@@ -803,6 +803,7 @@ h1 {
 }
 
 .about-panel { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+.panel-head .text-button { margin-left: 2px; }
 .about-panel h3 { margin-top: 5px; }
 .about-panel p { margin-top: 4px; color: var(--muted); font-size: 11px; }
 /* The version sits beside the quit button, quiet enough not to compete with

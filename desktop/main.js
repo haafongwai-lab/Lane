@@ -305,6 +305,10 @@ ipcMain.handle("lane:usage", async (_event, { range } = {}) => {
   await startGateway();
   return control.usage(range || "today");
 });
+ipcMain.handle("lane:clear-history", async () => {
+  await startGateway();
+  return control.clearHistory();
+});
 ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
   const targetControl = control;
