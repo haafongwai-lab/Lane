@@ -1,6 +1,6 @@
 {
   "name": "lane",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "description": "A small Windows-local gateway for WorkBuddy, Claude Desktop, and Codex.",
   "main": "desktop/main.js",

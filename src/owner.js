@@ -3,16 +3,26 @@ import path from "node:path";
 import { dataDir } from "./config.js";
 
 // EPERM says the pid exists but belongs to someone else; only ESRCH says it
-// is gone. Anything unknown reads as alive, so a live owner's seat is never
-// quietly taken over.
+// is gone. pid 0 never names another process — kill(0) targets the caller's
+// own process group and Windows reports pid 0 as EPERM — so it and every
+// non-pid read as "nobody home": a missing, empty, or half-written seat file
+// must never block a fresh install (a released build once refused to start
+// with "pid 0 owns the data directory" for exactly that reason).
 function processAlive(pid) {
-  if (!Number.isFinite(pid)) return false;
+  if (!Number.isFinite(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
     return error?.code === "EPERM";
   }
+}
+
+// Anything that is not a positive integer — an absent file, an empty line,
+// trailing whitespace — is no owner at all, not pid 0.
+function parsePid(text) {
+  const value = Number(String(text ?? "").trim());
+  return Number.isFinite(value) && value > 0 ? value : NaN;
 }
 
 /**
@@ -23,20 +33,24 @@ function processAlive(pid) {
  * overwriting the other's rows.
  *
  * Returns `{ claimed: false, owner }` when a live process holds the seat;
- * a dead owner's stale file is simply taken over.
+ * a dead owner's stale file, an empty one, or no file at all are taken over.
  */
 export async function claimOwnership(env = process.env) {
   const root = dataDir(env);
   const file = path.join(root, "lane.pid");
-  let current = 0;
+  let current = NaN;
   try {
-    current = Number(await fs.readFile(file, "utf8"));
+    current = parsePid(await fs.readFile(file, "utf8"));
   } catch {}
-  if (Number.isFinite(current) && current !== process.pid && processAlive(current)) {
+  if (!Number.isNaN(current) && current !== process.pid && processAlive(current)) {
     return { claimed: false, owner: current };
   }
+  // The seat lands atomically: a process starting in parallel reads either
+  // the previous content or the full new one, never a truncated pid.
   await fs.mkdir(root, { recursive: true });
-  await fs.writeFile(file, String(process.pid));
+  const temp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(temp, String(process.pid), "utf8");
+  await fs.rename(temp, file);
   return { claimed: true, owner: 0 };
 }
 
@@ -44,7 +58,7 @@ export async function claimOwnership(env = process.env) {
 export async function releaseOwnership(env = process.env) {
   const file = path.join(dataDir(env), "lane.pid");
   try {
-    const current = Number(await fs.readFile(file, "utf8"));
+    const current = parsePid(await fs.readFile(file, "utf8"));
     if (current === process.pid) await fs.rm(file, { force: true });
   } catch {}
 }
