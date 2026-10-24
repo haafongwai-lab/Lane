@@ -22,16 +22,29 @@ export async function readSettings(env = process.env) {
     if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
   }
   // A saved port wins; an env override wins over both, as it always has.
-  const fromEnv = Number(env.LANE_PORT) || 0;
-  const saved = normalizePort(stored.port) || DEFAULT_PORT;
-  return { port: fromEnv || saved, source: fromEnv ? "env" : stored.port ? "saved" : "default" };
+  // Both are normalized here so an out-of-range value never travels all the
+  // way to listen() before failing — and "saved" means a valid port was
+  // actually read back, not merely that the key existed.
+  const fromEnv = normalizePort(env.LANE_PORT) || 0;
+  const savedValid = normalizePort(stored.port);
+  const saved = savedValid || DEFAULT_PORT;
+  const source = fromEnv ? "env" : savedValid ? "saved" : "default";
+  return { port: fromEnv || saved, source };
 }
 
 export async function writeSettings(patch, env = process.env) {
   const port = normalizePort(patch?.port);
   if (!port) throw new Error("端口需为 1024–65535 之间的整数");
-  const current = await readSettings(env).catch(() => ({}));
-  const next = { ...current, port };
+  let stored = {};
+  try {
+    stored = JSON.parse(await fs.readFile(file(env), "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+  }
+  // The computed `source` is a read-side answer; a legacy copy of it from an
+  // older write does not belong in the file either.
+  delete stored.source;
+  const next = { ...stored, port };
   const target = file(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;

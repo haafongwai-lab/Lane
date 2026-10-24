@@ -74,14 +74,34 @@ async function serve(args) {
     return;
   }
   const provider = new WorkBuddyProvider();
+  // Registered from the moment the seat is ours: Ctrl+C during the network
+  // init below used to take the default kill, leaving a stale seat and no
+  // final flush. The stop itself guards on what exists so far.
+  let control = null;
+  let server = null;
+  const stop = async () => {
+    // Let the journal's final debounced write land before the process goes.
+    await control?.stop?.();
+    await releaseOwnership();
+    await new Promise((resolve) => {
+      server?.closeAllConnections?.();
+      server?.close(() => resolve());
+    });
+    // A request that raced the stop scheduled one more debounced save after
+    // the flush above; stop is idempotent, so it rides out here too.
+    await control?.stop?.();
+    process.exit(0);
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
   try {
     await provider.init();
   } catch (error) {
     await releaseOwnership();
     throw error;
   }
-  const control = createControlCenter({ port, host, checkins: true });
-  const server = createServer({ provider, control });
+  control = createControlCenter({ port, host, checkins: true });
+  server = createServer({ provider, control });
   try {
     await new Promise((resolve, reject) => {
       server.once("error", reject);
@@ -94,15 +114,6 @@ async function serve(args) {
   }
   console.log(`lane listening on ${address}`);
   console.log("provider: workbuddy");
-  const stop = async () => {
-    // Let the journal's final debounced write land before the process goes.
-    await control.stop?.();
-    await releaseOwnership();
-    server.closeAllConnections?.();
-    server.close(() => process.exit(0));
-  };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
 }
 
 async function doctor() {

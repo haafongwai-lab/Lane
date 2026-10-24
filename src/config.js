@@ -35,7 +35,9 @@ export function parseAddress(value) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`invalid port: ${match[2]}`);
   }
-  return { host: match[1], port };
+    // "[::1]:3426" is how a URL writes an IPv6 literal; listen() wants the bare literal.
+  const host = match[1].replace(/^\[(.+)\]$/, "$1");
+  return { host, port };
 }
 
 export function gatewayBase(host = DEFAULT_HOST, port = DEFAULT_PORT) {
