@@ -626,7 +626,13 @@ async function controlRoute(req, res, url, control) {
       return;
     }
     if (req.method === "POST" && url.pathname === "/lane/activity/clear") {
-      json(res, 200, { removed: control.clearHistory() });
+      const body = await readJSONBody(req);
+      // `ids` names specific rows; omitting it clears everything before
+      // today's midnight.
+      const removed = Array.isArray(body?.ids)
+        ? control.clearHistory(body.ids)
+        : control.clearHistory();
+      json(res, 200, { removed });
       return;
     }
     if (req.method === "GET" && url.pathname === "/lane/usage") {

@@ -301,7 +301,6 @@ function renderAccounts() {
           <input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}>
           <span></span>
         </label>
-        <button class="mini quiet" data-act="checkin">签到</button>
         <button class="icon-mini" data-act="remove" data-tip="移除账号" aria-label="移除账号">✕</button>
       </div>
     </div>`;
@@ -812,18 +811,18 @@ function renderUsageRecent() {
   const all = snapshot?.recent || [];
   const rows = all.slice(0, 12);
   $("#usage-recent-count").textContent = rows.length ? `最近 ${rows.length} 条` : "0 条";
-  // The button offers itself whenever the whole journal holds history older
-  // than today's midnight - the snapshot counts it, since the recent window
-  // can be entirely today's traffic while thousands of old rows remain.
-  $("#clear-history").hidden = !(snapshot.clearableHistory > 0);
   const node = $("#usage-recent");
   if (!rows.length) {
     node.innerHTML = '<div class="empty">还没有请求。先用 Codex 发起一轮对话。</div>';
+    syncRecentSelection();
     return;
   }
   // The head repeats the cells' own classes, so the narrow-width rule that
-  // hides a column hides its label with it.
+  // hides a column hides its label with it. The first cell is the select
+  // box: tick rows to delete them, or the head box for all of them.
+  const selectable = rows.filter((item) => item.status !== "running");
   const head = `<div class="recent-row recent-head">
+    <input type="checkbox" class="recent-pick" id="recent-pick-all" aria-label="全选"${selectable.length ? "" : " disabled"}>
     <span>时间</span><span>来源</span><span>模型</span><span>状态</span>
     <span>上下文</span><span>缓存</span>
     <span class="recent-tokens">Token</span><span class="recent-cost">积分</span>
@@ -839,7 +838,10 @@ function renderUsageRecent() {
     // row it did not cost stays uncosted — the token-formula estimate proved
     // untrustworthy and no longer displays.
     const cost = item.creditsSource === "upstream" ? credits(item.credits ?? 0) : "—";
-    return `<div class="recent-row">
+    // A live request cannot be deleted; its box says so by being disabled.
+    const running = item.status === "running";
+    return `<div class="recent-row" data-id="${esc(item.id)}">
+      <input type="checkbox" class="recent-pick" data-pick="${esc(item.id)}"${running ? " disabled" : ""} aria-label="选择这条记录">
       <span class="recent-time">${esc(when)}</span>
       <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
       <span class="recent-model">${esc(item.model)}</span>
@@ -850,6 +852,28 @@ function renderUsageRecent() {
       <span class="recent-cost">${cost}</span>
     </div>`;
   }).join("");
+}
+
+// The picked rows drive both actions: 清除选中 appears with the count, and
+// the head box mirrors the tick state of every selectable row.
+function syncRecentSelection() {
+  const picks = [...document.querySelectorAll("#usage-recent [data-pick]")];
+  const on = picks.filter((box) => box.checked);
+  const action = $("#clear-selected");
+  action.hidden = on.length === 0;
+  action.textContent = on.length ? `清除选中（${on.length}）` : "清除选中";
+  const all = $("#recent-pick-all");
+  if (all) {
+    const selectable = picks.filter((box) => !box.disabled);
+    all.checked = selectable.length > 0 && selectable.every((box) => box.checked);
+    all.indeterminate = !all.checked && on.length > 0;
+  }
+}
+
+function pickedIds() {
+  return [...document.querySelectorAll("#usage-recent [data-pick]")]
+    .filter((box) => box.checked)
+    .map((box) => box.dataset.pick);
 }
 
 async function command(command, options = {}, success = "操作完成") {
@@ -894,6 +918,35 @@ $("#clear-history").addEventListener("click", async () => {
   await refresh();
   await loadUsage();
 });
+$("#usage-recent").addEventListener("change", (event) => {
+  const box = event.target.closest(".recent-pick");
+  if (!box) return;
+  // The head box toggles every selectable row.
+  if (box.id === "recent-pick-all") {
+    const on = box.checked;
+    for (const pick of document.querySelectorAll("#usage-recent [data-pick]")) {
+      if (!pick.disabled) pick.checked = on;
+    }
+  }
+  syncRecentSelection();
+});
+$("#clear-selected").addEventListener("click", async () => {
+  const ids = pickedIds();
+  if (!ids.length) return;
+  if (!confirm(`删除选中的 ${ids.length} 条记录？此操作不可恢复。`)) return;
+  const button = $("#clear-selected");
+  button.disabled = true;
+  try {
+    const result = await window.lane.clearHistory(ids);
+    toast(`已删除 ${result?.removed ?? 0} 条记录`);
+  } catch (error) {
+    toast(error.message || "删除失败", true);
+  } finally {
+    button.disabled = false;
+  }
+  await refresh();
+  await loadUsage();
+});
 $("#usage-range").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-range]");
   if (!button || button.dataset.range === usageRange) return;
@@ -931,7 +984,6 @@ $("#account-list").addEventListener("click", async (event) => {
   const id = row?.dataset.id;
   if (!id) return;
   if (button.dataset.act === "activate") return accountAction("activate", id);
-  if (button.dataset.act === "checkin") return runCheckin(id);
   if (button.dataset.act === "remove") {
     const label = row.querySelector("b")?.textContent || id;
     if (!confirm(`移除账号「${label}」？这会删除 Lane 保存的该账号登录信息。`)) return;

@@ -195,6 +195,23 @@ export class RequestJournal {
   }
 
   /**
+   * Removes exactly the named rows. Running rows are never removed, and an
+   * unknown id is simply not present - the caller gets back how many went.
+   */
+  removeByIds(ids = []) {
+    const drop = new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string"));
+    if (!drop.size) return 0;
+    const kept = this.requests.filter(
+      (request) => !drop.has(request.id) || request.status === "running"
+    );
+    const removed = this.requests.length - kept.length;
+    this.requests = kept;
+    this.rebuildBilledRates();
+    this.save();
+    return removed;
+  }
+
+  /**
    * How many rows a clear would drop. The status snapshot carries this so
    * the UI's button reflects the whole journal - the recent list only holds
    * the newest rows, and a busy day fills it entirely with today's traffic,

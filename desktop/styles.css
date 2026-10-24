@@ -474,11 +474,14 @@ h1 {
 .card-actions { margin-top: 18px; }
 .card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 11px; box-shadow: none; }
 .models-panel { overflow: hidden; padding: 0; }
-/* Head and rows share one track definition, so the columns always line up;
-   equal widths keep the table calm — the name cell ellipsizes, not jumps. */
+/* Head and rows share one track definition, so the columns always line up.
+   Widths follow content: the name takes what is left and ellipsizes, and
+   the status badge is only as wide as the badge itself - an equal split
+   left the last column mostly blank. */
 .model-head, .model-row {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(90px, .8fr) minmax(80px, .7fr) minmax(90px, .8fr) max-content;
 }
+.model-head > :last-child, .model-row > :last-child { justify-self: start; }
 .model-head {
   display: grid;
   gap: 12px;
@@ -773,13 +776,28 @@ h1 {
 .usage-recent { margin-top: 12px; }
 .recent-row {
   display: grid;
-  grid-template-columns: .9fr .6fr 1.5fr .6fr .6fr .6fr .7fr .7fr;
+  /* First track: the select box. */
+  grid-template-columns: 16px .9fr .6fr 1.5fr .6fr .6fr .6fr .7fr .7fr;
   align-items: center;
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid var(--line-soft);
   font-size: 11px;
 }
+/* Row-level selection: the box is quiet until ticked, and the row it belongs
+   to lights up a shade so a pick is visible at a glance. */
+.recent-pick {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+.recent-pick:disabled { cursor: default; opacity: .3; }
+.recent-row:has(.recent-pick:checked) { background: rgba(35, 118, 77, .045); }
+.recent-row:has(.recent-pick:checked) .recent-time { color: var(--ink-soft); }
+/* The head's count and clear actions share one quiet line, the badge first. */
+.recent-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .recent-row:last-child { border-bottom: 0; }
 /* The list has no room for per-cell labels, so a faint head row names the
    columns once, in the grid the rows already use. */
@@ -801,7 +819,7 @@ h1 {
   .usage-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 930px) {
-  .recent-row { grid-template-columns: 1fr .8fr 1.1fr .8fr .65fr .6fr; }
+  .recent-row { grid-template-columns: 16px 1fr .8fr 1.1fr .8fr .65fr .6fr; }
   .recent-tokens, .recent-cost { display: none; }
 }
 
@@ -1132,6 +1150,8 @@ h1 {
 .checkin-item b.err { color: var(--red); }
 
 .checkin-card .wide { margin-top: 16px; }
+/* Same shape as the health panel's sign-in action: a button, not a bar. */
+.checkin-now { display: block; width: max-content; min-width: 132px; margin: 16px auto 0; padding: 9px 22px; }
 
 @media (max-width: 1200px) {
   .accounts-grid { grid-template-columns: 1fr; }

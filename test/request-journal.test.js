@@ -354,3 +354,24 @@ test("countBeforeToday sees old history the recent window would hide", async (t)
   journal.clearBeforeToday(now.getTime());
   assert.equal(journal.countBeforeToday(now.getTime()), 0);
 });
+
+test("removeByIds deletes exactly the named rows and spares running ones", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  journal.requests = [
+    { id: "a", startedAt: Date.now(), status: "complete" },
+    { id: "b", startedAt: Date.now(), status: "error" },
+    { id: "c", startedAt: Date.now(), status: "running" },
+    { id: "d", startedAt: Date.now(), status: "complete" }
+  ];
+  // "c" is named but live: it stays. "zzz" does not exist and is ignored.
+  const removed = journal.removeByIds(["a", "b", "c", "zzz"]);
+  assert.equal(removed, 2);
+  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["c", "d"]);
+  await journal.flush();
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
+  assert.deepEqual(saved.map((row) => row.id).sort(), ["c", "d"]);
+  // An empty pick is a no-op, not a wipe.
+  assert.equal(journal.removeByIds([]), 0);
+  assert.equal(journal.list().length, 2);
+});

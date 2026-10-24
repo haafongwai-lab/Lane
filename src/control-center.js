@@ -374,9 +374,9 @@ export function createControlCenter({
     // Only the owner's journal may be rewritten; a shared window's clear
     // request reaches the owner's gateway over the loopback, so this is
     // simply refused on a reader.
-    clearHistory() {
+    clearHistory(ids = null) {
       if (journal.shared) throw new Error("只读窗口不能清除历史记录");
-      return journal.clearBeforeToday();
+      return Array.isArray(ids) ? journal.removeByIds(ids) : journal.clearBeforeToday();
     },
 
     /**
