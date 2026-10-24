@@ -16,13 +16,20 @@ const defaultScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "c
 
 export async function installWindowsTask({
   env = process.env,
-  port = 3426,
+  port: requestedPort = 3426,
   node = resolveNode(env),
   script = defaultScript,
   desktopExe = "",
   runTask = run
 } = {}) {
   assertWindows();
+  // The port is written into a generated PowerShell script, so it is
+  // reduced to a plain integer here, at the sink — no caller's validation
+  // is load-bearing.
+  const port = Math.trunc(Number(requestedPort));
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid port: ${requestedPort}`);
+  }
   const root = dataDir(env);
   const startup = startupDir(env);
   const shortcut = path.join(startup, SHORTCUT_NAME);

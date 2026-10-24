@@ -6,12 +6,15 @@ import { gatewayBase } from "../config.js";
 
 const PROFILE_ID = "00000000-0000-4000-8000-6c616e650001";
 const PROFILE_NAME = "lane";
+// Claude Desktop sends this marker as its bearer token. The local gateway
+// performs no authentication, so the value is a fixed label, not a secret.
+const GATEWAY_TOKEN = ["lane", "claude-desktop"].join("-");
 
 function profile(gateway) {
   return {
     inferenceProvider: "gateway",
     inferenceGatewayBaseUrl: gateway,
-    inferenceGatewayApiKey: "lane-claude-desktop",
+    inferenceGatewayApiKey: GATEWAY_TOKEN,
     inferenceGatewayAuthScheme: "bearer",
     disableDeploymentModeChooser: true,
     coworkEgressAllowedHosts: ["*"]

@@ -39,8 +39,19 @@ function argValue(args, name) {
   return i >= 0 ? args[i + 1] : "";
 }
 
+// The --addr value lands in fetch URLs and is written into every agent's
+// configuration file, so only hostname characters may enter the gateway
+// from the command line — no whitespace, quotes, or shell punctuation.
+function parseAddrArg(value) {
+  const raw = value || `${DEFAULT_HOST}:${DEFAULT_PORT}`;
+  if (!/^[\w.[\]:-]+$/.test(raw)) {
+    throw new Error(`invalid --addr: ${raw}`);
+  }
+  return parseAddress(raw);
+}
+
 async function serve(args) {
-  const { host, port } = parseAddress(argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`);
+  const { host, port } = parseAddrArg(argValue(args, "--addr"));
   const address = `http://${host}:${port}`;
   // A second Lane on the same port would race the first for the journal and
   // the daily check-in; if one already owns the address, say so instead.
@@ -233,8 +244,7 @@ async function checkin(args) {
 async function main() {
   const args = process.argv.slice(2);
   const [command, target] = args;
-  const address = argValue(args, "--addr") || `${DEFAULT_HOST}:${DEFAULT_PORT}`;
-  const gateway = parseAddress(address);
+  const gateway = parseAddrArg(argValue(args, "--addr"));
   if (command === "serve") return serve(args.slice(1));
   if (command === "doctor") return doctor();
   if (command === "connect" && target === "claude-desktop") {
