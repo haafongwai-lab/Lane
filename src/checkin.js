@@ -249,12 +249,21 @@ async function claimRound({
   if (!settings.enabled && !force) {
     return { skipped: "check-in is switched off", settings, results };
   }
-  const accounts = (await provider.accounts()).filter((account) => {
-    if (!account.enabled) return false;
-    if (!only) return true;
-    const list = Array.isArray(only) ? only : [only];
-    return list.includes(account.id);
-  });
+  const all = await provider.accounts();
+  const list = Array.isArray(only) ? only : (only ? [only] : null);
+  // A scheduled round takes the enabled accounts silently; a named one is
+  // answered even when switched off — a point check-in used to come back
+  // "0 done" with no reason at all.
+  const selected = list
+    ? all.filter((account) => list.includes(account.id))
+    : all.filter((account) => account.enabled);
+  if (list) {
+    for (const account of selected) {
+      if (account.enabled) continue;
+      results.push({ id: account.id, label: account.label, status: "skipped", reason: "该账号已关闭，启用后再签到" });
+    }
+  }
+  const accounts = selected.filter((account) => account.enabled);
   for (const account of accounts) {
     const record = state.accounts[account.id] || null;
     if (!force) {

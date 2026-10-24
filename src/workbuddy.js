@@ -197,6 +197,18 @@ export class WorkBuddyProvider {
     if (!target) return null;
     const refresh = target.hooks?.auth?.refresh;
     if (typeof refresh !== "function") return target.auth;
+    // Concurrent chats on one account share the refresh: a rotating refresh
+    // token spent twice spends an already-dead token the second time, and
+    // the losing write would persist it. Same sharing as sessionLoads.
+    this.refreshLoads ||= new Map();
+    const pending = this.refreshLoads.get(target.id);
+    if (pending) return pending;
+    const load = this.refresh(target, refresh).finally(() => this.refreshLoads.delete(target.id));
+    this.refreshLoads.set(target.id, load);
+    return load;
+  }
+
+  async refresh(target, refresh) {
     const changed = await refresh.call(target.hooks.auth, target.auth);
     if (changed && typeof changed === "object") {
       target.auth = { ...target.auth, ...changed };
@@ -216,10 +228,14 @@ export class WorkBuddyProvider {
   // A route change or a new sign-in can change what the catalogue says;
   // those are the moments the cached catalogues stop being trusted. The
   // generation rises per invalidation so a load that started before the
-  // switch cannot re-cache the old catalogue after it lands.
+  // switch cannot re-cache the old catalogue after it lands. In-flight loads
+  // go too: returning one that started before the switch would hand out the
+  // stale catalogue the generation guard was meant to drop.
   invalidateModels() {
     this.modelGeneration = (this.modelGeneration || 0) + 1;
     this.modelCache.clear();
+    if (this.modelLoads) for (const load of this.modelLoads.values()) load.catch(() => {});
+    this.modelLoads?.clear();
   }
 
   async listModels(id) {

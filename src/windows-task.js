@@ -77,7 +77,10 @@ export async function installWindowsTask({
     "} else {",
     "  exit 0",
     "}",
-    "if ($process) { $process.Id | Set-Content -LiteralPath " + quotePowerShell(path.join(root, "lane.pid")) + " }",
+    // No lane.pid write here: the seat file belongs to claimOwnership alone.
+    // The desktop branch may come up as a shared follower that never claims,
+    // and a runner-written pid would then block the real owner — or be
+    // deleted by the follower's exit while the owner still runs.
     ""
   );
   await fs.writeFile(runner, runnerLines.join("\r\n"));
@@ -197,7 +200,10 @@ function run(command, args, timeoutMs = 30_000) {
   });
 }
 
-function startupDir(env) {
+// The one Startup folder, resolved the same way wherever it is asked for —
+// a missing APPDATA used to make the status probe look in the working
+// directory while the installer wrote the shortcut under USERPROFILE.
+export function startupDir(env = process.env) {
   return path.join(
     env.APPDATA || path.join(env.USERPROFILE || process.env.USERPROFILE || "", "AppData", "Roaming"),
     "Microsoft", "Windows", "Start Menu", "Programs", "Startup"

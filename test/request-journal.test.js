@@ -181,21 +181,27 @@ test("a cache hit larger than its input is clamped to the input", async (t) => {
   await journal.flush();
 });
 
-test("a request the upstream does not cost is an estimate, labelled as one", async (t) => {
+test("a request the upstream does not cost is an estimate at the calibrated price", async (t) => {
   const dir = tempDir(t);
   const journal = new RequestJournal({ dir });
   // A usage report with no `credit` — an older build's upstream, or a proxy
-  // that strips it — falls back to the token formula, but marked as an
-  // estimate so the summary never sums it with billed credits.
-  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3", rate: 2 });
+  // that strips it — falls back to the token formula, priced at what the
+  // upstream actually charged for the model on its billed rows; the
+  // catalogue's relative multiple is not a price and never costs.
+  const priced = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3", rate: 0.02 });
+  journal.usage(priced.id, { prompt_tokens: 1_000_000, completion_tokens: 0, credit: 5 });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3", rate: 0.02 });
   journal.usage(record.id, { prompt_tokens: 250_000, completion_tokens: 250_000 });
-  const [row] = journal.list();
-  assert.equal(row.totalTokens, 500_000);
-  assert.equal(row.credits, 1);
-  assert.equal(row.creditsSource, "estimate");
+  const rows = journal.list();
+  assert.equal(rows[0].totalTokens, 500_000);
+  assert.equal(rows[0].credits, 2.5);
+  assert.equal(rows[0].creditsSource, "estimate");
+  assert.equal(rows[1].credits, 5);
+  assert.equal(rows[1].creditsSource, "upstream");
 
-  // A model whose multiple the provider could not report stays uncosted
-  // rather than being counted as free.
+  // A model with no billed history has no calibrated price, so the row
+  // stays uncosted rather than being counted as free — or priced by a
+  // multiple that is not a price.
   const unknown = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "mystery" });
   journal.usage(unknown.id, { prompt_tokens: 1000, completion_tokens: 0 });
   assert.equal(journal.list()[0].credits, null);
@@ -284,4 +290,30 @@ test("a running row older than a day counts as crashed even if its pid lives", a
   const [row] = journal.list();
   assert.equal(row.status, "error");
   assert.match(row.error, /尚未完成/);
+});
+
+test("an unreadable-but-present journal is never overwritten", async (t) => {
+  // A persistent read failure (a directory in the file's place stands in for
+  // a locked file): the journal keeps running in memory but its writes are
+  // held back, so the unreadable original survives instead of being replaced
+  // by a journal that started empty.
+  const dir = tempDir(t);
+  fs.mkdirSync(path.join(dir, "activity.json"));
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  journal.usage(record.id, { prompt_tokens: 10, completion_tokens: 2 });
+  await journal.flush();
+  // Still a directory — nothing was written over it.
+  assert.ok(fs.statSync(path.join(dir, "activity.json")).isDirectory());
+  // The in-memory row is intact for the running session.
+  assert.equal(journal.list()[0].totalTokens, 12);
+});
+
+test("crash-leftover tmp files are cleaned on load", async (t) => {
+  const dir = tempDir(t);
+  fs.writeFileSync(path.join(dir, "activity.json.999999.tmp"), "[]");
+  fs.writeFileSync(path.join(dir, "unrelated.json.999999.tmp"), "[]");
+  new RequestJournal({ dir });
+  assert.equal(fs.existsSync(path.join(dir, "activity.json.999999.tmp")), false);
+  assert.equal(fs.existsSync(path.join(dir, "unrelated.json.999999.tmp")), true);
 });

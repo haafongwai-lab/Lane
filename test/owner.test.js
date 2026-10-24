@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { claimOwnership, releaseOwnership } from "../src/owner.js";
+import { parsePid } from "../src/pid.js";
 
 function tempEnv(t) {
   const root = fss.mkdtempSync(path.join(os.tmpdir(), "lane-owner-"));
@@ -39,7 +40,7 @@ test("a fresh data directory claims the seat", async (t) => {
   const { env } = tempEnv(t);
   const seat = await claimOwnership(env);
   assert.equal(seat.claimed, true);
-  assert.equal(await fs.readFile(pidFile(env), "utf8"), String(process.pid));
+  assert.equal(parsePid(await fs.readFile(pidFile(env), "utf8")), process.pid);
   // And the owner releases what it claimed.
   await releaseOwnership(env);
   await assert.rejects(() => fs.readFile(pidFile(env), "utf8"), { code: "ENOENT" });
@@ -71,6 +72,21 @@ test("a live owner's seat is refused, a dead one's is taken over", async (t) => 
   await fs.writeFile(pidFile(env), String(dead), "utf8");
   const seat = await claimOwnership(env);
   assert.equal(seat.claimed, true);
+});
+
+test("a seat gone quiet names no owner, even at a live pid", async (t) => {
+  // Windows recycles pids: a crashed owner's pid can belong to an unrelated
+  // long-lived process that never heartbeats. A stale seat is taken over —
+  // and the fresh-live refusal above covers the other EEXIST path.
+  const { env } = tempEnv(t);
+  const other = await livePid();
+  t.after(() => other.kill());
+  await fs.writeFile(pidFile(env), String(other.pid), "utf8");
+  const old = new Date(Date.now() - 30 * 60 * 1000);
+  await fs.utimes(pidFile(env), old, old);
+  const seat = await claimOwnership(env);
+  assert.equal(seat.claimed, true);
+  await releaseOwnership(env);
 });
 
 test("release only removes one's own seat", async (t) => {

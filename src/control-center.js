@@ -9,9 +9,9 @@ import {
   disconnectClaudeDesktop
 } from "./agents/claude-desktop.js";
 import { connectZcode, disconnectZcode, zcodePaths } from "./agents/zcode.js";
-import { installWindowsTask, uninstallWindowsTask } from "./windows-task.js";
+import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
-import { summary as usageSummary, RANGES } from "./usage.js";
+import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -168,15 +168,17 @@ export function createControlCenter({
       const instance = await getProvider();
       // The status snapshot carries fields that need no network (accounts,
       // wiring, autostart); a catalogue the upstream cannot serve right now
-      // must not take those down with it.
-      const models = await instance.listModels().catch(() => []);
+      // must not take those down with it — and must not take the catalogue
+      // Codex already has down either: syncing an empty list would wipe
+      // lane-models.json for as long as the outage lasts.
+      const models = await instance.listModels().catch(() => null);
       // A truncated wiring.json is one agent-wiring file gone wrong; the
       // accounts, activity and models it must not take down with it.
       let state = {};
       try {
         state = await readState(env);
       } catch {}
-      await syncCodexCatalog({ env, models }).catch(() => {});
+      if (models?.length) await syncCodexCatalog({ env, models }).catch(() => {});
       let signedIn = false;
       try {
         signedIn = await instance.signedIn();
@@ -192,10 +194,7 @@ export function createControlCenter({
       }
       let autostart = false;
       try {
-        const startup = path.join(
-          env.APPDATA || process.env.APPDATA || "",
-          "Microsoft", "Windows", "Start Menu", "Programs", "Startup"
-        );
+        const startup = startupDir(env);
         await Promise.any([
           fs.access(path.join(startup, "Lane Gateway.lnk")),
           fs.access(path.join(startup, "Lane.lnk"))
@@ -212,7 +211,7 @@ export function createControlCenter({
         expiresAt: account?.expiresAt || null,
         accounts: await instance.accounts(),
         activeId: await instance.activeId(),
-        checkin: await checkinOverview(instance, env),
+        checkin: await checkinOverview(instance, env).catch(() => null),
         usage,
         models,
         agents: {
@@ -378,12 +377,16 @@ export function createControlCenter({
      */
     async usage(range = "today") {
       const instance = await getProvider();
-      // The catalogue is needed to cost rows written before the journal kept
-      // a multiple; the provider caches what its last listModels settled on,
-      // so this does not ask WorkBuddy again.
-      const models = instance.cachedModels();
-      const rates = new Map((models || []).map((model) => [model.id, model.rate]));
-      const report = usageSummary(journal.list(), {
+      // Estimates are priced from what the upstream itself charged for each
+      // model, read out of the journal — the catalogue's `rate` is a
+      // relative multiple (×0.08), not a credits-per-million price, and
+      // costing with it understated real charges by two orders of magnitude.
+      // One read, used for both the prices and the rows: a shared window's
+      // list() re-reads the file per call, and two calls could straddle the
+      // owner's write between them.
+      const rows = journal.list();
+      const rates = billedRates(rows);
+      const report = usageSummary(rows, {
         range: RANGES.some((item) => item.key === range) ? range : "today",
         rateFor: (id) => (rates.has(id) ? rates.get(id) : null)
       });

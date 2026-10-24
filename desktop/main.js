@@ -19,6 +19,9 @@ const DESKTOP_DIR = path.dirname(fileURLToPath(import.meta.url));
 // The port is a setting: read before the gateway starts, written by the
 // settings page. Cached here because every fetch in this file addresses it.
 let PORT = 3426;
+// Where PORT came from — an env override must not make "save this port" a
+// no-op, or the setting never lands in settings.json.
+let portSource = "default";
 let GATEWAY = `http://${HOST}:${PORT}`;
 
 let window;
@@ -52,6 +55,7 @@ async function startGateway() {
     // before both the health probe and the listen call below.
     const settings = await readSettings().catch(() => ({ port: PORT }));
     PORT = settings.port;
+    portSource = settings.source || "default";
     GATEWAY = `http://${HOST}:${PORT}`;
     let alreadyRunning = false;
     try {
@@ -156,16 +160,21 @@ async function stopGateway() {
   // The seat is ours from the moment the claim succeeded — even when the
   // listen call after it failed — so it is always released here.
   await releaseOwnership().catch(() => {});
-  if (!server) return;
-  await new Promise((resolve) => {
-    // In-flight SSE streams would otherwise hold close() open until each
-    // generation ends on its own; the gateway is stopping, so they go.
-    server.closeAllConnections?.();
-    server.close(resolve);
-  });
+  // The handles clear before the server wait: a shared window owns no
+  // server, and before-quit only lets the quit through once `control` is
+  // null — the early return below used to skip that clearing, and the quit
+  // retried forever.
+  const gateway = server;
   server = null;
   control = null;
   ownsGateway = false;
+  if (!gateway) return;
+  await new Promise((resolve) => {
+    // In-flight SSE streams would otherwise hold close() open until each
+    // generation ends on its own; the gateway is stopping, so they go.
+    gateway.closeAllConnections?.();
+    gateway.close(resolve);
+  });
 }
 
 async function healthy() {
@@ -354,7 +363,10 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     throw new Error("端口需为 1024–65535 之间的整数");
   }
-  if (port === PORT) return { changed: false, port: PORT, host: HOST };
+  // Only a port that both matches the running one and actually came from
+  // settings.json needs no write: under a LANE_PORT override the same number
+  // still has to be persisted, or it evaporates with the environment.
+  if (port === PORT && portSource !== "env") return { changed: false, port: PORT, host: HOST };
   // Probe before saving: a port something else already listens on would
   // only fail at the next start, which reads as a broken gateway instead
   // of a bad setting.
@@ -373,7 +385,10 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
   // clients would keep pointing at a port nothing listens on.
   // A LANE_PORT env override still wins after a restart, so the effective
   // port comes from readSettings, not from the value just saved.
-  const effectivePort = (await readSettings().catch(() => ({ port }))).port;
+  const afterSave = await readSettings().catch(() => ({ port, source: "saved" }));
+  const effectivePort = afterSave.port;
+  PORT = effectivePort;
+  portSource = afterSave.source || "default";
   const nextGateway = `http://${HOST}:${effectivePort}`;
   const state = await readState().catch(() => ({}));
   const stateKey = { codex: "lane", "claude-desktop": "claude-desktop", zcode: "zcode" };

@@ -3,6 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { processAlive } from "./pid.js";
+import { billedRates } from "./usage.js";
 
 const KEEP_DAYS = 120;
 const MAX_ROWS = 6000;
@@ -33,12 +34,14 @@ export function credited(usage = {}) {
   return Number.isFinite(value) ? value : undefined;
 }
 
-// The token formula, for rows the upstream does not cost on its own. It is
-// Lane's own arithmetic and does not equal the meter — on real traffic it
-// lands around 1/230th of it — so callers label the result an estimate.
-export function estimatedCredits(request = {}) {
-  if (!Number.isFinite(request.rate)) return null;
-  return ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * request.rate;
+// The token formula, for rows the upstream does not cost on its own. The
+// price must be a calibrated credits-per-million figure (see `billedRates`
+// in usage.js): the catalogue's relative multiple is not a price, and
+// costing with it understated real charges by orders of magnitude. Without
+// a calibrated price the row stays uncosted — no number beats a wrong one.
+export function estimatedCredits(request = {}, price) {
+  if (!Number.isFinite(price) || price <= 0) return null;
+  return ((request.inputTokens || 0) + (request.outputTokens || 0)) / 1_000_000 * price;
 }
 
 export class RequestJournal {
@@ -59,11 +62,22 @@ export class RequestJournal {
     let saved;
     try {
       saved = fs.readFileSync(this.file, "utf8");
-    } catch {
-      // No file yet, or a transient read error (an indexer or antivirus
-      // holding the file). Starting empty is right either way; a file that
-      // exists is left exactly as it is.
-      this.requests = [];
+    } catch (error) {
+      // No file yet is a fresh start. A file that exists but cannot be read
+      // (an indexer or antivirus holding it) is not: writing over it later
+      // with a journal that started empty would erase the only history, so
+      // the journal goes read-only until a load succeeds. Whatever rows the
+      // session already holds stay in memory — clearing them would serve
+      // no one.
+      if (error?.code === "ENOENT") {
+        this.requests = [];
+        this.rebuildBilledRates();
+        this.cleanupTmp();
+        return;
+      }
+      this.readOnly = true;
+      this.rebuildBilledRates();
+      console.error(`lane: the request journal at ${this.file} could not be read (${error?.code || error?.message}); it stays untouched until it reads again`);
       return;
     }
     try {
@@ -91,28 +105,74 @@ export class RequestJournal {
           }
         }
       }
+      this.readOnly = false;
       this.prune();
     } catch {
       // A file that does not parse is corrupt — a crash can land a
       // half-written file on disk. It is set aside for forensics rather than
       // deleted: the next save would otherwise overwrite the only copy of
-      // the history with a journal that holds nothing.
+      // the history with a journal that holds nothing. When even the
+      // set-aside fails (the corrupt file is held too), the journal goes
+      // read-only rather than perform that overwrite itself.
       const quarantined = `${this.file}.corrupt`;
       try { fs.rmSync(quarantined, { force: true }); } catch {}
-      try { fs.renameSync(this.file, quarantined); } catch {}
+      let setAside = true;
+      try { fs.renameSync(this.file, quarantined); } catch { setAside = false; }
       this.requests = [];
-      console.error(`lane: the request journal at ${this.file} is unreadable; it is kept as ${path.basename(quarantined)} and a new journal starts`);
+      if (setAside) {
+        this.readOnly = false;
+        console.error(`lane: the request journal at ${this.file} is unreadable; it is kept as ${path.basename(quarantined)} and a new journal starts`);
+      } else {
+        this.readOnly = true;
+        console.error(`lane: the request journal at ${this.file} is unreadable and could not be set aside; it is never overwritten`);
+      }
     }
+    this.rebuildBilledRates();
+    this.cleanupTmp();
+  }
+
+  // Crash leftovers from the write-below-rename window. Their pid-suffixed
+  // names are never reused, so nothing else will remove them.
+  cleanupTmp() {
+    try {
+      const entries = fs.readdirSync(this.dir);
+      const prefix = `${path.basename(this.file)}.`;
+      for (const entry of entries) {
+        if (!entry.startsWith(prefix) || !entry.endsWith(".tmp")) continue;
+        try { fs.rmSync(path.join(this.dir, entry), { force: true }); } catch {}
+      }
+    } catch {}
+  }
+
+  // The calibrated price of a model, from what the upstream actually charged
+  // for it — the only honest way to cost a row the upstream did not price,
+  // since the catalogue's relative multiple is not a price at all.
+  rebuildBilledRates() {
+    this.billedRates = billedRates(this.requests);
+  }
+
+  calibratedPrice(model) {
+    return this.billedRates?.get(model) ?? null;
+  }
+
+  // A billed row just landed: refresh the running prices so the next
+  // estimate prices with it. The journal is capped (MAX_ROWS), so a full
+  // rescan is cheap and stays consistent with prune and reload.
+  noteBilled() {
+    this.rebuildBilledRates();
   }
 
   // Totals are read per day and per model, so the journal keeps a longer
   // history than the request list shows; a busy month still fits in a file
-  // the desktop app can parse on every status poll.
+  // the desktop app can parse on every status poll. What leaves the list
+  // leaves the calibrated prices too, or row-level estimates would be priced
+  // by a stale snapshot while the summary recomputes from what remains.
   prune(now = Date.now()) {
     const cutoff = now - KEEP_DAYS * 24 * 60 * 60 * 1000;
     this.requests = this.requests
       .filter((request) => request.startedAt >= cutoff)
       .slice(0, MAX_ROWS);
+    this.rebuildBilledRates();
   }
 
   start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow, project, projectName }) {
@@ -152,6 +212,7 @@ export class RequestJournal {
     };
     this.requests.unshift(request);
     this.requests = this.requests.slice(0, MAX_ROWS);
+    this.rebuildBilledRates();
     this.started = (this.started || 0) + 1;
     // The day limit is not checked on every request: once the list is long
     // enough for it to matter, checking every couple of hundred starts keeps
@@ -211,11 +272,13 @@ export class RequestJournal {
     if (billed !== undefined) {
       request.credits = billed;
       request.creditsSource = "upstream";
+      this.noteBilled();
     } else {
-      // No upstream number: the token formula fills in, but it is an
-      // estimate on a much smaller scale than the meter, and the summary
-      // keeps the two apart.
-      request.credits = estimatedCredits(request);
+      // No upstream number: the token formula fills in, priced at the
+      // model's calibrated credits-per-million. Without a calibrated price
+      // the row stays uncosted — the catalogue's relative multiple is not a
+      // price, and a fabricated one understates the charge wildly.
+      request.credits = estimatedCredits(request, this.calibratedPrice(request.model));
       request.creditsSource = "estimate";
     }
     this.save();
@@ -267,9 +330,38 @@ export class RequestJournal {
     // snapshot over the owner's newer rows would lose them, so a reader
     // never writes.
     if (this.shared) return Promise.resolve();
+    // A journal that could not read its file holds only what arrived after
+    // the failure; writing would replace the unreadable original with that
+    // near-empty list. Each write first tries to recover — the failure is
+    // usually a transient lock — and a recovery that still fails means
+    // still no write.
+    if (this.readOnly && !this.recover()) return Promise.resolve();
     const run = this.writing.then(() => this.writeNow());
     this.writing = run.catch(() => {});
     return run;
+  }
+
+  // One attempt to come back from a read failure: re-read the file and fold
+  // the rows this session kept in memory over it, so nothing is lost on
+  // either side. False while the file still cannot be read.
+  recover() {
+    let rows;
+    try {
+      rows = JSON.parse(fs.readFileSync(this.file, "utf8"));
+    } catch {
+      return false;
+    }
+    const merged = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (Number.isFinite(row?.startedAt)) merged.set(row.id, row);
+    }
+    for (const row of this.requests) merged.set(row.id, row);
+    this.requests = [...merged.values()]
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, MAX_ROWS);
+    this.readOnly = false;
+    this.rebuildBilledRates();
+    return true;
   }
 
   async writeNow() {

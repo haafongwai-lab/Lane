@@ -144,6 +144,23 @@ test("a refusal that is not 'already done' is retried later", async () => {
   assert.equal(retry.results[0].status, "retry-later", "the retry waits for its backoff");
 });
 
+test("a point check-in on a switched-off account says why it did not run", async () => {
+  // It used to filter the account away and answer "0 done" with no reason.
+  const { env } = await tempEnv();
+  const { fetchImpl } = responder();
+  const run = await runCheckins({
+    provider: fakeProvider([{ ...ACCOUNT, enabled: false }]),
+    env,
+    now: at("2026-10-22T10:00:00"),
+    force: true,
+    only: [ACCOUNT.id],
+    fetchImpl
+  });
+  assert.equal(run.results.length, 1);
+  assert.equal(run.results[0].status, "skipped");
+  assert.match(run.results[0].reason, /已关闭/);
+});
+
 test("switched-off accounts and switched-off check-in are both skipped", async () => {
   const { env } = await tempEnv();
   const off = await runCheckins({
