@@ -363,24 +363,27 @@ async function accountAction(action, id, options = {}) {
 // falling back to the connected one, and the workflow lists both.
 function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn }) {
   // The AGENT node shows every client that is wired, so the route reads the
-  // same whether one, two or all of them are in use.
+  // same whether one, two or all of them are in use. Each mark carries its
+  // own name under its logo: Codex's star and Claude's asterisk read alike
+  // at this size, so a joined name line left the marks unattributable.
   const clients = [
-    { on: codexOn, logo: "#client-codex-logo", short: "Codex", full: "Codex" },
-    { on: claudeOn, logo: "#client-claude-logo", short: "Claude", full: "Claude Desktop" },
-    { on: zcodeOn, logo: "#client-zcode-logo", short: "ZCode", full: "ZCode" }
+    { on: codexOn, mark: "#client-codex-mark", full: "Codex" },
+    { on: claudeOn, mark: "#client-claude-mark", full: "Claude Desktop" },
+    { on: zcodeOn, mark: "#client-zcode-mark", full: "ZCode" }
   ];
   const live = clients.filter((client) => client.on);
   for (const client of clients) {
-    $(client.logo).classList.toggle("hidden", !client.on);
+    $(client.mark).classList.toggle("hidden", !client.on);
   }
   const none = live.length === 0;
-  const label = none
-    ? "无智能体接入"
-    : live.length === 1 ? live[0].full : live.map((client) => client.short).join(" + ");
-  $("#client-name").textContent = label;
-  // Three names are long enough to wrap in the narrow column; a smaller size
-  // keeps the node on one line and level with its neighbours.
-  $("#client-name").classList.toggle("compact", live.length >= 3);
+  // Two or more marks label themselves, so the name line would only repeat
+  // them; one mark shows the full name below instead of its short label.
+  const nameNode = $("#client-name");
+  nameNode.textContent = none ? "无智能体接入" : live.length === 1 ? live[0].full : "";
+  nameNode.classList.toggle("hidden", live.length > 1);
+  for (const client of live) {
+    $(`${client.mark} span`)?.classList.toggle("hidden", live.length === 1);
+  }
   // "工作模型" only while a request is on the wire, else a quiet hint.
   const working = last?.status === "running";
   $("#client-model").textContent = working
@@ -440,7 +443,9 @@ async function loadUsage() {
   }
 }
 
-const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude Desktop", zcode: "ZCode", openai: "OpenAI 兼容" };
+// Short forms: the recent list's source column is one narrow grid cell, and a
+// long label there wraps the row to double height.
+const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", openai: "OpenAI" };
 
 function agentLabel(agent) {
   return AGENT_LABELS[agent] || agent || "未知来源";
@@ -463,6 +468,18 @@ function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
 }
 
+// The RMB value of WorkBuddy credits: 10 yuan buys 200 credits, so a credit
+// is a twentieth of a yuan. Billed credits are the only input — the
+// token-formula estimates proved untrustworthy and no longer show anywhere.
+const CREDITS_PER_YUAN = 20;
+
+function rmb(value) {
+  const yuan = (Number(value) || 0) / CREDITS_PER_YUAN;
+  if (yuan >= 100) return yuan.toFixed(0);
+  if (yuan >= 1) return yuan.toFixed(2);
+  return yuan.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 function renderUsage() {
   if (!usage) return;
   const { totals, series, models, quota, context, projects } = usage;
@@ -470,17 +487,18 @@ function renderUsage() {
   // One line of headline figures replaces the four metric cards: the totals
   // still read at a glance, and the chart below carries the detail. The
   // credits figure is what WorkBuddy charged (its own `credit` report); the
-  // token-formula estimates on rows it did not cost are a different quantity
-  // and are named as such rather than summed in.
-  const estimateNote = totals.estimatedCredits > 0
-    ? ` <span class="soft-label">另计约 ${credits(totals.estimatedCredits)} 估算积分（未上报扣费的旧记录）</span>`
-    : "";
+  // money line under it converts that same figure at the plan's rate.
   $("#usage-summary").innerHTML = [
-    `<b>${credits(totals.credits)}</b> 积分${estimateNote}`,
+    `<b>${credits(totals.credits)}</b> 积分`,
     `<b>${compact(totals.totalTokens)}</b> Token`,
     `<b>${compact(totals.inputTokens)}</b> 输入 / <b>${compact(totals.outputTokens)}</b> 输出`,
     `<b>${totals.requests}</b> 次请求`
   ].join(" · ");
+  const money = $("#usage-estimate");
+  money.hidden = !(totals.credits > 0);
+  money.textContent = totals.credits > 0
+    ? `折合 ¥${rmb(totals.credits)} · 按 10 元 = 200 积分换算`
+    : "";
 
   // The range control comes back with the report, so a stale tab can't
   // leave the page showing one range and offering another.
@@ -511,17 +529,16 @@ function renderUsageChart(series) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
     return;
   }
-  const creditMax = Math.max(...series.map((item) => (Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0)), 0);
+  const creditMax = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
   const tokenMax = Math.max(...series.map((item) => Number(item.totalTokens) || 0), 0);
   const showTokens = series.length > 1;
   const peak = series.reduce((best, item) => (
-    ((Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0)) >
-    ((Number(best.credits) || 0) + (Number(best.estimatedCredits) || 0)) ? item : best
+    (Number(item.credits) || 0) > (Number(best.credits) || 0) ? item : best
   ), series[0]);
   node.innerHTML = `
     <div class="usage-bars${showTokens ? "" : " single"}">
       ${series.map((item) => {
-        const dayCredits = (Number(item.credits) || 0) + (Number(item.estimatedCredits) || 0);
+        const dayCredits = Number(item.credits) || 0;
         const creditHeight = creditMax ? dayCredits / creditMax * 100 : 0;
         const tokenHeight = tokenMax ? (Number(item.totalTokens) || 0) / tokenMax * 100 : 0;
         const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
@@ -530,7 +547,7 @@ function renderUsageChart(series) {
         const detail = [
           `${item.date}`,
           `积分 ${credits(item.credits)}`,
-          ...(Number(item.estimatedCredits) > 0 ? [`估算 ${credits(item.estimatedCredits)}`] : []),
+          ...(dayCredits > 0 ? [`折合 ¥${rmb(dayCredits)}`] : []),
           `Token ${compact(item.totalTokens)}`,
           `请求 ${item.requests} 次`
         ].join("\n");
@@ -547,7 +564,7 @@ function renderUsageChart(series) {
         </div>`;
       }).join("")}
     </div>
-    <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits((Number(peak.credits) || 0) + (Number(peak.estimatedCredits) || 0))} · 请求 ${peak.requests} 次</p>`;
+    <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)}（¥${rmb(peak.credits)}） · 请求 ${peak.requests} 次</p>`;
 }
 
 // WorkBuddy's own meter: the cycle's credits against what the plan grants.
@@ -586,27 +603,122 @@ function renderUsageQuota(quota) {
     </div>`;
 }
 
+// The donut's slice colours: a ramp around the app's own greens, ordered so
+// adjacent slices always contrast. The tail beyond six models folds into a
+// neutral "others" grey rather than a seventh guess.
+const MODEL_COLORS = ["#1f6b46", "#4d8a68", "#7fa98d", "#aecab6", "#55685e", "#8a9a90"];
+const OTHERS_COLOR = "#c7cfc8";
+const PIE_MAX_SLICES = 6;
+
+// One arc per slice: a full circle whose dash shows only its share, offset
+// to where the previous slice ended. A small dash gap separates slices, so
+// the ring reads as segments instead of one solid band.
+function modelPieSvg(slices, totals) {
+  const R = 84;
+  const C = 2 * Math.PI * R;
+  const GAP = 2.5;
+  let cum = 0;
+  const segs = slices.map((slice, i) => {
+    const raw = slice.share * C;
+    const len = Math.max(raw - GAP, raw > GAP ? 2 : 0);
+    const seg = `<circle class="seg" data-i="${i}" cx="100" cy="100" r="${R}" fill="none" stroke="${slice.color}" stroke-width="24" stroke-dasharray="${len.toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-cum).toFixed(2)}"/>`;
+    cum += raw;
+    return seg;
+  }).join("");
+  const cap = totals.credits > 0 ? `¥${rmb(totals.credits)}` : "暂无积分消耗";
+  return `
+    <svg viewBox="0 0 200 200" role="img" aria-label="按模型的积分占比">
+      <circle cx="100" cy="100" r="${R}" fill="none" stroke="var(--line-soft)" stroke-width="24" opacity=".55"/>
+      <g transform="rotate(-90 100 100)">${segs}</g>
+      <text class="pie-num" x="100" y="98" text-anchor="middle">${credits(totals.credits)}</text>
+      <text class="pie-cap" x="100" y="116" text-anchor="middle">${esc(cap)}</text>
+    </svg>`;
+}
+
+// The sweep-in: each dash grows from nothing at its own start point, and the
+// stagger makes the ring assemble in share order. Motion-averse settings
+// keep the finished ring.
+function animateModelPie(node) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  node.querySelectorAll(".seg").forEach((seg, i) => {
+    const final = seg.getAttribute("stroke-dasharray");
+    seg.style.transition = "none";
+    seg.setAttribute("stroke-dasharray", `0 ${final.split(" ")[1]}`);
+    seg.getBoundingClientRect();
+    seg.style.transition = `stroke-dasharray .7s cubic-bezier(.25,.7,.3,1) ${i * 50}ms`;
+    seg.setAttribute("stroke-dasharray", final);
+  });
+}
+
 function renderUsageModels(models, totals) {
   const node = $("#usage-models");
   if (!models.length) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
     return;
   }
+  // The donut shares out billed credits only — rows without a WorkBuddy
+  // charge have no proportion to draw.
+  const ranked = models.filter((row) => row.credits > 0).sort((a, b) => b.credits - a.credits);
+  const kept = ranked.slice(0, PIE_MAX_SLICES);
+  const rest = ranked.slice(PIE_MAX_SLICES);
+  const totalCredits = ranked.reduce((sum, row) => sum + row.credits, 0) || 1;
+  const slices = kept.map((row, i) => ({
+    name: row.model, credits: row.credits, share: row.credits / totalCredits, color: MODEL_COLORS[i]
+  }));
+  if (rest.length) {
+    const creditsSum = rest.reduce((sum, row) => sum + row.credits, 0);
+    slices.push({ name: `其他 ${rest.length} 个模型`, credits: creditsSum, share: creditsSum / totalCredits, color: OTHERS_COLOR });
+  }
+  const colorFor = (model) => {
+    const i = kept.findIndex((row) => row.model === model);
+    if (i >= 0) return MODEL_COLORS[i];
+    // Only a row actually folded into the "others" slice wears its grey; a
+    // row with no billed credits sits in no slice at all.
+    return rest.some((row) => row.model === model) ? OTHERS_COLOR : null;
+  };
   node.innerHTML = `
-    <div class="usage-table-head"><span>模型</span><span>请求</span><span>输入 / 输出</span><span>积分</span><span>占比</span></div>
-    ${models.map((row) => `
-      <div class="usage-table-row">
-        <div class="usage-model"><b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
-        <span>${row.requests}</span>
-        <span class="usage-io">${compact(row.inputTokens)} <i>/</i> ${compact(row.outputTokens)}</span>
-        <span class="usage-cost">${credits(row.credits)}${row.estimatedCredits > 0 ? ` <i class="soft-label">≈${credits(row.estimatedCredits)}</i>` : ""}</span>
-        <div class="usage-share"><div class="share-track"><i style="width:${(row.share * 100).toFixed(1)}%"></i></div><span>${percent(row.share)}</span></div>
-      </div>`).join("")}
-    <div class="usage-table-foot">
-      <span>合计</span><span>${totals.requests}</span>
-      <span>${compact(totals.inputTokens)} / ${compact(totals.outputTokens)}</span>
-      <span>${credits(totals.credits)}</span><span></span>
+    <div class="models-split">
+      <div class="model-chart">${modelPieSvg(slices, totals)}</div>
+      <div class="model-table">
+        <div class="usage-table-head"><span>模型</span><span>请求</span><span>输入 / 输出</span><span>积分</span></div>
+        ${models.map((row) => {
+          const color = colorFor(row.model);
+          return `
+          <div class="usage-table-row">
+            <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
+            <span>${row.requests}</span>
+            <span class="usage-io">${compact(row.inputTokens)} <i>/</i> ${compact(row.outputTokens)}</span>
+            <span class="usage-cost">${credits(row.credits)}${row.credits > 0 ? ` <i class="soft-label">¥${rmb(row.credits)}</i>` : ""}</span>
+          </div>`;
+        }).join("")}
+        <div class="usage-table-foot">
+          <span>合计</span><span>${totals.requests}</span>
+          <span>${compact(totals.inputTokens)} / ${compact(totals.outputTokens)}</span>
+          <span>${credits(totals.credits)}${totals.credits > 0 ? `（¥${rmb(totals.credits)}）` : ""}</span>
+        </div>
+      </div>
     </div>`;
+  animateModelPie(node);
+  // Hovering a slice dims the rest and swaps the centre to that model's own
+  // figures; leaving the chart restores the totals.
+  const chart = node.querySelector(".model-chart");
+  const num = chart.querySelector(".pie-num");
+  const cap = chart.querySelector(".pie-cap");
+  const setCenter = (value, label) => { num.textContent = value; cap.textContent = label; };
+  chart.addEventListener("mouseover", (event) => {
+    const seg = event.target.closest(".seg");
+    if (!seg) return;
+    chart.classList.add("hovering");
+    for (const item of chart.querySelectorAll(".seg")) item.classList.toggle("on", item === seg);
+    const slice = slices[+seg.dataset.i];
+    const name = slice.name.length > 14 ? `${slice.name.slice(0, 13)}…` : slice.name;
+    setCenter(credits(slice.credits), `${name} · ${percent(slice.share)}`);
+  });
+  chart.addEventListener("mouseout", (event) => {
+    if (!event.target.closest(".seg")) return;
+    chart.classList.remove("hovering");
+    setCenter(credits(totals.credits), totals.credits > 0 ? `¥${rmb(totals.credits)}` : "暂无积分消耗");
+  });
 }
 
 // The context card answers two questions the totals cannot, per project —
@@ -702,13 +814,10 @@ function renderUsageRecent() {
     const cacheKnown = item.cachedTokens != null;
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成";
-    // A billed credit is WorkBuddy's own number; an estimate is the token
-    // formula, a different quantity, and says so instead of passing as one.
-    const cost = item.creditsSource === "upstream"
-      ? credits(item.credits ?? 0)
-      : item.creditsSource === "estimate"
-        ? `≈${credits(item.credits ?? 0)}`
-        : "—";
+    // A billed credit is WorkBuddy's own number and the only one shown; a
+    // row it did not cost stays uncosted — the token-formula estimate proved
+    // untrustworthy and no longer displays.
+    const cost = item.creditsSource === "upstream" ? credits(item.credits ?? 0) : "—";
     return `<div class="recent-row">
       <span class="recent-time">${esc(when)}</span>
       <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
@@ -841,10 +950,15 @@ async function runCheckin(id) {
     const results = result?.results || [];
     const done = results.filter((item) => item.status === "done").length;
     const failed = results.filter((item) => item.status === "failed").length;
-    toast(
-      failed ? `签到完成 ${done} 个，失败 ${failed} 个` : `签到完成 ${done} 个`,
-      failed > 0
-    );
+    const skipped = results.filter((item) => item.status === "skipped" && item.reason);
+    // A check-in the switch blocked says so, instead of counting zero.
+    if (!done && !failed && skipped.length) {
+      toast(skipped.map((item) => item.reason).join("；"), true);
+    } else if (failed) {
+      toast(`签到完成 ${done} 个，失败 ${failed} 个`, true);
+    } else {
+      toast(`签到完成 ${done} 个`);
+    }
     await refresh({ quiet: true });
   } catch (error) {
     toast(error.message || String(error), true);

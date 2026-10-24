@@ -61,9 +61,18 @@
             <div class="route-node client-node" id="client-node">
               <span class="node-label">AGENT</span>
               <div class="agent-logos">
-                <div class="node-logo codex-logo" id="client-codex-logo"><img src="assets/codex-official.svg" alt=""></div>
-                <div class="node-logo claude-logo" id="client-claude-logo"><img src="assets/claude-official.svg" alt=""></div>
-                <div class="node-logo zcode-logo" id="client-zcode-logo"><img src="assets/zcode-official-256.png" alt=""></div>
+                <div class="agent-mark" id="client-codex-mark">
+                  <div class="node-logo codex-logo" id="client-codex-logo"><img src="assets/codex-official.svg" alt=""></div>
+                  <span>Codex</span>
+                </div>
+                <div class="agent-mark" id="client-claude-mark">
+                  <div class="node-logo claude-logo" id="client-claude-logo"><img src="assets/claude-official.svg" alt=""></div>
+                  <span>Claude</span>
+                </div>
+                <div class="agent-mark" id="client-zcode-mark">
+                  <div class="node-logo zcode-logo" id="client-zcode-logo"><img src="assets/zcode-official-256.png" alt=""></div>
+                  <span>ZCode</span>
+                </div>
               </div>
               <strong id="client-name">Codex</strong>
               <span id="client-model">等待请求</span>
@@ -214,7 +223,7 @@
 
       <section class="view" id="view-activity">
         <div class="heading-row">
-          <div><div class="eyebrow">用量信息</div><h1>Token 与积分花费</h1><p class="sub">本机网关按模型倍率记账，与 WorkBuddy 账户额度分列；数据只保存在本机。</p></div>
+          <div><div class="eyebrow">用量信息</div><h1>Token 与积分花费</h1><p class="sub">按 WorkBuddy 实扣积分记账，数据只存本机。</p></div>
           <div class="heading-actions">
             <span class="usage-updated" id="usage-updated"></span>
             <div class="segmented" id="usage-range" role="tablist">
@@ -233,6 +242,7 @@
                 <span class="overline">趋势</span>
                 <h3>每日消耗</h3>
                 <p class="usage-summary" id="usage-summary"></p>
+                <p class="usage-estimate" id="usage-estimate" hidden></p>
               </div>
               <div class="usage-legend">
                 <span><i class="swatch credits"></i>积分</span>
@@ -249,7 +259,7 @@
           </article>
         </div>
 
-        <div class="usage-grid">
+        <div class="usage-grid tables">
           <article class="panel usage-table-panel">
             <div class="panel-head"><div><span class="overline">按模型</span><h3>模型消耗构成</h3></div></div>
             <div class="usage-table" id="usage-models"><div class="empty">所选区间内还没有请求。</div></div>
