@@ -244,7 +244,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         const id = randomUUID().replaceAll("-", "");
         const meta = await modelMeta(provider, body.model);
         const record = control?.journal.start({
-          agent: "claude-desktop",
+          agent: messagesClientAgent(req),
           endpoint: url.pathname,
           requestedModel: requested,
           model: body.model,
@@ -336,6 +336,14 @@ function fitEffort(body, model) {
 function isClaudeDesktop(req) {
   const ua = req.headers["user-agent"] || "";
   return ua.startsWith("Mozilla/") && ua.includes(" Claude/");
+}
+
+// /v1/messages serves two clients: Claude Desktop and ZCode (both speak the
+// Anthropic protocol). The journal's source column owes each request to its
+// own client, and the Claude Desktop UA is the one reliable tell - the
+// Anthropic Messages wire otherwise looks the same from both.
+function messagesClientAgent(req) {
+  return isClaudeDesktop(req) ? "claude-desktop" : "zcode";
 }
 
 // CJK text runs close to a token per character, while Latin text runs close

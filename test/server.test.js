@@ -1017,3 +1017,48 @@ test("a control path with malformed percent-encoding answers 400", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("/v1/messages attributes its source by client, not by endpoint", async () => {
+  // Claude Desktop and ZCode both speak Anthropic Messages; the journal used
+  // to name them all claude-desktop. The Claude Desktop UA is the tell.
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      return new Response('data: {"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+  };
+  const started = [];
+  const control = {
+    journal: {
+      start: (fields) => { started.push(fields); return { id: `r${started.length}`, startedAt: Date.now() }; },
+      note() {}, usage() {}, finish() {}
+    }
+  };
+  const server = createServer({ provider, control });
+  const base = await listen(server);
+  try {
+    await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "Mozilla/5.0 Chrome/140.0.0.0 Claude/2.7032.0" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    // No Claude marker in the UA: ZCode's anthropic client, or anything else
+    // speaking the same protocol.
+    await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "zcode/1.0" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    // No UA at all must not be pinned on Claude Desktop either.
+    await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.deepEqual(started.map((fields) => fields.agent), ["claude-desktop", "zcode", "zcode"]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
