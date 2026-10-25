@@ -826,8 +826,7 @@ h1 {
 .panel-head .text-button { margin-left: 2px; }
 
 /* Startup cover: a brand moment while the gateway comes up, fading into the
-   routing page on the first snapshot (app.js calls bootOut). */
-.boot {
+   routing page on the first snapshot (app.js calls bootOut). */.boot {
   position: fixed; inset: 0; z-index: 80;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px;
   background: #f2f1ed;
@@ -1195,3 +1194,161 @@ h1 {
   .account-row { flex-wrap: wrap; }
   .account-actions { width: 100%; margin-left: 46px; justify-content: flex-end; }
 }
+
+/* ---- extensions: MCP + skills ------------------------------------------- */
+
+/* Two rails: servers on the left (where the writes happen), the skill
+   library on the right (a quieter, read-mostly column). They stack when
+   the window can no longer hold both. */
+.ext-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .ext-split { grid-template-columns: 1fr; }
+}
+
+/* -- the editor: a recessed drawer, not a second card --------------------- */
+.mcp-editor {
+  margin: 4px 0 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(242, 242, 238, .55);
+  animation: ext-drop .28s cubic-bezier(.2,.7,.2,1) both;
+}
+.mcp-editor[hidden] { display: none; }
+@keyframes ext-drop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+.mcp-editor-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; margin-bottom: 14px;
+}
+.mcp-editor-head > span { font-size: 13px; font-weight: 650; color: var(--ink-soft); }
+
+/* A two-state pill switch: the transport picks the fields below it. */
+.mcp-seg {
+  display: inline-flex; padding: 2px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface-raised);
+}
+.mcp-seg button {
+  padding: 4px 12px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted); font-size: 12px; font-weight: 600; transition: .15s;
+}
+.mcp-seg button.active { background: var(--ink); color: #fff; }
+
+.mcp-field { display: block; margin-bottom: 10px; }
+.mcp-field > span {
+  display: block; margin-bottom: 5px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.mcp-field input {
+  width: 100%; padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; color: var(--ink);
+  font: 13px/1.4 var(--font-mono);
+}
+.mcp-field input:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(35,118,77,.08); }
+
+/* Client picks read as chips that light up, not as a row of checkboxes. */
+.mcp-pick { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 14px 0 4px; }
+.mcp-pick > span { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 2px; }
+.mcp-chip { position: relative; }
+.mcp-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.mcp-chip b {
+  display: inline-block; padding: 5px 12px; border-radius: 16px;
+  border: 1px solid var(--line); background: #fff;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  transition: .15s; cursor: pointer;
+}
+.mcp-chip input:checked + b {
+  border-color: #b7d3c2; background: var(--green-bg); color: var(--green);
+}
+.mcp-chip input:focus-visible + b { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.mcp-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* -- server rows ---------------------------------------------------------- */
+.mcp-item {
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.mcp-item:last-child { border-bottom: 0; }
+.mcp-item.paused { opacity: .58; }
+.mcp-item-main { flex: 1; min-width: 0; }
+.mcp-item-name { display: flex; align-items: baseline; gap: 8px; }
+.mcp-item-name b { font-size: 13.5px; font-weight: 650; letter-spacing: -.1px; }
+.mcp-item-name code {
+  padding: 1px 6px; border-radius: 5px; background: #f0efeb;
+  color: var(--muted); font-size: 10.5px; font-weight: 600;
+}
+.mcp-item-cmd {
+  margin-top: 3px; overflow: hidden;
+  color: var(--faint); font: 11.5px/1.5 var(--font-mono);
+  text-overflow: ellipsis; white-space: nowrap;
+}
+/* Three lamps in a fixed order, so a glance down the list reads as a grid:
+   which clients this server reaches, and which cannot take it at all. */
+.mcp-lamps { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.mcp-lamp {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; color: var(--faint);
+  cursor: pointer; user-select: none;
+}
+.mcp-lamp i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #dcdbd4; transition: .18s;
+}
+.mcp-lamp.on { color: var(--green); }
+.mcp-lamp.on i { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.13); }
+.mcp-lamp.blocked { color: #c08a7c; cursor: not-allowed; }
+.mcp-lamp.blocked i { background: #e5cdc6; }
+.mcp-lamp:hover:not(.blocked) i { transform: scale(1.25); }
+
+.mcp-item-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+.ext-legend {
+  display: flex; gap: 16px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--faint); font-size: 11px;
+}
+.ext-legend span { display: flex; align-items: center; gap: 6px; }
+.ext-legend .dot { width: 7px; height: 7px; }
+
+/* -- skills: compact cards, two per row ---------------------------------- */
+#skills-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px; margin-top: 12px;
+}
+.skill-card {
+  position: relative;
+  padding: 13px 14px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.6);
+  transition: border-color .15s, background .15s;
+}
+.skill-card:hover { border-color: #c9cac2; background: #fff; }
+.skill-card b { display: block; font-size: 13px; font-weight: 650; letter-spacing: -.1px; }
+.skill-card p {
+  margin-top: 4px; min-height: 30px;
+  color: var(--muted); font-size: 11.5px; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.skill-foot { display: flex; align-items: center; gap: 5px; margin-top: 10px; }
+.skill-foot .mini { padding: 3px 8px; font-size: 11px; }
+.skill-foot .grow { flex: 1; }
+/* An installed client shows as a filled pip; hovering it offers removal. */
+.skill-pip {
+  width: 18px; height: 18px; border-radius: 5px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); background: #fff;
+  color: var(--faint); font-size: 9px; font-weight: 700;
+  cursor: pointer; transition: .15s;
+}
+.skill-pip.on { border-color: #b7d3c2; background: var(--green-bg); color: var(--green); }
+.skill-pip.on:hover { border-color: #d9b6ad; background: var(--red-bg); color: var(--red); }
+.skill-pip:hover { border-color: #b9bab3; color: var(--ink); }

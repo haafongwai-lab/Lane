@@ -18,6 +18,7 @@
         <button class="nav" data-view="accounts"><span>账号</span></button>
         <button class="nav" data-view="models"><span>模型</span></button>
         <p>系统</p>
+        <button class="nav" data-view="extensions"><i>⧉</i><span>扩展</span></button>
         <button class="nav" data-view="activity"><i>≡</i><span>积分花费</span></button>
         <button class="nav" data-view="settings"><i>⚙</i><span>设置</span></button>
       </nav>
@@ -219,6 +220,76 @@
           <div class="model-head"><span>模型</span><span>上下文</span><span>积分倍率</span><span>来源</span><span>状态</span></div>
           <div id="model-list"><div class="empty">正在读取模型…</div></div>
         </article>
+      </section>
+
+      <section class="view" id="view-extensions">
+        <div class="heading-row">
+          <div><div class="eyebrow">扩展</div><h1>MCP 与技能，一处管理</h1><p class="sub">登记一次，自动写进每个接入的客户端；摘除只动 Lane 自己写的条目。</p></div>
+          <div class="heading-actions"><button class="ghost" id="ext-refresh">↻ 刷新</button></div>
+        </div>
+
+        <div class="ext-split">
+          <article class="panel ext-mcp">
+            <div class="panel-head">
+              <div><span class="overline">MCP 服务</span><h3>工具服务器</h3></div>
+              <button class="mini" id="mcp-add">＋ 添加</button>
+            </div>
+
+            <div id="mcp-error" class="accounts-error" hidden></div>
+
+            <div class="mcp-editor" id="mcp-form" hidden>
+              <div class="mcp-editor-head">
+                <span id="mcp-editor-title">新的 MCP 服务</span>
+                <div class="mcp-seg" id="mcp-transport">
+                  <button type="button" data-t="stdio" class="active">本地命令</button>
+                  <button type="button" data-t="http">远程地址</button>
+                </div>
+              </div>
+
+              <label class="mcp-field"><span>名称</span><input type="text" id="mcp-name" placeholder="weather"></label>
+
+              <div id="mcp-stdio-fields">
+                <label class="mcp-field"><span>启动命令</span><input type="text" id="mcp-command" placeholder="npx"></label>
+                <label class="mcp-field"><span>参数</span><input type="text" id="mcp-args" placeholder="-y @example/mcp-weather"></label>
+                <label class="mcp-field"><span>环境变量</span><input type="text" id="mcp-env" placeholder="API_KEY=abc, DEBUG=1"></label>
+              </div>
+              <div id="mcp-http-fields" hidden>
+                <label class="mcp-field"><span>地址</span><input type="text" id="mcp-url" placeholder="https://example.com/mcp"></label>
+                <label class="mcp-field"><span>请求头</span><input type="text" id="mcp-headers" placeholder="Authorization: Bearer abc"></label>
+              </div>
+
+              <div class="mcp-pick">
+                <span>写入</span>
+                <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="claude-desktop" checked><b>Claude Desktop</b></label>
+                <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="codex" checked><b>Codex</b></label>
+                <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="zcode" checked><b>ZCode</b></label>
+              </div>
+
+              <div class="mcp-editor-actions">
+                <button class="ghost small" id="mcp-cancel">取消</button>
+                <button class="primary" id="mcp-save">保存并写入</button>
+              </div>
+            </div>
+
+            <div id="mcp-list"><div class="empty">还没有登记 MCP 服务。<br>点右上角「添加」开始。</div></div>
+
+            <div class="ext-legend" id="mcp-legend" hidden>
+              <span><i class="dot ok"></i>已写入</span>
+              <span><i class="dot"></i>未写入</span>
+              <span><i class="dot bad"></i>不支持该类型</span>
+            </div>
+          </article>
+
+          <article class="panel ext-skills">
+            <div class="panel-head">
+              <div><span class="overline">技能</span><h3>技能库</h3></div>
+              <button class="mini" id="skill-import">＋ 导入</button>
+            </div>
+            <p class="setting-copy">含 SKILL.md 的文件夹。以目录联接装进客户端——在库里改，客户端即时生效。</p>
+            <div id="skill-error" class="accounts-error" hidden></div>
+            <div id="skills-list"><div class="empty">技能库是空的。<br>点「导入」收进一个含 SKILL.md 的文件夹。</div></div>
+          </article>
+        </div>
       </section>
 
       <section class="view" id="view-activity">

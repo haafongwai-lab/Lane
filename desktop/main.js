@@ -309,6 +309,51 @@ ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   return control.clearHistory(Array.isArray(ids) ? ids : null);
 });
+ipcMain.handle("lane:mcp", async (_event, { server } = {}) => {
+  await startGateway();
+  if (server) return control.mcpUpsert(server);
+  return { servers: await control.mcpServers(), targets: await control.mcpTargets() };
+});
+ipcMain.handle("lane:mcp-remove", async (_event, { name } = {}) => {
+  await startGateway();
+  return control.mcpRemove(String(name || ""));
+});
+ipcMain.handle("lane:mcp-toggle", async (_event, { name, off } = {}) => {
+  await startGateway();
+  return control.mcpToggle(String(name || ""), Boolean(off));
+});
+ipcMain.handle("lane:mcp-agents", async (_event, { name, agents } = {}) => {
+  await startGateway();
+  return control.mcpSetAgents(String(name || ""), Array.isArray(agents) ? agents : []);
+});
+ipcMain.handle("lane:skills", async () => {
+  await startGateway();
+  return control.skillsList();
+});
+ipcMain.handle("lane:skills-import", async (_event, { dir } = {}) => {
+  await startGateway();
+  return control.skillsImport(String(dir || ""));
+});
+ipcMain.handle("lane:skills-pick-folder", async () => {
+  const result = await dialog.showOpenDialog(window, {
+    properties: ["openDirectory"],
+    title: "选择技能文件夹"
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("lane:skills-remove", async (_event, { name } = {}) => {
+  await startGateway();
+  return control.skillsRemove(String(name || ""));
+});
+ipcMain.handle("lane:skills-install", async (_event, { name, agent } = {}) => {
+  await startGateway();
+  return control.skillsInstall(String(name || ""), String(agent || ""));
+});
+ipcMain.handle("lane:skills-uninstall", async (_event, { name, agent } = {}) => {
+  await startGateway();
+  return control.skillsUninstall(String(name || ""), String(agent || ""));
+});
 ipcMain.handle("lane:clear-project", async (_event, { project } = {}) => {
   await startGateway();
   return control.clearProject(project ?? "");

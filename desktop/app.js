@@ -144,6 +144,7 @@ function go(view) {
   // Entering the page always re-reads it: the status poll is paused while
   // it is open, so the figures would otherwise be as old as the last visit.
   if (view === "activity") loadUsage();
+  if (view === "extensions") loadExtensions();
   $$(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
@@ -1186,3 +1187,276 @@ setInterval(() => {
   if (activeView === "activity") return;
   refresh({ quiet: true });
 }, 3000);
+
+// ---- extensions: MCP + skills ---------------------------------------------
+
+var extData = { servers: [], targets: [] };
+var AGENT_SHORT = { "claude-desktop": "Claude", codex: "Codex", zcode: "ZCode" };
+var AGENT_INITIAL = { "claude-desktop": "C", codex: "X", zcode: "Z" };
+
+function extError(id, message) {
+  var node = document.getElementById(id);
+  if (!node) return;
+  node.hidden = !message;
+  node.textContent = message || "";
+}
+
+async function loadExtensions() {
+  try {
+    var mcp = await window.lane.mcpList();
+    extData.servers = mcp.servers || [];
+    extData.targets = mcp.targets || [];
+    renderMcp();
+    var skills = await window.lane.skillsList();
+    renderSkills(skills.skills || []);
+    extError("mcp-error", "");
+    extError("skill-error", "");
+  } catch (error) {
+    extError("mcp-error", error.message || "读取失败");
+  }
+}
+
+function transportLabel(server) {
+  return server.transport === "http" ? "远程" : "stdio";
+}
+
+function commandLine(server) {
+  if (server.transport === "http") return server.url || "";
+  return [server.command].concat(server.args || []).join(" ");
+}
+
+function renderMcp() {
+  var node = document.getElementById("mcp-list");
+  var legend = document.getElementById("mcp-legend");
+  if (!extData.servers.length) {
+    node.innerHTML = '<div class="empty">还没有登记 MCP 服务。<br>点右上角「添加」开始。</div>';
+    legend.hidden = true;
+    return;
+  }
+  legend.hidden = false;
+  node.innerHTML = extData.servers.map(function (server) {
+    // One lamp per client in a fixed order: on = written, off = not, blocked
+    // = this client cannot take the transport at all.
+    var lamps = extData.targets.map(function (target) {
+      var on = server.agents.indexOf(target.agent) >= 0;
+      var blocked = target.stdioOnly && server.transport === "http";
+      var cls = blocked ? "mcp-lamp blocked" : on ? "mcp-lamp on" : "mcp-lamp";
+      var tip = blocked
+        ? AGENT_SHORT[target.agent] + " 不支持远程 MCP"
+        : (on ? "已写入 " : "未写入 ") + AGENT_SHORT[target.agent];
+      return '<span class="' + cls + '" data-lamp="' + esc(server.name) + '" data-agent="' + target.agent +
+        '" title="' + esc(tip) + '"><i></i>' + AGENT_SHORT[target.agent] + "</span>";
+    }).join("");
+
+    return '<div class="mcp-item' + (server.off ? " paused" : "") + '" data-name="' + esc(server.name) + '">' +
+      '<div class="mcp-item-main">' +
+        '<div class="mcp-item-name"><b>' + esc(server.name) + "</b><code>" + transportLabel(server) + "</code></div>" +
+        '<div class="mcp-item-cmd">' + esc(commandLine(server)) + "</div>" +
+      "</div>" +
+      '<div class="mcp-lamps">' + lamps + "</div>" +
+      '<div class="mcp-item-actions">' +
+        '<button class="mini' + (server.off ? "" : " quiet") + '" data-mcp-toggle="' + esc(server.name) + '">' +
+          (server.off ? "启用" : "停用") + "</button>" +
+        '<button class="icon-mini" data-mcp-remove="' + esc(server.name) + '" title="删除" aria-label="删除 ' +
+          esc(server.name) + '">✕</button>' +
+      "</div>" +
+    "</div>";
+  }).join("");
+}
+
+function renderSkills(list) {
+  var node = document.getElementById("skills-list");
+  if (!list.length) {
+    node.innerHTML = '<div class="empty">技能库是空的。<br>点「导入」收进一个含 SKILL.md 的文件夹。</div>';
+    return;
+  }
+  node.innerHTML = list.map(function (skill) {
+    var installed = {};
+    (skill.installs || []).forEach(function (item) { installed[item.agent] = item.linked; });
+    // A pip per client; filled means installed, clicking toggles it.
+    var pips = ["codex", "zcode", "claude-desktop"].map(function (agent) {
+      var on = Boolean(installed[agent]);
+      return '<button class="skill-pip' + (on ? " on" : "") + '" data-pip="' + esc(skill.name) +
+        '" data-agent="' + agent + '" title="' + (on ? "从 " + AGENT_SHORT[agent] + " 卸载" : "安装到 " + AGENT_SHORT[agent]) + '">' +
+        AGENT_INITIAL[agent] + "</button>";
+    }).join("");
+    return '<div class="skill-card">' +
+      "<b>" + esc(skill.name) + "</b>" +
+      "<p>" + esc(skill.description || "无描述") + "</p>" +
+      '<div class="skill-foot">' + pips +
+        '<span class="grow"></span>' +
+        '<button class="mini quiet" data-skill-remove="' + esc(skill.name) + '">删除</button>' +
+      "</div>" +
+    "</div>";
+  }).join("");
+}
+
+// -- editor -----------------------------------------------------------------
+
+function showEditor(visible) {
+  document.getElementById("mcp-form").hidden = !visible;
+  if (visible) return;
+  document.getElementById("mcp-editor-title").textContent = "新的 MCP 服务";
+  ["mcp-name", "mcp-command", "mcp-args", "mcp-env", "mcp-url", "mcp-headers"].forEach(function (id) {
+    document.getElementById(id).value = "";
+  });
+}
+
+function setTransport(kind) {
+  [...document.querySelectorAll("#mcp-transport button")].forEach(function (b) {
+    b.classList.toggle("active", b.getAttribute("data-t") === kind);
+  });
+  document.getElementById("mcp-stdio-fields").hidden = kind === "http";
+  document.getElementById("mcp-http-fields").hidden = kind !== "http";
+}
+
+function currentTransport() {
+  var active = document.querySelector("#mcp-transport button.active");
+  return active ? active.getAttribute("data-t") : "stdio";
+}
+
+function parsePairs(text) {
+  var out = {};
+  String(text || "").split(",").forEach(function (pair) {
+    var i = pair.indexOf("=");
+    if (i > 0) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  });
+  return out;
+}
+
+$("#ext-refresh").addEventListener("click", loadExtensions);
+
+$("#mcp-add").addEventListener("click", function () {
+  var form = document.getElementById("mcp-form");
+  if (form.hidden) {
+    showEditor(true);
+    document.getElementById("mcp-name").focus();
+  } else {
+    showEditor(false);
+  }
+});
+$("#mcp-cancel").addEventListener("click", function () { showEditor(false); });
+
+document.getElementById("mcp-transport").addEventListener("click", function (e) {
+  var button = e.target.closest("button[data-t]");
+  if (button) setTransport(button.getAttribute("data-t"));
+});
+
+$("#mcp-save").addEventListener("click", async function () {
+  var button = this;
+  button.disabled = true;
+  try {
+    var transport = currentTransport();
+    var agents = [...document.querySelectorAll(".mcp-agent:checked")].map((c) => c.value);
+    var server = {
+      name: document.getElementById("mcp-name").value.trim(),
+      transport: transport,
+      agents: agents,
+      off: false
+    };
+    if (transport === "http") {
+      server.url = document.getElementById("mcp-url").value.trim();
+      server.headers = parsePairs(document.getElementById("mcp-headers").value);
+    } else {
+      server.command = document.getElementById("mcp-command").value.trim();
+      server.args = document.getElementById("mcp-args").value.trim().split(/\s+/).filter(Boolean);
+      server.env = parsePairs(document.getElementById("mcp-env").value);
+    }
+    var result = await window.lane.mcpUpsert(server);
+    var wrote = (result.report || []).filter((r) => r.written && r.written.length).length;
+    var blocked = (result.report || []).reduce((n, r) => n + (r.unsupported ? r.unsupported.length : 0), 0);
+    toast("已保存，写入 " + wrote + " 个客户端" + (blocked ? "；" + blocked + " 个不支持该类型" : ""));
+    showEditor(false);
+    await loadExtensions();
+  } catch (error) {
+    toast(error.message || "保存失败", true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// -- list interactions ------------------------------------------------------
+
+$("#mcp-list").addEventListener("click", async function (event) {
+  var lamp = event.target.closest("[data-lamp]");
+  if (lamp && !lamp.classList.contains("blocked")) {
+    var name = lamp.getAttribute("data-lamp");
+    var agent = lamp.getAttribute("data-agent");
+    var server = extData.servers.find((s) => s.name === name);
+    if (!server) return;
+    var next = server.agents.slice();
+    var at = next.indexOf(agent);
+    if (at >= 0) next.splice(at, 1);
+    else next.push(agent);
+    try {
+      await window.lane.mcpSetAgents(name, next);
+      await loadExtensions();
+    } catch (error) { toast(error.message || "操作失败", true); }
+    return;
+  }
+
+  var toggle = event.target.closest("[data-mcp-toggle]");
+  if (toggle) {
+    var row = extData.servers.find((s) => s.name === toggle.getAttribute("data-mcp-toggle"));
+    if (!row) return;
+    try {
+      await window.lane.mcpToggle(row.name, !row.off);
+      await loadExtensions();
+    } catch (error) { toast(error.message || "操作失败", true); }
+    return;
+  }
+
+  var remove = event.target.closest("[data-mcp-remove]");
+  if (remove) {
+    var doomed = remove.getAttribute("data-mcp-remove");
+    if (!confirm("删除 MCP 服务「" + doomed + "」？会同时从各客户端配置里摘除。")) return;
+    try {
+      await window.lane.mcpRemove(doomed);
+      toast("已删除");
+      await loadExtensions();
+    } catch (error) { toast(error.message || "删除失败", true); }
+  }
+});
+
+$("#skill-import").addEventListener("click", async function () {
+  var dir = await window.lane.skillsPickFolder();
+  if (!dir) return;
+  try {
+    var result = await window.lane.skillsImport(dir);
+    toast("已导入技能「" + result.name + "」");
+    await loadExtensions();
+  } catch (error) {
+    toast(error.message || "导入失败", true);
+  }
+});
+
+$("#skills-list").addEventListener("click", async function (event) {
+  var pip = event.target.closest("[data-pip]");
+  if (pip) {
+    var name = pip.getAttribute("data-pip");
+    var agent = pip.getAttribute("data-agent");
+    var on = pip.classList.contains("on");
+    try {
+      if (on) {
+        await window.lane.skillsUninstall(name, agent);
+        toast("已从 " + AGENT_SHORT[agent] + " 卸载");
+      } else {
+        await window.lane.skillsInstall(name, agent);
+        toast("已安装到 " + AGENT_SHORT[agent]);
+      }
+      await loadExtensions();
+    } catch (error) { toast(error.message || "操作失败", true); }
+    return;
+  }
+
+  var remove = event.target.closest("[data-skill-remove]");
+  if (remove) {
+    var doomed = remove.getAttribute("data-skill-remove");
+    if (!confirm("删除技能「" + doomed + "」？会同时从各客户端卸载。")) return;
+    try {
+      await window.lane.skillsRemove(doomed);
+      toast("已删除");
+      await loadExtensions();
+    } catch (error) { toast(error.message || "删除失败", true); }
+  }
+});

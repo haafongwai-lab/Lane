@@ -689,6 +689,56 @@ async function controlRoute(req, res, url, control) {
       json(res, 200, await control.checkinOverview());
       return;
     }
+
+    // ---- MCP & skills ------------------------------------------------------
+    if (req.method === "GET" && url.pathname === "/lane/mcp") {
+      json(res, 200, { servers: await control.mcpServers(), targets: await control.mcpTargets() });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/mcp") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.mcpUpsert(body || {}));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/mcp/remove") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.mcpRemove(String(body?.name || "")));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/mcp/toggle") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.mcpToggle(String(body?.name || ""), Boolean(body?.off)));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/mcp/agents") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.mcpSetAgents(String(body?.name || ""), body?.agents || []));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/lane/skills") {
+      json(res, 200, { skills: await control.skillsList() });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/skills/import") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.skillsImport(String(body?.dir || "")));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/skills/remove") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.skillsRemove(String(body?.name || "")));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/skills/install") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.skillsInstall(String(body?.name || ""), String(body?.agent || "")));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/lane/skills/uninstall") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.skillsUninstall(String(body?.name || ""), String(body?.agent || "")));
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/lane/checkin") {
       json(res, 200, await control.checkin(""));
       return;

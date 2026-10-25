@@ -12,6 +12,9 @@ import { connectZcode, disconnectZcode, zcodePaths } from "./agents/zcode.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
 import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
+import * as mcpServers from "./mcp-servers.js";
+import * as mcpDeploy from "./mcp-deploy.js";
+import * as skills from "./skills.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -383,6 +386,70 @@ export function createControlCenter({
       if (journal.shared) throw new Error("只读窗口不能清除历史记录");
       return journal.removeByProject(projectId);
     },
+
+    // ---- MCP & skills -------------------------------------------------------
+    // Writes reach the user's own client configurations, so a read-only
+    // follower refuses them the same way it refuses journal writes.
+    mcpServers() {
+      return mcpServers.readServers(env);
+    },
+
+    async mcpUpsert(server) {
+      if (journal.shared) throw new Error("只读窗口不能管理 MCP");
+      const saved = await mcpServers.upsertServer(server, env);
+      const report = await mcpDeploy.deploy(await mcpServers.readServers(env), env);
+      return { server: saved, report };
+    },
+
+    async mcpRemove(name) {
+      if (journal.shared) throw new Error("只读窗口不能管理 MCP");
+      const had = await mcpServers.removeServer(name, env);
+      const report = await mcpDeploy.deploy(await mcpServers.readServers(env), env);
+      return { removed: Boolean(had), report };
+    },
+
+    async mcpToggle(name, off) {
+      if (journal.shared) throw new Error("只读窗口不能管理 MCP");
+      const row = await mcpServers.setServerEnabled(name, off, env);
+      const report = await mcpDeploy.deploy(await mcpServers.readServers(env), env);
+      return { server: row, report };
+    },
+
+    async mcpSetAgents(name, agents) {
+      if (journal.shared) throw new Error("只读窗口不能管理 MCP");
+      const row = await mcpServers.setServerAgents(name, agents, env);
+      const report = await mcpDeploy.deploy(await mcpServers.readServers(env), env);
+      return { server: row, report };
+    },
+
+    mcpTargets() {
+      return mcpDeploy.targets(env);
+    },
+
+    async skillsList() {
+      return skills.listLibrary(env);
+    },
+
+    async skillsImport(sourceDir) {
+      if (journal.shared) throw new Error("只读窗口不能管理技能");
+      return skills.importFrom(sourceDir, env);
+    },
+
+    async skillsRemove(name) {
+      if (journal.shared) throw new Error("只读窗口不能管理技能");
+      return skills.removeFromLibrary(name, env);
+    },
+
+    async skillsInstall(name, agent) {
+      if (journal.shared) throw new Error("只读窗口不能管理技能");
+      return skills.installTo(name, agent, env);
+    },
+
+    async skillsUninstall(name, agent) {
+      if (journal.shared) throw new Error("只读窗口不能管理技能");
+      return skills.uninstallFrom(name, agent, env);
+    },
+
 
     /**
      * Token and credit totals for the usage view. Billed credits come from
