@@ -1204,8 +1204,15 @@ h1 {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
+  /* Equal-height rails: the skill panel matches the server panel even when
+     one side is nearly empty, so the two read as one row. */
+  align-items: stretch;
 }
+.ext-split > .panel { display: flex; flex-direction: column; min-width: 0; }
+/* Whatever list is inside takes the slack, keeping its own empty state
+   vertically centred rather than floating at the top. */
+.ext-split > .panel > #mcp-list,
+.ext-split > .panel > #skills-list { flex: 1 1 auto; }
 @media (max-width: 1100px) {
   .ext-split { grid-template-columns: 1fr; }
 }

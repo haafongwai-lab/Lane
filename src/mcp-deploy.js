@@ -162,6 +162,25 @@ async function writeIfChangedJSON(file, doc) {
 }
 
 /**
+ * The clients Lane can write to, and the one rule that differs between
+ * them: Claude Desktop and Codex carry no remote-MCP entry, ZCode does.
+ * The UI draws one lamp per target from this list.
+ */
+export async function targets(env = process.env) {
+  const out = [];
+  const claude = claudeConfigs(env);
+  out.push({
+    agent: "claude-desktop",
+    stdioOnly: true,
+    config: claude.length ? claude[0].file : null,
+    installed: claude.length > 0 ? Boolean(claude[0].root) : false
+  });
+  out.push({ agent: "codex", stdioOnly: true, config: codexConfigPath(env) });
+  out.push({ agent: "zcode", stdioOnly: false, config: zcodeConfigPath(env) });
+  return out;
+}
+
+/**
  * Writes (or removes) every registry entry in the clients the user named
  * them for, and records the names written per client so a later deploy only
  * touches Lane's own entries. Returns a per-client report.
