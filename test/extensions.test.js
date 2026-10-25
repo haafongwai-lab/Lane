@@ -192,6 +192,24 @@ test("skills: import, install by junction, uninstall, remove", async (t) => {
   assert.equal((await listLibrary(env)).length, 0);
 });
 
+test("removing a library skill never deletes a folder Lane did not link", async (t) => {
+  const { env, root } = tempEnv(t);
+  const source = path.join(root, "shared-name");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# shared-name");
+  await importFrom(source, env);
+
+  // The user installed their own folder under the same name in Codex.
+  const usersOwn = path.join(env.CODEX_HOME, "skills", "shared-name");
+  fs.mkdirSync(usersOwn, { recursive: true });
+  fs.writeFileSync(path.join(usersOwn, "SKILL.md"), "# mine");
+
+  await removeFromLibrary("shared-name", env);
+
+  assert.ok(fs.existsSync(path.join(usersOwn, "SKILL.md")), "the user's own folder survives");
+  assert.equal((await listLibrary(env)).length, 0, "the library copy is gone");
+});
+
 test("install refuses a folder without SKILL.md", async (t) => {
   const { env, root } = tempEnv(t);
   const notASkill = path.join(root, "not-a-skill");

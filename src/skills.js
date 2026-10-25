@@ -103,22 +103,35 @@ export async function listLibrary(env = process.env) {
 
 /** Imports a folder (with a SKILL.md inside) into the library by copy. */
 export async function importFrom(sourceDir, env = process.env) {
-  const name = path.basename(sourceDir);
+  const source = path.resolve(sourceDir);
+  const name = path.basename(source);
   if (!name || /[\\/:*?"<>|]/.test(name)) {
     throw Object.assign(new Error("文件夹名不能包含 \\ / : * ? \" < > |"), { status: 400 });
   }
-  if (!(await isSkillFolder(sourceDir))) {
+  if (!(await isSkillFolder(source))) {
     throw Object.assign(new Error("所选文件夹里没有 SKILL.md，不是技能"), { status: 400 });
   }
   const target = skillDir(env, name);
+  // Copying a folder that is already the library copy (or sits inside it)
+  // would recurse into itself; that is a no-op, not an import.
+  const root = path.resolve(libraryRoot(env));
+  if (source === target || source.startsWith(root + path.sep)) {
+    throw Object.assign(new Error(`技能「${name}」已在库中`), { status: 400 });
+  }
   if (await exists(target)) {
     throw Object.assign(new Error(`技能「${name}」已在库中`), { status: 400 });
   }
-  await fs.cp(sourceDir, target, { recursive: true });
+  await fs.cp(source, target, { recursive: true, dereference: false });
   return { name, imported: true };
 }
 
-/** Removes a skill from the library, un-linking it from every client. */
+/**
+ * Removes a skill from the library, un-linking it from every client.
+ *
+ * Only links Lane made are taken away. A real folder that happens to share
+ * the name — something the user installed by hand, or another tool's skill
+ * — is left alone: deleting it would destroy work Lane never created.
+ */
 export async function removeFromLibrary(name, env = process.env) {
   if (!name || /[\\/:*?"<>|]/.test(name)) {
     throw Object.assign(new Error("技能名不合法"), { status: 400 });
@@ -129,7 +142,8 @@ export async function removeFromLibrary(name, env = process.env) {
       const p = path.join(target, name);
       try {
         const st = await fs.lstat(p);
-        await fs.rm(p, { recursive: st.isDirectory() && !st.isSymbolicLink(), force: true });
+        if (!st.isSymbolicLink()) continue;
+        await fs.unlink(p);
         removed++;
       } catch {}
     }
@@ -144,7 +158,7 @@ export async function removeFromLibrary(name, env = process.env) {
 
 /** Installs (junctions) one library skill into one client. */
 export async function installTo(name, agent, env = process.env) {
-  const source = skillDir(env, name);
+  const source = path.resolve(skillDir(env, name));
   if (!(await isSkillFolder(source))) {
     throw Object.assign(new Error("库中没有这个技能"), { status: 404 });
   }
@@ -152,8 +166,11 @@ export async function installTo(name, agent, env = process.env) {
   const results = [];
   for (const target of installTargets(agent, env)) {
     const link = path.join(target, name);
+    // A file already sitting there is the user's (or another tool's): never
+    // replace it — that would be deleting someone else's work.
     if (await exists(link)) { results.push({ target, linked: false, existed: true }); continue; }
     await ensureDir(target);
+    // ntfs junctions require an absolute target, which path.resolve gives.
     await fs.symlink(source, link, "junction");
     results.push({ target, linked: true });
   }
