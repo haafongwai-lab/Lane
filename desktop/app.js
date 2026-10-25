@@ -958,6 +958,31 @@ $("#clear-selected").addEventListener("click", async () => {
   await refresh();
   await loadUsage();
 });
+// The context card's project rows: the ✕ removes that working directory's
+// whole record from the journal.
+$("#usage-context-projects").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-project]");
+  if (!button || button.disabled) return;
+  const project = button.dataset.project;
+  const name = button.dataset.name || "未归属";
+  const count = Number(button.dataset.count) || 0;
+  if (!count) {
+    toast("该项目没有可删除的记录");
+    return;
+  }
+  if (!confirm(`删除项目「${name}」的全部 ${count} 条请求记录？此操作不可恢复。`)) return;
+  button.disabled = true;
+  try {
+    const result = await window.lane.clearProject(project);
+    toast(`已删除 ${result?.removed ?? 0} 条记录`);
+  } catch (error) {
+    toast(error.message || "删除失败", true);
+  } finally {
+    button.disabled = false;
+  }
+  await refresh();
+  await loadUsage();
+});
 $("#usage-range").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-range]");
   if (!button || button.dataset.range === usageRange) return;
