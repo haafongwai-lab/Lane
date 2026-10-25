@@ -246,3 +246,19 @@ test("an awaited sign-in result is stored without polling the callback again", a
   assert.equal(polls, 1);
   assert.equal(await provider.activeId(), "u9");
 });
+
+test("a relative plugin baseURL is resolved against the account's site", async () => {
+  // The plugin's 0.1.34 switched baseURL from an absolute endpoint to a bare
+  // path; Lane used to concatenate it straight into a fetch and every call
+  // died with "Failed to parse URL from /chat/completions". Either shape
+  // must now answer with a usable absolute base.
+  const hooks = {
+    auth: { loader: async () => ({ baseURL: "/v2", apiKey: "" }) }
+  };
+  const provider = providerWith(hooks);
+  assert.equal(await provider.baseURL("u1"), "https://copilot.tencent.com/v2");
+
+  // An absolute base is passed through untouched.
+  hooks.auth.loader = async () => ({ baseURL: "https://copilot.tencent.com/v2//", apiKey: "" });
+  assert.equal(await provider.baseURL("u1"), "https://copilot.tencent.com/v2");
+});

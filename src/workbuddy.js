@@ -182,7 +182,20 @@ export class WorkBuddyProvider {
     const session = await this.session(id);
     if (!session?.auth) return "";
     const loader = await this.loaderFor(session);
-    return String(loader?.baseURL || "").replace(/\/+$/, "");
+    const base = String(loader?.baseURL || "").replace(/\/+$/, "");
+    // The plugin's 0.1.34 changed baseURL from an absolute endpoint to a
+    // relative path, which made every fetch fail with "Failed to parse URL
+    // from /chat/completions". Resolve against the account's own endpoint so
+    // a plugin reporting either shape keeps working.
+    if (!base) return "";
+    if (/^https?:\/\//i.test(base)) return base;
+    const site = await this.siteOf(session.id);
+    const origin = site === "workbuddy-ai" ? "https://www.workbuddy.ai" : "https://copilot.tencent.com";
+    try {
+      return new URL(base, origin).href.replace(/\/+$/, "");
+    } catch {
+      return base;
+    }
   }
 
   async signedIn() {
