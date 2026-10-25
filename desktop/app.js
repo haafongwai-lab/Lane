@@ -490,8 +490,6 @@ function renderUsage() {
   // money line under it converts that same figure at the plan's rate.
   $("#usage-summary").innerHTML = [
     `<b>${credits(totals.credits)}</b> 积分`,
-    `<b>${compact(totals.totalTokens)}</b> Token`,
-    `<b>${compact(totals.inputTokens)}</b> 输入 / <b>${compact(totals.outputTokens)}</b> 输出`,
     `<b>${totals.requests}</b> 次请求`
   ].join(" · ");
   const money = $("#usage-estimate");
@@ -519,9 +517,8 @@ function renderUsage() {
   renderUsageRecent();
 }
 
-// Bars are paired per day: billed credits and tokens share the column but not
-// the scale. A range where nothing ran at all says so instead of drawing a
-// flat empty chart.
+// One bar per day: the billed credits that day cost. A range where nothing
+// ran at all says so instead of drawing a flat empty chart.
 function renderUsageChart(series) {
   const node = $("#usage-chart");
   const active = series.filter((item) => (item.requests || 0) > 0);
@@ -530,17 +527,14 @@ function renderUsageChart(series) {
     return;
   }
   const creditMax = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
-  const tokenMax = Math.max(...series.map((item) => Number(item.totalTokens) || 0), 0);
-  const showTokens = series.length > 1;
   const peak = series.reduce((best, item) => (
     (Number(item.credits) || 0) > (Number(best.credits) || 0) ? item : best
   ), series[0]);
   node.innerHTML = `
-    <div class="usage-bars${showTokens ? "" : " single"}">
+    <div class="usage-bars single">
       ${series.map((item) => {
         const dayCredits = Number(item.credits) || 0;
         const creditHeight = creditMax ? dayCredits / creditMax * 100 : 0;
-        const tokenHeight = tokenMax ? (Number(item.totalTokens) || 0) / tokenMax * 100 : 0;
         const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
         // One line per figure: the popup renders data-tip verbatim, with
         // newlines as breaks.
@@ -548,7 +542,6 @@ function renderUsageChart(series) {
           `${item.date}`,
           `积分 ${credits(item.credits)}`,
           ...(dayCredits > 0 ? [`折合 ¥${rmb(dayCredits)}`] : []),
-          `Token ${compact(item.totalTokens)}`,
           `请求 ${item.requests} 次`
         ].join("\n");
         const empty = !(item.requests || 0);
@@ -558,7 +551,6 @@ function renderUsageChart(series) {
         return `<div class="usage-bar${empty ? " quiet" : ""}" data-tip="${esc(detail)}">
           <div class="usage-bar-track">
             <i class="credits" data-h="${height(creditHeight)}" style="height:0%"></i>
-            ${showTokens ? `<i class="tokens" data-h="${height(tokenHeight)}" style="height:0%"></i>` : ""}
           </div>
           <span>${esc(label)}</span>
         </div>`;
@@ -696,20 +688,18 @@ function renderUsageModels(models, totals) {
     <div class="models-split">
       <div class="model-chart">${modelPieSvg(slices, totals)}</div>
       <div class="model-table">
-        <div class="usage-table-head"><span>模型</span><span>请求</span><span>输入 / 输出</span><span>积分</span></div>
+        <div class="usage-table-head"><span>模型</span><span>请求</span><span>积分</span></div>
         ${models.map((row) => {
           const color = colorFor(row.model);
           return `
           <div class="usage-table-row">
             <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
             <span>${row.requests}</span>
-            <span class="usage-io">${compact(row.inputTokens)} <i>/</i> ${compact(row.outputTokens)}</span>
             <span class="usage-cost">${credits(row.credits)}${row.credits > 0 ? ` <i class="soft-label">¥${rmb(row.credits)}</i>` : ""}</span>
           </div>`;
         }).join("")}
         <div class="usage-table-foot">
           <span>合计</span><span>${totals.requests}</span>
-          <span>${compact(totals.inputTokens)} / ${compact(totals.outputTokens)}</span>
           <span>${credits(totals.credits)}${totals.credits > 0 ? `（¥${rmb(totals.credits)}）` : ""}</span>
         </div>
       </div>
@@ -828,7 +818,7 @@ function renderUsageRecent() {
     <input type="checkbox" class="recent-pick" id="recent-pick-all" aria-label="全选"${selectable.length ? "" : " disabled"}>
     <span>时间</span><span>来源</span><span>模型</span><span>状态</span>
     <span>上下文</span><span>缓存</span>
-    <span class="recent-tokens">Token</span><span class="recent-cost">积分</span>
+    <span class="recent-cost">积分</span>
   </div>`;
   node.innerHTML = head + rows.map((item) => {
     const when = new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -851,7 +841,6 @@ function renderUsageRecent() {
       <span class="recent-state ${item.status === "error" ? "err" : item.status === "running" ? "live" : "ok"}">${state}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
-      <span class="recent-tokens">${compact(item.totalTokens)}</span>
       <span class="recent-cost">${cost}</span>
     </div>`;
   }).join("");

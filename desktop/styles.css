@@ -593,7 +593,6 @@ h1 {
 .usage-legend span { display: flex; align-items: center; gap: 5px; }
 .swatch { width: 7px; height: 7px; display: inline-block; border-radius: 2px; }
 .swatch.credits { background: #5c8a6d; }
-.swatch.tokens { background: #c9d3ca; }
 
 /* Paired bars: credits dark, tokens a pale companion on the same baseline. */
 .usage-chart { padding: 6px 2px 0; }
@@ -649,7 +648,6 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 .usage-bar-track i.credits { background: linear-gradient(180deg, #6d9a7e, #5c8a6d); }
-.usage-bar-track i.tokens { background: #dfe6e0; }
 .usage-bar span {
   display: block;
   overflow: hidden;
@@ -769,7 +767,7 @@ h1 {
 .model-table { min-width: 0; }
 .model-table .usage-table-head,
 .model-table .usage-table-row,
-.model-table .usage-table-foot { grid-template-columns: minmax(0, 1.6fr) .5fr 1.2fr .9fr; }
+.model-table .usage-table-foot { grid-template-columns: minmax(0, 2fr) .6fr .9fr; }
 @media (max-width: 930px) {
   .models-split { grid-template-columns: 1fr; }
   .model-chart { max-width: 236px; margin: 0 auto; }
@@ -812,7 +810,6 @@ h1 {
 .recent-state.live { color: #3f7fb8; }
 .recent-state.err { color: var(--red); }
 .recent-ctx, .recent-cache { color: var(--muted); font-variant-numeric: tabular-nums; }
-.recent-tokens { color: var(--muted); font-variant-numeric: tabular-nums; }
 .recent-cost { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Four cards only where there is room for four comfortable columns; the
@@ -822,7 +819,7 @@ h1 {
 }
 @media (max-width: 930px) {
   .recent-row { grid-template-columns: 16px 1fr .8fr 1.1fr .8fr .65fr .6fr; }
-  .recent-tokens, .recent-cost { display: none; }
+  .recent-cost { display: none; }
 }
 
 .about-panel { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
