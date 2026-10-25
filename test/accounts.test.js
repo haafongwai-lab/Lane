@@ -33,13 +33,13 @@ const authFor = (uid, accountId, extra = {}) => ({
 
 test("the single account Lane had before is imported once", async () => {
   const { env, dir } = await tempEnv();
-  const legacy = authFor("uid-1", "ddmao");
+  const legacy = authFor("uid-1", "legacy-account");
   await fs.writeFile(path.join(dir, "workbuddy-auth.json"), JSON.stringify(legacy));
 
   const state = await loadAccounts(env);
   assert.equal(state.accounts.length, 1);
   assert.equal(state.activeId, "uid-1");
-  assert.equal(state.accounts[0].label, "ddmao");
+  assert.equal(state.accounts[0].label, "legacy-account");
   assert.equal(state.accounts[0].enabled, true);
 
   // A second load reads accounts.json and never re-imports.
