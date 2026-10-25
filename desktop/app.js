@@ -1158,19 +1158,26 @@ window.lane.onSignIn(async ({ error } = {}) => {
   await refresh({ quiet: true });
 });
 
-// The startup cover fades on the first real snapshot, or after a beat if
-// the gateway is still coming up — it must never trap the window.
+// The startup cover holds for a minimum span even when the gateway answers
+// instantly - the sequence is ~2.5s long, and fading it at the first
+// snapshot cut it to a blink. A click still skips, and the 4s backstop
+// stays for a gateway that never comes up.
 var bootGone = false;
+var bootShownAt = Date.now();
+var BOOT_MIN_MS = 2800;
 function bootOut() {
   if (bootGone) return;
+  var wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootShownAt));
+  if (wait > 0) { setTimeout(bootOut, wait + 30); return; }
   bootGone = true;
   var boot = document.getElementById("boot");
   if (!boot) return;
   boot.classList.add("gone");
   setTimeout(function () { if (boot.parentNode) boot.parentNode.removeChild(boot); }, 600);
 }
-$("#boot").addEventListener("click", bootOut);
-setTimeout(bootOut, 4000);
+// A click during the minimum hold means "skip now", not "queue the fade".
+$("#boot").addEventListener("click", function () { bootGone = true; var b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(function () { if (b.parentNode) b.parentNode.removeChild(b); }, 600); } });
+setTimeout(bootOut, 4000 + BOOT_MIN_MS);
 
 refresh();
 setInterval(() => {
