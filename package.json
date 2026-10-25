@@ -21,7 +21,7 @@
     "build": "npm run icons && electron-builder --win --x64"
   },
   "dependencies": {
-    "@magpie-community/opencode-workbuddy-auth": "0.1.30"
+    "@magpie-community/opencode-workbuddy-auth": "^0.1.34"
   },
   "devDependencies": {
     "electron": "45.0.0",
