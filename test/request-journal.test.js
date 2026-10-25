@@ -375,3 +375,25 @@ test("removeByIds deletes exactly the named rows and spares running ones", async
   assert.equal(journal.removeByIds([]), 0);
   assert.equal(journal.list().length, 2);
 });
+
+test("removeByProject deletes one project's rows and spares running ones", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  journal.requests = [
+    { id: "lane-1", project: "C:\\work\\lane", status: "complete" },
+    { id: "lane-2", project: "C:\\work\\lane", status: "complete" },
+    { id: "lane-live", project: "C:\\work\\lane", status: "running" },
+    { id: "docs-1", project: "C:\\work\\docs", status: "complete" },
+    { id: "none-1", project: "", status: "complete" }
+  ];
+  const removed = journal.removeByProject("C:\\work\\lane");
+  assert.equal(removed, 2);
+  const ids = journal.list().map((row) => row.id).sort();
+  assert.deepEqual(ids, ["docs-1", "lane-live", "none-1"]);
+  // The unattributed bucket is a project of its own and can be cleared too.
+  assert.equal(journal.removeByProject(""), 1);
+  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["docs-1", "lane-live"]);
+  await journal.flush();
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
+  assert.equal(saved.length, 2);
+});

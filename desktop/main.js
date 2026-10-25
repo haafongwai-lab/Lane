@@ -309,6 +309,10 @@ ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   return control.clearHistory(Array.isArray(ids) ? ids : null);
 });
+ipcMain.handle("lane:clear-project", async (_event, { project } = {}) => {
+  await startGateway();
+  return control.clearProject(project ?? "");
+});
 ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
   const targetControl = control;

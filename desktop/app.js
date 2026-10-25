@@ -787,11 +787,14 @@ function renderUsageContext(context, projects = []) {
       ? `${compact(ctx.used)} / ${compact(ctx.window)} · ${percent(ctx.fill)}`
       : "—";
     const hit = row.cacheHit == null ? "—" : percent(row.cacheHit);
+    // The ✕ deletes this project's whole record from the journal; the count
+    // rides along so the confirm dialog states what will go.
     return `<div class="usage-table-row">
       <div class="usage-model"><b>${esc(row.name || "未归属")}</b><code>${esc(row.id ? "" : "无目录信息")}</code></div>
       <span>${row.requests}</span>
       <span class="usage-io">${fillText}</span>
       <span class="usage-cost">${hit}</span>
+      <button class="icon-mini" data-project="${esc(row.id)}" data-name="${esc(row.name || "未归属")}" data-count="${row.requests || 0}" data-tip="删除该项目的全部记录" aria-label="删除项目 ${esc(row.name || "未归属")} 的记录">✕</button>
     </div>`;
   }).join("");
 }
@@ -904,7 +907,14 @@ $("#refresh-activity").addEventListener("click", async () => {
   await loadUsage();
 });
 $("#clear-history").addEventListener("click", async () => {
-  if (!confirm("清除今天凌晨之前的全部请求记录？此操作不可恢复。")) return;
+  const count = snapshot?.clearableHistory || 0;
+  if (!count) {
+    // The button stays for good, so a click with nothing to clear explains
+    // itself instead of reporting a bare zero.
+    toast("今天凌晨之前没有记录，无需清除");
+    return;
+  }
+  if (!confirm(`清除今天凌晨之前的全部 ${count} 条请求记录？此操作不可恢复。`)) return;
   const button = $("#clear-history");
   button.disabled = true;
   try {
@@ -938,7 +948,8 @@ $("#clear-selected").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const result = await window.lane.clearHistory(ids);
-    toast(`已删除 ${result?.removed ?? 0} 条记录`);
+    if ((result?.removed ?? 0) > 0) toast(`已删除 ${result.removed} 条记录`);
+    else toast("没有删除记录：所选内容可能已被清除", true);
   } catch (error) {
     toast(error.message || "删除失败", true);
   } finally {

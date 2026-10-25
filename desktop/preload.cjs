@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("lane", {
   status: () => ipcRenderer.invoke("lane:status"),
   clearHistory: (ids) => ipcRenderer.invoke("lane:clear-history", { ids }),
+  clearProject: (project) => ipcRenderer.invoke("lane:clear-project", { project }),
   command: (command, options = {}) => ipcRenderer.invoke("lane:command", { command, ...options }),
   signIn: (options) => ipcRenderer.invoke("lane:signin", options),
   account: (action, id, options = {}) => ipcRenderer.invoke("lane:account", { action, id, ...options }),

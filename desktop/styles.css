@@ -718,10 +718,12 @@ h1 {
   font-size: 11.5px;
 }
 /* The per-project rows inside the context card reuse the same grid minus the
-   share column their model table carries. */
+   share column their model table carries; the last track holds the row's
+   delete button. */
 #usage-context-projects .usage-table-row {
-  grid-template-columns: minmax(0, 1.2fr) .5fr 1.6fr .7fr;
+  grid-template-columns: minmax(0, 1.2fr) .5fr 1.6fr .7fr 26px;
 }
+#usage-context-projects .icon-mini { justify-self: end; }
 .usage-table-head {
   padding-top: 0;
   border-bottom-color: var(--line);

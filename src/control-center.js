@@ -379,6 +379,11 @@ export function createControlCenter({
       return Array.isArray(ids) ? journal.removeByIds(ids) : journal.clearBeforeToday();
     },
 
+    clearProject(projectId) {
+      if (journal.shared) throw new Error("只读窗口不能清除历史记录");
+      return journal.removeByProject(projectId);
+    },
+
     /**
      * Token and credit totals for the usage view. Billed credits come from
      * the upstream's own `credit` report; the token formula costs only the

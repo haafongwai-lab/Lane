@@ -212,6 +212,22 @@ export class RequestJournal {
   }
 
   /**
+   * Removes every row of one project (the working-directory id the journal
+   * stores; "" is the unattributed bucket). Running rows survive, as above.
+   */
+  removeByProject(projectId) {
+    const key = String(projectId ?? "");
+    const kept = this.requests.filter(
+      (request) => (request.project || "") !== key || request.status === "running"
+    );
+    const removed = this.requests.length - kept.length;
+    this.requests = kept;
+    this.rebuildBilledRates();
+    this.save();
+    return removed;
+  }
+
+  /**
    * How many rows a clear would drop. The status snapshot carries this so
    * the UI's button reflects the whole journal - the recent list only holds
    * the newest rows, and a busy day fills it entirely with today's traffic,
