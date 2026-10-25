@@ -174,6 +174,7 @@ async function refresh({ quiet = false } = {}) {
 
 function render() {
   if (!snapshot) return;
+  bootOut();
   // The re-render replaces the elements any visible popup is attached to;
   // a tip frozen over detached content reads as a bug, so it goes first.
   tipNode.hidden = true;
@@ -1156,6 +1157,20 @@ window.lane.onSignIn(async ({ error } = {}) => {
   else toast("WorkBuddy 登录成功");
   await refresh({ quiet: true });
 });
+
+// The startup cover fades on the first real snapshot, or after a beat if
+// the gateway is still coming up — it must never trap the window.
+var bootGone = false;
+function bootOut() {
+  if (bootGone) return;
+  bootGone = true;
+  var boot = document.getElementById("boot");
+  if (!boot) return;
+  boot.classList.add("gone");
+  setTimeout(function () { if (boot.parentNode) boot.parentNode.removeChild(boot); }, 600);
+}
+$("#boot").addEventListener("click", bootOut);
+setTimeout(bootOut, 4000);
 
 refresh();
 setInterval(() => {
