@@ -1062,3 +1062,28 @@ test("/v1/messages attributes its source by client, not by endpoint", async () =
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a long-session body over the old 8 MB floor passes", async () => {
+  // ZCode resends the whole conversation each turn; sessions outgrew the
+  // old 8 MB limit and came back 413. The floor is now 64 MB - a ~9 MB body
+  // must reach the provider (it answers by failing auth, not by size).
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() { throw new Error("not signed in"); }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const filler = "x".repeat(9 * 1024 * 1024);
+    const response = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: filler }] })
+    });
+    assert.notEqual(response.status, 413);
+    const body = await response.json();
+    assert.ok(body.error, "the provider answers, not the size gate");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

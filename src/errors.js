@@ -13,7 +13,11 @@ export function errorJSON(res, status, message, type = "invalid_request_error") 
   json(res, status, { error: { message, type } });
 }
 
-export function readJSONBody(req, limit = 8 * 1024 * 1024) {
+// 64 MB: ZCode's Anthropic protocol resends the whole conversation every
+// turn, so a long session's body grows past the old 8 MB floor and came
+// back as 413 "Payload Too Large". Loopback-only, single user - a body this
+// size in memory for the length of one request costs nothing.
+export function readJSONBody(req, limit = 64 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
     let settled = false;
