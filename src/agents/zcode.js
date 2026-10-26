@@ -119,6 +119,81 @@ export async function connectZcode({
   };
 }
 
+/**
+ * ZCode keeps the provider's model ids in its own file rather than asking
+ * the endpoint, so the list Lane wrote at connect time is all it will ever
+ * offer. Switching to an account on another site changes the catalogue
+ * behind the same gateway URL (the international build serves 26 models
+ * where the domestic one serves 19), and ZCode went on showing the ids
+ * captured at connect — every model unique to the new account was missing
+ * until the user disconnected and reconnected.
+ *
+ * The user may have reordered or pruned the list in ZCode's own UI, so this
+ * refreshes only when Lane's rule is in place and the set of ids actually
+ * differs. Order is preserved where the ids survive: the user's arrangement
+ * comes first, new ids join at the end, and ids the new account cannot serve
+ * leave. A model removed from the middle would otherwise reorder everything
+ * after it on every account switch.
+ */
+export async function syncZcodeCatalog({ env = process.env, models = [] } = {}) {
+  if (!models.length) return { changed: false };
+  const state = await readState(env);
+  const saved = state.zcode;
+  if (!saved?.connected) return { changed: false };
+  const paths = zcodePaths(env);
+  let text = "";
+  try {
+    text = await fs.readFile(paths.config, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return { changed: false };
+  }
+  if (!text) return { changed: false };
+  let document;
+  try {
+    document = JSON.parse(text);
+  } catch {
+    // Not ours to rewrite; the user is looking at a file Lane cannot parse.
+    return { changed: false, warning: "provider config is not valid JSON" };
+  }
+  const rules = document?.config?.providerConfigRules?.providerRules;
+  if (!Array.isArray(rules)) return { changed: false };
+  const rule = rules.find((item) => item?.providerId === PROVIDER_ID);
+  // Disconnected by hand, or the rule was replaced: nothing to sync into.
+  if (!rule || !rule.config) return { changed: false };
+
+  const ids = models.map((model) => model.id);
+  const next = orderModels(ids, rule.config.personalModelIds);
+  const current = Array.isArray(rule.config.personalModelIds) ? rule.config.personalModelIds : [];
+  const order = orderModels(ids, rule.config.modelOrder);
+  const currentOrder = Array.isArray(rule.config.modelOrder) ? rule.config.modelOrder : [];
+  if (sameList(current, next) && sameList(currentOrder, order)) return { changed: false };
+
+  rule.config.personalModelIds = next;
+  rule.config.modelOrder = order;
+  await writeTextAtomic(paths.config, `${JSON.stringify(document, null, 2)}\n`);
+  return { changed: true };
+}
+
+// orderModels keeps the ids the user already arranged, in their arrangement,
+// and appends the ones this account adds. Ids the account cannot serve drop
+// out because only `available` is walked.
+function orderModels(available, previous) {
+  const keep = new Set(available);
+  const out = [];
+  for (const id of Array.isArray(previous) ? previous : []) {
+    if (keep.has(id) && !out.includes(id)) out.push(id);
+  }
+  for (const id of available) {
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+function sameList(a, b) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export async function disconnectZcode({ env = process.env } = {}) {
   const paths = zcodePaths(env);
   const state = await readState(env);

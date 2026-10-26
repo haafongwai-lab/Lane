@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { connectZcode, disconnectZcode, zcodePaths } from "../src/agents/zcode.js";
+import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "../src/agents/zcode.js";
 
 async function temp() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lane-zcode-"));
@@ -153,6 +153,79 @@ test("a connect with no readable model list still declares Lane's own catalogue"
   const rule = doc.config.providerConfigRules.providerRules
     .find((item) => item.providerId === "lane");
   assert.ok(rule.config.personalModelIds.length > 0, "the fallback catalogue is written");
+});
+
+test("a catalogue from another account replaces the stale one, keeping the user's order", async () => {
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  // The user arranged the two models the other way round in ZCode's UI.
+  const config = zcodePaths(env).config;
+  const doc = await readConfig(env);
+  const rule = doc.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  rule.config.personalModelIds = ["hy3", "auto"];
+  rule.config.modelOrder = ["hy3", "auto"];
+  await fs.writeFile(config, JSON.stringify(doc, null, 2));
+
+  // Switching to an international account changes the catalogue behind the
+  // same gateway URL: two ids the old list never had, one it drops.
+  const result = await syncZcodeCatalog({
+    env,
+    models: [
+      { id: "auto" },
+      { id: "gpt-6-sol" },
+      { id: "grok-4.7" }
+    ]
+  });
+  assert.equal(result.changed, true);
+
+  const after = await readConfig(env);
+  const synced = after.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  // hy3 left, so auto stays first; the new ids join at the end in catalogue
+  // order, and the second switch does not reorder what the first produced.
+  assert.deepEqual(synced.config.personalModelIds, ["auto", "gpt-6-sol", "grok-4.7"]);
+  assert.deepEqual(synced.config.modelOrder, ["auto", "gpt-6-sol", "grok-4.7"]);
+
+  assert.equal((await syncZcodeCatalog({ env, models: [{ id: "auto" }, { id: "gpt-6-sol" }, { id: "grok-4.7" }] })).changed, false,
+    "an unchanged catalogue writes nothing");
+});
+
+test("a sync leaves the provider config alone when Lane is not wired in", async () => {
+  const { env } = await temp();
+  const config = zcodePaths(env).config;
+  await fs.mkdir(path.dirname(config), { recursive: true });
+  const other = {
+    schemaVersion: 1,
+    config: {
+      providerOrder: ["deepseek"],
+      providerConfigRules: {
+        providerRules: [{
+          providerId: "deepseek",
+          providerName: "DeepSeek",
+          enabled: true,
+          config: { personalModelIds: ["deepseek-flash"], modelOrder: ["deepseek-flash"] }
+        }]
+      }
+    }
+  };
+  await fs.writeFile(config, JSON.stringify(other, null, 2));
+  const before = await fs.readFile(config, "utf8");
+
+  const result = await syncZcodeCatalog({ env, models: [{ id: "auto" }] });
+  assert.equal(result.changed, false);
+  assert.equal(await fs.readFile(config, "utf8"), before, "the file is untouched");
+});
+
+test("a sync after a disconnect does not resurrect the lane rule", async () => {
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  await disconnectZcode({ env });
+  const before = await fs.readFile(zcodePaths(env).config, "utf8");
+
+  const result = await syncZcodeCatalog({ env, models: [{ id: "auto" }, { id: "hy3" }] });
+  assert.equal(result.changed, false);
+  assert.equal(await fs.readFile(zcodePaths(env).config, "utf8"), before);
 });
 
 test("disconnect with no prior connect is a no-op", async () => {

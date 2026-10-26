@@ -8,7 +8,7 @@ import {
   connectClaudeDesktop,
   disconnectClaudeDesktop
 } from "./agents/claude-desktop.js";
-import { connectZcode, disconnectZcode, zcodePaths } from "./agents/zcode.js";
+import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./agents/zcode.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
 import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
@@ -181,7 +181,13 @@ export function createControlCenter({
       try {
         state = await readState(env);
       } catch {}
-      if (models?.length) await syncCodexCatalog({ env, models }).catch(() => {});
+      // Both clients keep the catalogue in a file of their own, so both are
+      // refreshed from the account the gateway is actually routing to: a
+      // switch between sites changes the list behind an unchanged URL.
+      if (models?.length) {
+        await syncCodexCatalog({ env, models }).catch(() => {});
+        await syncZcodeCatalog({ env, models }).catch(() => {});
+      }
       let signedIn = false;
       try {
         signedIn = await instance.signedIn();
@@ -301,6 +307,17 @@ export function createControlCenter({
       const instance = await getProvider();
       const account = await instance.activate(id);
       forgetUsage();
+      // The catalogue belongs to the account now in force, and ZCode keeps
+      // its copy in its own file: refresh it at the switch, not whenever the
+      // window next polls. A failure here must not fail the switch itself.
+      await instance.listModels().then(
+        (models) => models?.length
+          ? Promise.all([
+            syncCodexCatalog({ env, models }),
+            syncZcodeCatalog({ env, models })
+          ]).catch(() => {})
+          : null
+      ).catch(() => {});
       return account;
     },
 
