@@ -262,3 +262,24 @@ test("a relative plugin baseURL is resolved against the account's site", async (
   hooks.auth.loader = async () => ({ baseURL: "https://copilot.tencent.com/v2//", apiKey: "" });
   assert.equal(await provider.baseURL("u1"), "https://copilot.tencent.com/v2");
 });
+
+test("an international account's catalogue is read under its own provider key", async () => {
+  // The workbuddy-ai plugin declares provider."workbuddy-ai", not
+  // provider."workbuddy"; asking for the domestic key made the overseas
+  // catalogue empty with "plugin did not declare a provider".
+  const hooks = {
+    config: async (config) => {
+      config.provider["workbuddy-ai"] = { models: { "fast-model": { name: "Fast" } } };
+    },
+    provider: {
+      models: async (provider) => provider.models
+    },
+    auth: { loader: async () => ({ baseURL: "https://www.workbuddy.ai/v2", apiKey: "" }) }
+  };
+  const provider = providerWith(hooks);
+  provider.state.accounts[0].site = "workbuddy-ai";
+  // siteOf() answers from the account's site field.
+  const list = await provider.listModels("u1");
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, "fast-model");
+});

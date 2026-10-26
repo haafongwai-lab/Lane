@@ -277,10 +277,15 @@ export class WorkBuddyProvider {
   async loadModels(id) {
     await this.init();
     const session = await this.session(id);
-    const hooks = session?.hooks || (await this.anonymousHooks());
+    // Each build declares its provider under its own key: the international
+    // plugin answers to "workbuddy-ai", not "workbuddy". Ask the account's
+    // own site for the key instead of assuming the domestic one.
+    const site = await this.siteOf(id || this.state.activeId);
+    const hooks = session?.hooks || (await this.anonymousHooks(site));
     const config = { provider: {} };
     await hooks.config(config);
-    const provider = config.provider.workbuddy;
+    const providers = config.provider || {};
+    const provider = providers[site] || providers.workbuddy || Object.values(providers)[0];
     if (!provider) throw new Error("WorkBuddy plugin did not declare a provider");
     const auth = session?.auth || null;
     if (!auth) {

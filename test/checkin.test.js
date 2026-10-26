@@ -258,3 +258,33 @@ test("the check-in call carries the account's own headers", () => {
   assert.equal(headers["x-tenant-id"], "ent-9");
   assert.match(headers["user-agent"], /^WorkBuddy\//);
 });
+
+test("a build with no check-in activity is unavailable, not a failure", async () => {
+  // The international build answers 10001 "签到活动未开启或已过期" to any
+  // claim; that will never change, so it is recorded as unavailable and the
+  // scheduler stops asking instead of retrying every half hour.
+  const { env } = await tempEnv();
+  const { fetchImpl, calls } = responder({
+    claim: { code: 10001, msg: "签到活动未开启或已过期" }
+  });
+  const first = await runCheckins({
+    provider: fakeProvider(),
+    env,
+    now: at("2026-10-22T10:00:00"),
+    fetchImpl
+  });
+  assert.equal(first.results[0].status, "unavailable");
+  assert.equal(first.results[0].error, "");
+  assert.match(first.results[0].message, /没有每日签到/);
+
+  const before = calls.length;
+  const second = await runCheckins({
+    provider: fakeProvider(),
+    env,
+    now: at("2026-10-22T11:00:00"),
+    fetchImpl
+  });
+  assert.equal(second.results[0].status, "unavailable");
+  assert.equal(second.results[0].skipped, true);
+  assert.equal(calls.length, before, "no request is made once it is known unavailable");
+});

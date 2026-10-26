@@ -205,6 +205,13 @@ function rewardOf(data) {
 // Lane's purpose, not a failure to retry.
 const ALREADY = /already|repeated|duplicate|checked[\s_-]?in|已签到|已经签到|重复签到/i;
 
+// The international build has no daily check-in at all: it answers
+// 10001 "签到活动未开启或已过期" to any claim. That is a permanent condition
+// for that account, not a transient failure — reporting it as "签到失败"
+// sent the user looking for a problem Lane cannot fix.
+const NO_ACTIVITY = /签到活动未开启|活动未开启|未开启或已过期/i;
+const NO_ACTIVITY_CODE = 10001;
+
 function looksCheckedIn(status) {
   if (!status || typeof status !== "object") return false;
   const today = localDateKey();
@@ -271,6 +278,12 @@ async function claimRound({
         results.push({ id: account.id, label: account.label, status: "done", skipped: true, record });
         continue;
       }
+      // A build with no check-in activity answers the same way forever; the
+      // scheduler keeps its record and skips the network entirely.
+      if (record?.date === today && record.status === "unavailable") {
+        results.push({ id: account.id, label: account.label, status: "unavailable", skipped: true, record });
+        continue;
+      }
       if (!due) {
         results.push({ id: account.id, label: account.label, status: "waiting", record });
         continue;
@@ -281,6 +294,22 @@ async function claimRound({
       }
     }
     const outcome = await claimFor(provider, account, { env, fetchImpl });
+    // A build with no check-in activity at all: recorded as unavailable and
+    // never retried, instead of looking like a failure every half hour.
+    if (outcome.skip) {
+      const skipEntry = {
+        date: today,
+        at: new Date().toISOString(),
+        status: "unavailable",
+        reward: "",
+        message: outcome.message || "",
+        error: "",
+        nextTryAt: ""
+      };
+      state.accounts[account.id] = skipEntry;
+      results.push({ id: account.id, label: account.label, ...skipEntry });
+      continue;
+    }
     const entry = {
       date: today,
       at: new Date().toISOString(),
@@ -320,6 +349,10 @@ async function claimFor(provider, account, { env, fetchImpl }) {
     if (claimed.ok) return { ok: true, message: claimed.message, reward: claimed.reward };
     if (ALREADY.test(claimed.message)) {
       return { ok: true, message: claimed.message || "already checked in today", reward: claimed.reward };
+    }
+    // 该站点没有签到活动：不是失败，也不会因重试而改变。
+    if (claimed.code === NO_ACTIVITY_CODE || NO_ACTIVITY.test(claimed.message)) {
+      return { ok: false, skip: true, message: "该账号所在的 WorkBuddy 版本没有每日签到活动" };
     }
     return { ok: false, message: claimed.message || `check-in refused (${claimed.code})` };
   } catch (error) {
