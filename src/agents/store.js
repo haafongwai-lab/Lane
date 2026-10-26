@@ -24,9 +24,19 @@ export async function writeState(state, env = process.env) {
 
 export async function readJSON(filePath) {
   try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
+    const value = JSON.parse(await fs.readFile(filePath, "utf8"));
+    // `null` parses fine and is not a document; returning it used to move
+    // the crash downstream to whoever first touched a property on it
+    // ("Cannot read properties of null"), far from the file that caused it.
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("not a JSON object");
+    }
+    return value;
   } catch (error) {
     if (error?.code === "ENOENT") return {};
+    if (error?.message === "not a JSON object") {
+      throw new Error(`${filePath}: not a JSON object`);
+    }
     throw new Error(`cannot read ${filePath}: ${error.message}`);
   }
 }

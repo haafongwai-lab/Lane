@@ -222,6 +222,8 @@ export function responsesObjectFromStream(chunkText, state, model) {
   // Even a whole-object passthrough leaves its usage on the state, so the
   // journal's cost hook still sees what the upstream reported.
   if (whole) {
+    // A whole response object is the answer.
+    state.started = true;
     if (whole.usage && typeof whole.usage === "object") state.usage = whole.usage;
     return whole;
   }
@@ -245,6 +247,11 @@ export function responsesObjectFromStream(chunkText, state, model) {
     const choice = payload.choices?.[0];
     if (!choice) continue;
     const delta = choice.delta || {};
+    // The same "usable" bar the streaming converter applies when it raises
+    // state.started: words, tool calls, or a finish decision.
+    if (delta.content || delta.tool_calls?.length || choice.finish_reason) {
+      state.started = true;
+    }
     if (delta.content) text += delta.content;
     for (const part of delta.tool_calls || []) {
       const index = part.index ?? 0;

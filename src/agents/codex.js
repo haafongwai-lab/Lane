@@ -208,45 +208,120 @@ function catalogText(models) {
   return `${JSON.stringify(catalog(models), null, 2)}\n`;
 }
 
+// Line-ending preservation: splitLines remembers which style the file uses
+// and finish() writes it back with the same one. Editing with split(/\r?\n/)
+// and join("\n") used to rewrite CRLF files as LF — a connect+disconnect
+// roundtrip was not byte-reversible, and the restored provider table (kept
+// verbatim, CRLF and all) mixed styles into the bargain.
+function splitLines(text) {
+  return { crlf: /\r\n/.test(text), lines: text.split(/\r?\n/) };
+}
+
+function finishLines(lines, crlf) {
+  const eol = crlf ? "\r\n" : "\n";
+  const body = lines.join(eol).replace(/\s*$/, "");
+  return body ? `${body}${eol}` : "";
+}
+
+function collapseBlanks(lines) {
+  const out = [];
+  let blanks = 0;
+  for (const line of lines) {
+    if (line.trim()) {
+      blanks = 0;
+      out.push(line);
+      continue;
+    }
+    blanks += 1;
+    if (blanks <= 1) out.push(line);
+  }
+  return out;
+}
+
 function setTopValue(text, key, value) {
-  const lines = text.split(/\r?\n/);
+  const { crlf, lines } = splitLines(text);
   const pattern = new RegExp(`^${key}\\s*=`);
   const index = lines.slice(0, topLevelEnd(lines)).findIndex((line) => pattern.test(line));
   const replacement = `${key} = ${value}`;
   if (index >= 0) lines[index] = replacement;
   else lines.unshift(replacement);
-  return lines.join("\n").replace(/\n*$/, "\n");
+  return finishLines(lines, crlf);
 }
 
 function removeTopValue(text, key) {
-  const lines = text.split(/\r?\n/);
+  const { crlf, lines } = splitLines(text);
   const pattern = new RegExp(`^${key}\\s*=`);
   const limit = topLevelEnd(lines);
-  return lines
-    .filter((line, index) => index >= limit || !pattern.test(line))
-    .join("\n")
-    .replace(/\n*$/, "\n");
-}
-
-function hasProviderTable(text) {
-  return /^\[model_providers\.lane\]\s*$/m.test(text);
-}
-
-function providerTableBlock(text) {
-  const match = text.match(/^\[model_providers\.lane\]\s*\r?\n(?:(?!\[).*(?:\r?\n|$))*/m);
-  return match ? match[0].replace(/\s*$/, "\n") : "";
-}
-
-function replaceProviderTable(text, table) {
-  return text.replace(
-    /^\[model_providers\.lane\]\s*\r?\n(?:(?!\[).*(?:\r?\n|$))*/m,
-    table
+  return finishLines(
+    lines.filter((line, index) => index >= limit || !pattern.test(line)),
+    crlf
   );
 }
 
+// Codex accepts the table name quoted or bare, and a config written by hand
+// may use either form; the matchers below recognise both. Matching only the
+// bare form used to leave the user's quoted table in place while Lane added
+// a second `[model_providers.lane]` — TOML's last-wins rule made the pair
+// look like one table, but the user's was never replaced and a disconnect
+// could not restore it cleanly.
+function laneTableStart(line) {
+  return /^\[model_providers\.(?:"lane"|lane)\][ \t]*$/.test(line);
+}
+
+function hasProviderTable(text) {
+  return splitLines(text).lines.some(laneTableStart);
+}
+
+// The table block: its header line plus every line up to the next header.
+function tableEnd(lines, start) {
+  let end = start + 1;
+  while (end < lines.length && !/^\s*\[/.test(lines[end])) end++;
+  return end;
+}
+
+function providerTableBlock(text) {
+  const { lines } = splitLines(text);
+  const start = lines.findIndex(laneTableStart);
+  if (start < 0) return "";
+  return `${lines.slice(start, tableEnd(lines, start)).join("\n")}\n`;
+}
+
+// Replaces the first Lane provider table with `table` and drops any other
+// Lane tables — duplicates an older Lane version could leave behind, quoted
+// and bare alike. An empty `table` removes every one of them.
+function spliceProviderTable(text, table) {
+  const { crlf, lines } = splitLines(text);
+  if (!lines.some(laneTableStart)) return text;
+  const out = [];
+  let skipping = false;
+  let inserted = false;
+  for (const line of lines) {
+    if (laneTableStart(line)) {
+      skipping = true;
+      if (!inserted && table) {
+        out.push(...splitLines(table.replace(/\r?\n$/, "")).lines);
+        inserted = true;
+      }
+      continue;
+    }
+    if (skipping) {
+      // The block runs to the next header of any kind; a header line ends
+      // the skip and is kept.
+      if (/^\s*\[/.test(line)) {
+        skipping = false;
+        out.push(line);
+      }
+      continue;
+    }
+    out.push(line);
+  }
+  return finishLines(collapseBlanks(out), crlf);
+}
+
+function replaceProviderTable(text, table) {
+  return spliceProviderTable(text, table);
+}
+
 function removeProviderTable(text) {
-  return text
-    .replace(/\n?\[model_providers\.lane\]\s*\n(?:(?!\[).*\n?)*/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/\n*$/, "\n");
+  return spliceProviderTable(text, "");
 }

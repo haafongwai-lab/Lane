@@ -23,6 +23,18 @@ const PROVIDER_NAME = "Lane";
 // "anthropic-messages" to its anthropic client, pointed at baseUrl as-is.
 const API_TYPE = "anthropic-messages";
 
+// The file is ZCode's own document; anything that is not a JSON object —
+// null, an array, a number, a string — is not a document Lane can edit in
+// place. A null used to crash on its first property access, and an array
+// was worse: Lane reported success, asked for a restart, and the file came
+// out of it unchanged.
+function asDocument(parsed, where) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`ZCode provider config must be a JSON object (${where})`);
+  }
+  return parsed;
+}
+
 // Lane's own fallback catalogue, used only when the account's list is
 // unavailable at connect time.
 const FALLBACK_MODELS = [
@@ -48,10 +60,14 @@ export async function connectZcode({
   const text = await readText(paths.config);
   const hadFile = text !== "";
   let document;
-  try {
-    document = hadFile ? JSON.parse(text) : {};
-  } catch (error) {
-    throw new Error(`ZCode provider config is not valid JSON (${paths.config}): ${error.message}`);
+  if (!hadFile) {
+    document = {};
+  } else {
+    try {
+      document = asDocument(JSON.parse(text), paths.config);
+    } catch (error) {
+      throw new Error(`ZCode provider config is not valid JSON (${paths.config}): ${error.message}`);
+    }
   }
 
   let models = [];
@@ -151,7 +167,7 @@ export async function syncZcodeCatalog({ env = process.env, models = [] } = {}) 
   if (!text) return { changed: false };
   let document;
   try {
-    document = JSON.parse(text);
+    document = asDocument(JSON.parse(text), paths.config);
   } catch {
     // Not ours to rewrite; the user is looking at a file Lane cannot parse.
     return { changed: false, warning: "provider config is not valid JSON" };
@@ -209,7 +225,7 @@ export async function disconnectZcode({ env = process.env } = {}) {
 
   let document;
   try {
-    document = JSON.parse(text);
+    document = asDocument(JSON.parse(text), paths.config);
   } catch {
     // A file we cannot read is not ours to edit; the wiring record goes, the
     // file stays for the user to look at.

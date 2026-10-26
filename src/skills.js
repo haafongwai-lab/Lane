@@ -20,6 +20,43 @@ import { dataDir } from "./config.js";
 const AGENTS = ["codex", "zcode", "claude-desktop"];
 const SKILL_MARK = "SKILL.md";
 
+// Windows refuses these as file or directory names (with or without an
+// extension), so a folder by such a name cannot exist in the library —
+// better refused here than failed strangely at mkdir time.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
+ * The one gate every skill name passes. A skill name is a single path
+ * segment — never a path. The old check was a character blacklist that let
+ * ".." through, and path.join(libraryRoot, "..") is the data directory
+ * itself, so removeFromLibrary("..") from the HTTP control plane deleted
+ * the whole data directory. Anything that is not plainly a folder name is
+ * refused here rather than survived by luck.
+ */
+export function checkSkillName(name) {
+  const value = String(name ?? "");
+  if (!value || value !== value.trim()) {
+    throw Object.assign(new Error("技能名不合法"), { status: 400 });
+  }
+  // Separators cover "../x", "..\x", absolute paths and any multi-segment
+  // name; "." and ".." are traversal on their own.
+  if (/[/\\]/.test(value) || value === "." || value === "..") {
+    throw Object.assign(new Error("技能名不合法"), { status: 400 });
+  }
+  if (/[\x00-\x1f]/.test(value) || WINDOWS_RESERVED.test(value)) {
+    throw Object.assign(new Error("技能名不合法"), { status: 400 });
+  }
+  return value;
+}
+
+// Belt and braces for the two places a name becomes a filesystem path: the
+// resolved target must be a direct child of the root, not just a join that
+// happens to look like one.
+function contained(root, dir) {
+  const rel = path.relative(path.resolve(root), path.resolve(dir));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
 function libraryRoot(env) {
   return path.join(dataDir(env), "skills");
 }
@@ -104,7 +141,7 @@ export async function listLibrary(env = process.env) {
 /** Imports a folder (with a SKILL.md inside) into the library by copy. */
 export async function importFrom(sourceDir, env = process.env) {
   const source = path.resolve(sourceDir);
-  const name = path.basename(source);
+  const name = checkSkillName(path.basename(source));
   if (!name || /[\\/:*?"<>|]/.test(name)) {
     throw Object.assign(new Error("文件夹名不能包含 \\ / : * ? \" < > |"), { status: 400 });
   }
@@ -133,13 +170,14 @@ export async function importFrom(sourceDir, env = process.env) {
  * — is left alone: deleting it would destroy work Lane never created.
  */
 export async function removeFromLibrary(name, env = process.env) {
-  if (!name || /[\\/:*?"<>|]/.test(name)) {
-    throw Object.assign(new Error("技能名不合法"), { status: 400 });
-  }
+  checkSkillName(name);
   let removed = 0;
   for (const agent of AGENTS) {
     for (const target of installTargets(agent, env)) {
       const p = path.join(target, name);
+      // A validated name is one segment, but the containment check is what
+      // actually proves the link sits inside the client's skills folder.
+      if (!contained(target, p)) continue;
       try {
         const st = await fs.lstat(p);
         if (!st.isSymbolicLink()) continue;
@@ -148,8 +186,11 @@ export async function removeFromLibrary(name, env = process.env) {
       } catch {}
     }
   }
+  const root = libraryRoot(env);
   const dir = skillDir(env, name);
-  if (await exists(dir)) {
+  // The guard that turns ".." from a data-directory deletion into a refusal:
+  // only a direct child of the library is ever removed.
+  if (contained(root, dir) && await exists(dir)) {
     await fs.rm(dir, { recursive: true, force: true });
     return { removed, library: true };
   }
@@ -158,7 +199,14 @@ export async function removeFromLibrary(name, env = process.env) {
 
 /** Installs (junctions) one library skill into one client. */
 export async function installTo(name, agent, env = process.env) {
+  checkSkillName(name);
+  const root = libraryRoot(env);
   const source = path.resolve(skillDir(env, name));
+  // The junction's target is the library copy; if the name somehow resolved
+  // outside it, nothing downstream is safe to create.
+  if (!contained(root, source)) {
+    throw Object.assign(new Error("库中没有这个技能"), { status: 404 });
+  }
   if (!(await isSkillFolder(source))) {
     throw Object.assign(new Error("库中没有这个技能"), { status: 404 });
   }
@@ -166,6 +214,7 @@ export async function installTo(name, agent, env = process.env) {
   const results = [];
   for (const target of installTargets(agent, env)) {
     const link = path.join(target, name);
+    if (!contained(target, link)) continue;
     // A file already sitting there is the user's (or another tool's): never
     // replace it — that would be deleting someone else's work.
     if (await exists(link)) { results.push({ target, linked: false, existed: true }); continue; }
@@ -179,9 +228,11 @@ export async function installTo(name, agent, env = process.env) {
 
 /** Removes the installed links of one skill from one client. */
 export async function uninstallFrom(name, agent, env = process.env) {
+  checkSkillName(name);
   let removed = 0;
   for (const target of installTargets(agent, env)) {
     const link = path.join(target, name);
+    if (!contained(target, link)) continue;
     try {
       const st = await fs.lstat(link);
       if (st.isSymbolicLink()) { await fs.unlink(link); removed++; }

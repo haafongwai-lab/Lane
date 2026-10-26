@@ -203,6 +203,8 @@ export function anthropicStreamError(error) {
 export function anthropicMessageFromStream(chunkText, state, model) {
   const events = parseSSEData(chunkText);
   if (events.some((payload) => !payload.choices && payload?.type === "message")) {
+    // A whole Anthropic message came through: that is the answer.
+    state.started = true;
     return events.find((payload) => payload?.type === "message");
   }
   const message = {
@@ -228,6 +230,12 @@ export function anthropicMessageFromStream(chunkText, state, model) {
     }
     const choice = payload.choices?.[0];
     if (!choice) continue;
+    // The same "usable" bar the streaming converter applies via
+    // startAnthropic: an answer carries words, tool calls, or a finish
+    // decision. An event with none of those is a ping, not an answer.
+    if (choice.delta?.content || choice.delta?.tool_calls?.length || choice.finish_reason) {
+      state.started = true;
+    }
     if (payload.usage) {
       message.usage.input_tokens = payload.usage.prompt_tokens || message.usage.input_tokens;
       message.usage.output_tokens = payload.usage.completion_tokens || message.usage.output_tokens;

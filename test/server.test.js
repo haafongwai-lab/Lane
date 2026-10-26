@@ -1004,8 +1004,95 @@ test("a chat stream that ends without any event reports an error, not an empty s
     });
     assert.equal(response.status, 200);
     const text = await response.text();
-    assert.match(text, /upstream stream ended without a response/);
+    assert.match(text, /no usable events/);
     assert.match(text, /data: \[DONE\]/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an upstream whose stream answers nothing is an error on every protocol", async () => {
+  // Two shapes of nothing: a data: line that is not JSON, and an event that
+  // parses but carries no answer. Both used to come out as 200 with an
+  // empty message on all three protocols.
+  const shapes = {
+    "non-JSON payload": 'data: not-json\n\n',
+    "empty choices event": 'data: {"choices":[]}\n\n',
+    "empty delta only": 'data: {"choices":[{"index":0,"delta":{},"finish_reason":null}]}\n\n'
+  };
+  for (const [label, stream] of Object.entries(shapes)) {
+    const provider = {
+      async listModels() { return [{ id: "auto", name: "Auto" }]; },
+      async chat() {
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      }
+    };
+    const server = createServer({ provider });
+    const base = await listen(server);
+    try {
+      const chat = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+      });
+      assert.equal(chat.status, 502, `chat non-stream, ${label}`);
+      assert.match((await chat.json()).error.message, /no usable events|non-JSON SSE payload/, label);
+
+      const chatStream = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "auto", stream: true, messages: [{ role: "user", content: "hi" }] })
+      });
+      const streamText = await chatStream.text();
+      assert.match(streamText, /no usable events|non-JSON SSE payload/, `chat stream, ${label}`);
+
+      const messages = await fetch(`${base}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "auto", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
+      });
+      assert.equal(messages.status, 502, `messages non-stream, ${label}`);
+      assert.match((await messages.json()).error.message, /no usable events|non-JSON SSE payload/, label);
+
+      const responses = await fetch(`${base}/v1/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "auto", input: "hi" })
+      });
+      assert.equal(responses.status, 502, `responses non-stream, ${label}`);
+      assert.match((await responses.json()).error.message, /no usable events|non-JSON SSE payload/, label);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+});
+
+test("heartbeats and usage pings do not count as answers, content does", async () => {
+  const provider = {
+    async listModels() { return [{ id: "auto", name: "Auto" }]; },
+    async chat() {
+      // A heartbeat and a usage-only ping are noise; the content event is
+      // the answer. The relay must forward all three and finish normally.
+      return new Response([
+        ": keep-alive\n\n",
+        'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}\n\n',
+        'data: {"choices":[{"index":0,"delta":{"content":"hi there"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.choices[0].message.content, "hi there");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

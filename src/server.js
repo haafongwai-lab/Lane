@@ -568,7 +568,7 @@ async function relayChat(res, upstream, body, options = {}) {
   let usage = null;
   let firstText = false;
   let finishReason = null;
-  let seen = 0;
+  let usable = 0;
   let streamError = null;
   // The message an upstream error event carries, for both answer shapes.
   const errorOf = (event) => {
@@ -576,6 +576,23 @@ async function relayChat(res, upstream, body, options = {}) {
     return typeof event.error === "string"
       ? event.error
       : event.error.message || "upstream stream failed";
+  };
+  // An event that carries part of an answer: content, reasoning, tool
+  // calls, a finish decision, or the request's own metering. Heartbeats,
+  // usage-only pings and `{"choices":[]}` parse cleanly and carry none of
+  // those — a stream made only of them answered nothing, and used to be
+  // reported as a success with an empty message.
+  const usableEvent = (event) => {
+    if (event?.usage) return true;
+    const choice = Array.isArray(event?.choices) ? event.choices[0] : null;
+    if (!choice) return false;
+    const delta = choice.delta || {};
+    const message = choice.message || null;
+    return Boolean(
+      choice.finish_reason
+      || delta.content || delta.reasoning_content || delta.tool_calls?.length
+      || message?.content || message?.tool_calls?.length
+    );
   };
 
   // The response head waits: a client that asked for a plain answer gets
@@ -597,7 +614,7 @@ async function relayChat(res, upstream, body, options = {}) {
 
   const collect = (event, keep) => {
     if (!event || typeof event !== "object") return;
-    seen += 1;
+    if (usableEvent(event)) usable += 1;
     if (event.usage) usage = event.usage;
     const choice = Array.isArray(event.choices) ? event.choices[0] : null;
     if (!choice) return;
@@ -621,7 +638,9 @@ async function relayChat(res, upstream, body, options = {}) {
     if (!finishReason && !streamError) {
       // An upstream that ended without a finish_reason would leave a strict
       // client waiting for one; the same ending proxyProtocol synthesizes.
-      if (!seen) throw new Error("upstream stream ended without a response");
+      // Events that parse but answer nothing do not count: synthesizing a
+      // stop over them reported a silent upstream as an empty success.
+      if (!usable) throw Object.assign(new Error("upstream returned no usable events"), { status: 502 });
       res.write(`data: ${JSON.stringify({
         choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
       })}\n\n`);
@@ -638,6 +657,11 @@ async function relayChat(res, upstream, body, options = {}) {
       // answer assembled here would otherwise read as an empty success.
       failUpstream(event);
       collect(event, true);
+    }
+    // The same rule the streamed path enforces before synthesizing its
+    // ending: nothing usable, nothing to report as success.
+    if (!usable) {
+      throw Object.assign(new Error("upstream returned no usable events"), { status: 502 });
     }
     // A plain answer is assembled from the same events a streamed one would
     // have carried, so both see the same text — and the same tool calls:
@@ -914,7 +938,7 @@ async function proxyProtocol(res, provider, chat, options) {
       }
       const tail = options.streamConvert(decoder.finish(), state);
       if (tail) res.write(tail);
-      if (!state.started) throw new Error("upstream stream ended without a response");
+      if (!state.started) throw Object.assign(new Error("upstream returned no usable events"), { status: 502 });
       if (!state.finished) {
         const ending = options.finish(state);
         if (ending) res.write(ending);
@@ -944,7 +968,26 @@ async function proxyProtocol(res, provider, chat, options) {
         );
       }
     }
-    const output = isSSE(raw) ? options.gather(raw, state) : options.convert(JSON.parse(raw));
+    let output;
+    if (isSSE(raw)) {
+      output = options.gather(raw, state);
+      // Events that parse but answer nothing (a bare heartbeat, an empty
+      // choices array) reach here with nothing started: reporting them as a
+      // complete empty message dressed a silent upstream up as a success.
+      if (!state.started) {
+        throw Object.assign(new Error("upstream returned no usable events"), { status: 502 });
+      }
+    } else {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.choices) || !parsed.choices.length) {
+        throw Object.assign(
+          new Error(`upstream returned a 200 without choices: ${raw.slice(0, 200) || "(empty body)"}`),
+          { status: 502 }
+        );
+      }
+      state.started = true;
+      output = options.convert(parsed);
+    }
     // A non-SSE body carries its usage report inside the JSON; the journal
     // reads it from there, so `credit` and the cache fields survive.
     if (!isSSE(raw) && !state.usage) {

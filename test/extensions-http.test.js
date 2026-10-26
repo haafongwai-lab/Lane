@@ -163,3 +163,28 @@ test("a skills import of something that is not a skill answers 400", async (t) =
   assert.equal(res.status, 400);
   assert.match((await res.json()).error.message, /SKILL\.md/);
 });
+
+test("a skills remove of a traversal name answers 400 and deletes nothing", async (t) => {
+  const { base, env, dir } = await start(t);
+  const source = path.join(dir, "weather");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# weather\n");
+  await post(base, "/lane/skills/import", { dir: source });
+  fs.writeFileSync(path.join(dir, "keep-me.txt"), "do not delete");
+
+  const BS = String.fromCharCode(92);
+  for (const name of ["..", ".." + BS + "outside", "../outside"]) {
+    const res = await post(base, "/lane/skills/remove", { name });
+    assert.equal(res.status, 400, `remove ${JSON.stringify(name)} over HTTP`);
+    assert.match((await res.json()).error.message, /技能名不合法/);
+    const install = await post(base, "/lane/skills/install", { name, agent: "codex" });
+    assert.equal(install.status, 400, `install ${JSON.stringify(name)} over HTTP`);
+    const uninstall = await post(base, "/lane/skills/uninstall", { name, agent: "codex" });
+    assert.equal(uninstall.status, 400, `uninstall ${JSON.stringify(name)} over HTTP`);
+  }
+
+  assert.ok(fs.existsSync(path.join(dir, "keep-me.txt")), "the data directory survived");
+  assert.ok(fs.existsSync(path.join(dir, "skills", "weather", "SKILL.md")), "the library survived");
+  const list = await (await fetch(`${base}/lane/skills`)).json();
+  assert.equal(list.skills.length, 1, "the library listing still works");
+});

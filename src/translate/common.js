@@ -29,6 +29,16 @@ export function sseData(event) {
 // same event concatenate with a newline — a payload wrapped across two
 // data: lines is one JSON document, not two broken ones. Comments ("data"
 // lines excluded, ": ping") and the [DONE] sentinel carry no payload.
+//
+// A data: line that is not JSON used to be swallowed here, which turned an
+// upstream failure into a successful-looking answer with nothing in it —
+// every protocol path downstream then assembles an empty message and
+// reports complete. A payload the upstream did send but Lane cannot read
+// is an upstream failure, raised as one (502-shaped, so the callers'
+// existing error paths surface it). The cap bounds what a broken upstream
+// can make Lane buffer for one event.
+const MAX_SSE_PAYLOAD = 64 * 1024 * 1024;
+
 export function parseSSEData(text) {
   const events = [];
   let data = null;
@@ -37,15 +47,25 @@ export function parseSSEData(text) {
     const payload = data;
     data = null;
     if (!payload || payload === "[DONE]") return;
+    let parsed;
     try {
-      events.push(JSON.parse(payload));
-    } catch {}
+      parsed = JSON.parse(payload);
+    } catch {
+      throw Object.assign(
+        new Error(`upstream sent a non-JSON SSE payload: ${payload.slice(0, 120)}`),
+        { status: 502 }
+      );
+    }
+    events.push(parsed);
   };
   for (const raw of String(text).split(/\r?\n/)) {
     if (raw.startsWith(":")) continue;
     if (raw.startsWith("data:")) {
       const line = raw.slice(5).replace(/^ /, "");
       data = data == null ? line : `${data}\n${line}`;
+      if (data.length > MAX_SSE_PAYLOAD) {
+        throw Object.assign(new Error("upstream SSE payload exceeds the size limit"), { status: 502 });
+      }
       continue;
     }
     if (!raw.trim()) flush();

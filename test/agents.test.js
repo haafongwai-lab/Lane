@@ -68,6 +68,67 @@ test("Codex connect is reversible", async () => {
   assert.match(restored, /approval_policy = "on-request"/);
 });
 
+test("a CRLF config.toml survives a connect and disconnect byte for byte", async () => {
+  const root = await temp();
+  const env = {
+    LANE_DATA_DIR: path.join(root, "data"),
+    LANE_CODEX_CONFIG: path.join(root, "codex", "config.toml")
+  };
+  await fs.mkdir(path.dirname(env.LANE_CODEX_CONFIG), { recursive: true });
+  const crlf = String.fromCharCode(13) + String.fromCharCode(10);
+  const before = ['model = "gpt-5"', 'approval_policy = "on-request"', ""].join(crlf);
+  await fs.writeFile(env.LANE_CODEX_CONFIG, before);
+
+  await connectCodex({
+    env,
+    gateway: "http://127.0.0.1:3426",
+    providerModels: async () => [{ id: "auto", name: "Auto", context: 168000 }]
+  });
+  const wired = await fs.readFile(env.LANE_CODEX_CONFIG, "utf8");
+  assert.match(wired, /^model_provider = "lane"\r$/m, "the added keys carry the file's own CRLF");
+
+  await disconnectCodex({ env });
+  const after = await fs.readFile(env.LANE_CODEX_CONFIG, "utf8");
+  assert.equal(after, before, "the roundtrip is byte-reversible");
+});
+
+test("a quoted [model_providers.\"lane\"] table is replaced, not duplicated", async () => {
+  const root = await temp();
+  const env = {
+    LANE_DATA_DIR: path.join(root, "data"),
+    LANE_CODEX_CONFIG: path.join(root, "codex", "config.toml")
+  };
+  await fs.mkdir(path.dirname(env.LANE_CODEX_CONFIG), { recursive: true });
+  const original = [
+    'model = "gpt-5"',
+    "",
+    '[model_providers."lane"]',
+    'name = "user lane"',
+    'base_url = "http://127.0.0.1:9999/v1"',
+    'wire_api = "responses"',
+    "",
+    "[model_providers.other]",
+    'base_url = "http://127.0.0.1:9000/v1"',
+    ""
+  ].join("\n");
+  await fs.writeFile(env.LANE_CODEX_CONFIG, original);
+
+  await connectCodex({
+    env,
+    gateway: "http://127.0.0.1:3426",
+    providerModels: async () => [{ id: "auto", name: "Auto", context: 168000 }]
+  });
+  const wired = await fs.readFile(env.LANE_CODEX_CONFIG, "utf8");
+  const laneTables = (wired.match(/\[model_providers\.(?:"lane"|lane)\]/g) || []).length;
+  assert.equal(laneTables, 1, "exactly one lane table after connect");
+  assert.doesNotMatch(wired, /127\.0\.0\.1:9999/, "the user's old table content is gone");
+  assert.match(wired, /base_url = "http:\/\/127\.0\.0\.1:3426\/v1"/);
+
+  await disconnectCodex({ env });
+  const restored = await fs.readFile(env.LANE_CODEX_CONFIG, "utf8");
+  assert.equal(restored, original, "the quoted table comes back on disconnect");
+});
+
 test("Codex connect refreshes an existing Lane provider table", async () => {
   const root = await temp();
   const env = {

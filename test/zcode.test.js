@@ -245,3 +245,39 @@ test("a config file that is not JSON is reported, not overwritten", async () => 
   );
   assert.equal(await fs.readFile(config, "utf8"), "{ not json", "the file is untouched");
 });
+
+test("a config that parses but is not an object is refused, not crashed on", async () => {
+  for (const content of ["null", "[]", "42", '"text"']) {
+    const { env } = await temp();
+    const config = zcodePaths(env).config;
+    await fs.mkdir(path.dirname(config), { recursive: true });
+    await fs.writeFile(config, content);
+    await assert.rejects(
+      () => connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS }),
+      /must be a JSON object/,
+      `connect on ${content}`
+    );
+    assert.equal(await fs.readFile(config, "utf8"), content, `the ${content} file is untouched`);
+  }
+});
+
+test("a non-object config fakes no success on disconnect or sync", async () => {
+  for (const content of ["null", "[]"]) {
+    const { env } = await temp();
+    const config = zcodePaths(env).config;
+    await fs.mkdir(path.dirname(config), { recursive: true });
+    // Wire against a good file, then break the file underneath.
+    await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+    await fs.writeFile(config, content);
+
+    const synced = await syncZcodeCatalog({ env, models: [{ id: "auto" }] });
+    assert.equal(synced.changed, false, `${content}: sync claims no change`);
+    assert.match(synced.warning, /not valid JSON/);
+    assert.equal(await fs.readFile(config, "utf8"), content);
+
+    const off = await disconnectZcode({ env });
+    assert.equal(off.connected, false);
+    assert.match(off.warning, /not valid JSON/);
+    assert.equal(await fs.readFile(config, "utf8"), content);
+  }
+});

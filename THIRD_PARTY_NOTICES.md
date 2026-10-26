@@ -5,7 +5,7 @@
 Lane uses `@magpie-community/opencode-workbuddy-auth` as a runtime dependency
 for WorkBuddy sign-in, token refresh, model discovery and request handling.
 
-- Version: `0.1.28`
+- Version: `0.1.30`
 - License: MIT
 - Source: <https://github.com/magpie-community/plugins/tree/main/packages/workbuddy>
 

@@ -216,3 +216,42 @@ test("install refuses a folder without SKILL.md", async (t) => {
   fs.mkdirSync(notASkill, { recursive: true });
   await assert.rejects(() => importFrom(notASkill, env), /SKILL.md/);
 });
+
+test("a skill name that is not a single segment is refused everywhere", async (t) => {
+  const { env, root } = tempEnv(t);
+  const source = path.join(root, "weather");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# weather\n");
+  await importFrom(source, env);
+  const before = fs.readFileSync(path.join(root, "skills", "weather", "SKILL.md"), "utf8");
+
+  for (const name of ["..", ".", "..\\outside", "../outside", "a\\b", "a/b", "C:\\temp", "con", "NUL.txt", " "]) {
+    await assert.rejects(() => removeFromLibrary(name, env), /技能名不合法/, `remove ${JSON.stringify(name)}`);
+    await assert.rejects(() => installTo(name, "codex", env), /技能名不合法|库中没有这个技能/, `install ${JSON.stringify(name)}`);
+    await assert.rejects(() => uninstallFrom(name, "codex", env), /技能名不合法/, `uninstall ${JSON.stringify(name)}`);
+  }
+  // importFrom derives the name from the folder's basename; a basename can
+  // never be traversal, but reserved names arrive this way.
+  const reserved = path.join(root, "aux");
+  fs.mkdirSync(reserved, { recursive: true });
+  fs.writeFileSync(path.join(reserved, "SKILL.md"), "# aux\n");
+  await assert.rejects(() => importFrom(reserved, env), /技能名不合法/);
+
+  assert.equal(fs.readFileSync(path.join(root, "skills", "weather", "SKILL.md"), "utf8"), before,
+    "the library survived every refused name");
+});
+
+test("removeFromLibrary('..') deletes nothing outside the library", async (t) => {
+  // The name gate now refuses this outright; this test also pins the older
+  // containment guard in case the name gate is ever loosened.
+  const { env, root } = tempEnv(t);
+  const source = path.join(root, "weather");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# weather\n");
+  await importFrom(source, env);
+  fs.writeFileSync(path.join(root, "keep-me.txt"), "do not delete");
+
+  await assert.rejects(() => removeFromLibrary("..", env), /技能名不合法/);
+  assert.ok(fs.existsSync(path.join(root, "keep-me.txt")), "the data directory survived");
+  assert.ok(fs.existsSync(path.join(root, "skills", "weather", "SKILL.md")), "the library survived");
+});
