@@ -14,6 +14,8 @@
     "desktop": "electron desktop/main.js",
     "desktop:smoke": "electron desktop/main.js --smoke-test",
     "test": "node --test \"test/*.test.js\"",
+    "check": "node scripts/check.mjs",
+    "verify": "npm run check && npm test",
     "doctor": "node src/cli.js doctor",
     "connect:claude": "node src/cli.js connect claude-desktop",
     "connect:codex": "node src/cli.js connect codex",

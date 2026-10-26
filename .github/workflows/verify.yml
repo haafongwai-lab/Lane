@@ -1,0 +1,39 @@
+name: verify
+
+# Lane ships for Windows only, so the gate runs where it ships. The suite
+# needs no network and no credentials: every test that touches an account
+# uses a fake provider, and every test that touches a config path is
+# sandboxed into a temp directory.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # The auth plugin is a runtime dependency; the tests import it through
+      # workbuddy.js. `npm ci` keeps the install to the lockfile, which is the
+      # state that gets packaged.
+      - name: Install
+        run: npm ci
+
+      - name: Check (syntax, imports, manifests)
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Whitespace errors in the diff
+        if: github.event_name == 'pull_request'
+        run: git diff --check "origin/${{ github.base_ref }}...HEAD"

@@ -115,11 +115,21 @@ The outputs are named after the version in package.json:
 - `dist\Lane Setup <version>.exe` - per-user installer
 - `dist\Lane <version>.exe` - portable executable
 
+Before building a release, run the gate. It parses every file, loads the
+gateway's own modules, compares package.json against the lockfile and looks
+for conflict markers and stray debug output; `npm test` covers behaviour.
+
+```powershell
+npm run verify
+```
+
 ## Commands
 
 ```powershell
 npm install
+npm run verify   # check + test
 npm test
+npm run check
 npm run serve
 npm run doctor
 ```

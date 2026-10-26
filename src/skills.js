@@ -142,9 +142,6 @@ export async function listLibrary(env = process.env) {
 export async function importFrom(sourceDir, env = process.env) {
   const source = path.resolve(sourceDir);
   const name = checkSkillName(path.basename(source));
-  if (!name || /[\\/:*?"<>|]/.test(name)) {
-    throw Object.assign(new Error("文件夹名不能包含 \\ / : * ? \" < > |"), { status: 400 });
-  }
   if (!(await isSkillFolder(source))) {
     throw Object.assign(new Error("所选文件夹里没有 SKILL.md，不是技能"), { status: 400 });
   }
