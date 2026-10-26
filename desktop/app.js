@@ -318,6 +318,8 @@ function checkinChip(item, account) {
     return `<span class="account-chip ok">${item.reward ? `已签到 +${esc(item.reward)}` : "已签到"}</span>`;
   }
   if (item.status === "failed") return '<span class="account-chip warn">签到失败</span>';
+  // No claim exists on this build, so "未签到" would read as a missed task.
+  if (item.status === "unavailable") return '<span class="account-chip idle">积分自动发放</span>';
   return '<span class="account-chip idle">今日未签到</span>';
 }
 
@@ -331,7 +333,9 @@ function renderCheckin() {
   if (document.activeElement !== hour) hour.value = String(settings.hour).padStart(2, "0");
   if (document.activeElement !== minute) minute.value = String(settings.minute).padStart(2, "0");
 
-  const items = (checkin.accounts || []).filter((item) => item.enabled);
+  // Accounts that never have a claim are not part of "日签到" accounting;
+  // counting them leaves the meter permanently short of its total.
+  const items = (checkin.accounts || []).filter((item) => item.enabled && item.status !== "unavailable");
   const done = items.filter((item) => item.status === "done").length;
   $("#checkin-progress").hidden = items.length === 0;
   $("#checkin-ratio").textContent = items.length ? `${done} / ${items.length}` : "—";
@@ -1066,11 +1070,16 @@ async function runCheckin(id) {
     const done = results.filter((item) => item.status === "done").length;
     const failed = results.filter((item) => item.status === "failed").length;
     const skipped = results.filter((item) => item.status === "skipped" && item.reason);
+    // Builds that grant credits with the plan have nothing to claim; saying
+    // "0 done" would imply the round misfired.
+    const automatic = results.filter((item) => item.status === "unavailable");
     // A check-in the switch blocked says so, instead of counting zero.
     if (!done && !failed && skipped.length) {
       toast(skipped.map((item) => item.reason).join("；"), true);
     } else if (failed) {
       toast(`签到完成 ${done} 个，失败 ${failed} 个`, true);
+    } else if (!done && automatic.length) {
+      toast(automatic[0].message || "积分随账户自动发放，无需签到");
     } else {
       toast(`签到完成 ${done} 个`);
     }

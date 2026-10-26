@@ -352,7 +352,10 @@ async function claimFor(provider, account, { env, fetchImpl }) {
     }
     // 该站点没有签到活动：不是失败，也不会因重试而改变。
     if (claimed.code === NO_ACTIVITY_CODE || NO_ACTIVITY.test(claimed.message)) {
-      return { ok: false, skip: true, message: "该账号所在的 WorkBuddy 版本没有每日签到活动" };
+      // The international build grants credits with the plan itself; there
+      // is no daily claim to make. That is a normal state, not a shorter
+      // version of a check-in, so the wording says so.
+      return { ok: false, skip: true, message: "海外版积分随账户自动发放，无需签到" };
     }
     return { ok: false, message: claimed.message || `check-in refused (${claimed.code})` };
   } catch (error) {

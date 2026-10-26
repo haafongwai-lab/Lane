@@ -275,7 +275,7 @@ test("a build with no check-in activity is unavailable, not a failure", async ()
   });
   assert.equal(first.results[0].status, "unavailable");
   assert.equal(first.results[0].error, "");
-  assert.match(first.results[0].message, /没有每日签到/);
+  assert.match(first.results[0].message, /自动发放/);
 
   const before = calls.length;
   const second = await runCheckins({
