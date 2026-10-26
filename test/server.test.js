@@ -375,6 +375,140 @@ test("an alias the current account does serve still resolves", async () => {
   }
 });
 
+test("malformed model and message shapes answer 400, not a converter crash", async () => {
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      throw new Error("the gateway must not reach the upstream");
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const post = (path, payload) => fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  try {
+    for (const [path, payload, message] of [
+      ["/v1/messages", { model: 123, messages: [{ role: "user", content: "hi" }] }, "model must be a string"],
+      ["/v1/messages", { model: {}, messages: [{ role: "user", content: "hi" }] }, "model must be a string"],
+      ["/v1/messages", { model: "hy3", messages: [null] }, "each message must be an object"],
+      ["/v1/messages", { model: "hy3", messages: ["hi"] }, "each message must be an object"],
+      ["/v1/responses", { model: 123, input: "hi" }, "model must be a string"],
+      ["/v1/responses", { model: "hy3", input: null }, "input must be a string or an array"],
+      ["/v1/responses", { model: "hy3" }, "input must be a string or an array"]
+    ]) {
+      const response = await post(path, payload);
+      assert.equal(response.status, 400, `${path} with ${JSON.stringify(payload)}`);
+      assert.match((await response.json()).error.message, new RegExp(message),
+        `${path} with ${JSON.stringify(payload)}`);
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a 200 JSON answer is relayed as the answer it is, never an empty success", async () => {
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      return new Response(JSON.stringify({
+        id: "c1",
+        object: "chat.completion",
+        model: "hy3",
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: "whole answer" },
+          finish_reason: "stop"
+        }],
+        usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 }
+      }), { headers: { "content-type": "application/json" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const body = JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] });
+  try {
+    const plain = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body
+    });
+    assert.equal(plain.status, 200);
+    const answered = await plain.json();
+    assert.equal(answered.choices[0].message.content, "whole answer");
+    assert.deepEqual(answered.usage, { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 });
+
+    const streamed = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", stream: true, messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(streamed.status, 200);
+    const text = await streamed.text();
+    assert.match(text, /whole answer/);
+    assert.match(text, /"finish_reason":"stop"/);
+    assert.match(text, /\[DONE\]/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a 200 that is neither SSE nor JSON is an upstream error, not an empty answer", async () => {
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      return new Response("<html>captive portal</html>", {
+        headers: { "content-type": "text/html" }
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.equal(body.error.type, "upstream_error");
+    assert.match(body.error.message, /invalid JSON/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an SSE body whose content-type was lost still relays", async () => {
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      // No content-type at all: a proxy stripped it.
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"still streams"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""));
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.choices[0].message.content, "still streams");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("account routes switch, switch off, remove and check in", async () => {
   const calls = [];
   const control = {

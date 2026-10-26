@@ -193,6 +193,17 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           return;
         }
         const requested = body.model || "hy3";
+        // Same rule as /v1/messages: a non-string model cannot name one, and
+        // resolving it died as a 500; a missing input reached the upstream as
+        // an empty conversation and came back as a hollow "completed" answer.
+        if (typeof requested !== "string") {
+          errorJSON(res, 400, "model must be a string");
+          return;
+        }
+        if (typeof body.input !== "string" && !Array.isArray(body.input)) {
+          errorJSON(res, 400, "input must be a string or an array");
+          return;
+        }
         body.model = await mappedModel(provider, requested, "codex");
         const chat = responsesToChat(body);
         const id = randomUUID().replaceAll("-", "");
@@ -237,6 +248,19 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           return;
         }
         const requested = body.model || "hy3";
+        // A model that is not a string cannot name a model; resolved anyway
+        // it used to die inside resolveModel as a 500 that reads as a
+        // gateway bug rather than the client's malformed request it is.
+        if (typeof requested !== "string") {
+          errorJSON(res, 400, "model must be a string");
+          return;
+        }
+        // A null entry used to die in the converter as a 500; every message
+        // must at least be an object for the protocol to make sense of it.
+        if (body.messages.some((message) => !message || typeof message !== "object")) {
+          errorJSON(res, 400, "each message must be an object");
+          return;
+        }
         const models = withAliases(await provider.listModels(), "claude");
         body.model = resolveModel(requested, models, "claude");
         // Claude Desktop keeps the chosen model in the conversation, so a
@@ -398,6 +422,67 @@ function projectFields(project) {
   return project ? { project: project.id, projectName: project.name } : { project: "", projectName: "" };
 }
 
+/**
+ * The upstream's answer as chat-completion events, whatever shape it arrived
+ * in. WorkBuddy itself always streams, but a proxy in between may hand back
+ * a 200 with a whole JSON answer, and one answering 200 with garbage used to
+ * reach the client as a successful empty message — the worst of both worlds.
+ * A lost content-type is survived by sniffing the body for SSE's `data:`
+ * lines; JSON is turned into the two events it stands for; anything else is
+ * an upstream error, never an empty success.
+ */
+async function* upstreamEvents(upstream) {
+  const contentType = String(upstream?.headers?.get?.("content-type") || "");
+  if (/text\/event-stream/i.test(contentType)) {
+    const decoder = new SSEDecoder();
+    for await (const chunk of upstream.body || []) {
+      yield* parseSSEData(decoder.push(chunk));
+    }
+    yield* parseSSEData(decoder.finish());
+    return;
+  }
+  const raw = await upstream.text();
+  if (isSSE(raw)) {
+    const decoder = new SSEDecoder();
+    const bytes = new TextEncoder().encode(raw);
+    yield* parseSSEData(decoder.push(bytes));
+    yield* parseSSEData(decoder.finish());
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw Object.assign(
+      new Error(`upstream returned invalid JSON: ${raw.slice(0, 200) || "(empty body)"}`),
+      { status: 502 }
+    );
+  }
+  if (parsed?.error) {
+    const message = typeof parsed.error === "string"
+      ? parsed.error
+      : parsed.error.message || "upstream failed";
+    throw Object.assign(new Error(message), { status: 502 });
+  }
+  if (!Array.isArray(parsed?.choices)) {
+    throw Object.assign(
+      new Error(`upstream returned a 200 without choices: ${raw.slice(0, 200) || "(empty body)"}`),
+      { status: 502 }
+    );
+  }
+  const choice = parsed.choices[0] || {};
+  const message = choice.message || null;
+  const delta = {};
+  if (message?.role) delta.role = message.role;
+  if (typeof message?.content === "string") delta.content = message.content;
+  if (message?.reasoning_content) delta.reasoning_content = message.reasoning_content;
+  if (Array.isArray(message?.tool_calls) && message.tool_calls.length) {
+    delta.tool_calls = message.tool_calls.map((call, index) => ({ index, ...call }));
+  }
+  yield { ...parsed, choices: [{ index: 0, delta, finish_reason: null }] };
+  yield { choices: [{ index: 0, delta: {}, finish_reason: choice.finish_reason || "stop" }] };
+}
+
 async function proxyChat(res, provider, body, options = {}) {
   const record = options.control?.journal.start({
     agent: options.agent || "openai",
@@ -479,7 +564,6 @@ async function relayChat(res, upstream, body, options = {}) {
   const record = options.record;
   const journal = options.control?.journal;
   const wantsStream = body?.stream === true;
-  const decoder = new SSEDecoder();
   const events = [];
   let usage = null;
   let firstText = false;
@@ -529,14 +613,7 @@ async function relayChat(res, upstream, body, options = {}) {
   };
 
   if (wantsStream) {
-    for await (const chunk of upstream.body || []) {
-      for (const event of parseSSEData(decoder.push(chunk))) {
-        collect(event, false);
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-        streamError ||= errorOf(event);
-      }
-    }
-    for (const event of parseSSEData(decoder.finish())) {
+    for await (const event of upstreamEvents(upstream)) {
       collect(event, false);
       res.write(`data: ${JSON.stringify(event)}\n\n`);
       streamError ||= errorOf(event);
@@ -556,15 +633,9 @@ async function relayChat(res, upstream, body, options = {}) {
       const message = errorOf(event);
       if (message) throw Object.assign(new Error(message), { status: 502 });
     };
-    for await (const chunk of upstream.body || []) {
-      for (const event of parseSSEData(decoder.push(chunk))) {
-        // The streamed path forwards an error event as it arrives; a plain
-        // answer assembled here would otherwise read as an empty success.
-        failUpstream(event);
-        collect(event, true);
-      }
-    }
-    for (const event of parseSSEData(decoder.finish())) {
+    for await (const event of upstreamEvents(upstream)) {
+      // The streamed path forwards an error event as it arrives; a plain
+      // answer assembled here would otherwise read as an empty success.
       failUpstream(event);
       collect(event, true);
     }
