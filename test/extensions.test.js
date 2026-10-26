@@ -225,7 +225,13 @@ test("a skill name that is not a single segment is refused everywhere", async (t
   await importFrom(source, env);
   const before = fs.readFileSync(path.join(root, "skills", "weather", "SKILL.md"), "utf8");
 
-  for (const name of ["..", ".", "..\\outside", "../outside", "a\\b", "a/b", "C:\\temp", "con", "NUL.txt", " "]) {
+  // Traversal, separators, absolute paths, Windows reserved names, control
+  // characters and the five characters Windows forbids outright.
+  const names = [
+    "..", ".", "..\\outside", "../outside", "a\\b", "a/b", "C:\\temp",
+    "con", "NUL.txt", " ", "a:b", "a*b", "a?b", 'a"b', "a<b", "a>b", "a|b", "a\u0000b"
+  ];
+  for (const name of names) {
     await assert.rejects(() => removeFromLibrary(name, env), /技能名不合法/, `remove ${JSON.stringify(name)}`);
     await assert.rejects(() => installTo(name, "codex", env), /技能名不合法|库中没有这个技能/, `install ${JSON.stringify(name)}`);
     await assert.rejects(() => uninstallFrom(name, "codex", env), /技能名不合法/, `uninstall ${JSON.stringify(name)}`);

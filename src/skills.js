@@ -25,6 +25,12 @@ const SKILL_MARK = "SKILL.md";
 // better refused here than failed strangely at mkdir time.
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
+// Names Windows cannot store at all. The separators are handled separately
+// above, where they also mean traversal; these five cannot name a folder on
+// any Windows volume, so a request carrying one is malformed rather than a
+// skill Lane merely cannot find.
+const WINDOWS_FORBIDDEN = /[:*?"<>|]/;
+
 /**
  * The one gate every skill name passes. A skill name is a single path
  * segment — never a path. The old check was a character blacklist that let
@@ -43,7 +49,7 @@ export function checkSkillName(name) {
   if (/[/\\]/.test(value) || value === "." || value === "..") {
     throw Object.assign(new Error("技能名不合法"), { status: 400 });
   }
-  if (/[\x00-\x1f]/.test(value) || WINDOWS_RESERVED.test(value)) {
+  if (/[\x00-\x1f]/.test(value) || WINDOWS_RESERVED.test(value) || WINDOWS_FORBIDDEN.test(value)) {
     throw Object.assign(new Error("技能名不合法"), { status: 400 });
   }
   return value;
