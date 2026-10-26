@@ -298,6 +298,83 @@ test("Claude Desktop's effort request is fitted to the model's levels", async ()
   }
 });
 
+test("an alias the current account cannot serve is named, not forwarded", async () => {
+  const provider = {
+    async listModels() {
+      // The international catalogue: no "auto", which the domestic one has.
+      return [{ id: "default-model", name: "Default", efforts: ["low"] }];
+    },
+    async chat() {
+      throw new Error("the gateway must not reach the upstream");
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const digest = (id) =>
+    import("node:crypto").then(({ createHash }) =>
+      createHash("sha256").update(id).digest("hex").slice(0, 10)
+    );
+  // Claude Desktop still holds the alias for "auto" from the previous account.
+  const stale = `anthropic/lane-${await digest("auto")}`;
+  try {
+    const response = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: stale,
+        max_tokens: 10,
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error.message, /belongs to the account Lane was routing before/);
+    assert.match(body.error.message, /pick a model from the current list/);
+    // The id Claude Desktop knows is what the user has to act on, so it is
+    // in the message rather than a digest they cannot match to a model.
+    assert.ok(body.error.message.includes(stale));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an alias the current account does serve still resolves", async () => {
+  const provider = {
+    async listModels() {
+      return [{ id: "default-model", name: "Default", efforts: ["low"] }];
+    },
+    async chat() {
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const digest = (id) =>
+    import("node:crypto").then(({ createHash }) =>
+      createHash("sha256").update(id).digest("hex").slice(0, 10)
+    );
+  const alias = `mythos-lane-${await digest("default-model")}`;
+  try {
+    const response = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: alias,
+        max_tokens: 10,
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).content[0].text, "ok");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("account routes switch, switch off, remove and check in", async () => {
   const calls = [];
   const control = {

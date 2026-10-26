@@ -18,7 +18,7 @@ import {
   chatToResponses
 } from "./translate/responses.js";
 import { randomUUID } from "node:crypto";
-import { withAliases, resolveModel, nearestEffort } from "./aliases.js";
+import { withAliases, resolveModel, nearestEffort, isLaneAlias } from "./aliases.js";
 import { projectOf } from "./project.js";
 import { SSEDecoder } from "./translate/stream.js";
 import { parseSSEData } from "./translate/common.js";
@@ -239,6 +239,21 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         const requested = body.model || "hy3";
         const models = withAliases(await provider.listModels(), "claude");
         body.model = resolveModel(requested, models, "claude");
+        // Claude Desktop keeps the chosen model in the conversation, so a
+        // switch to an account on the other WorkBuddy site leaves it asking
+        // for a model this catalogue no longer has. Forwarded as-is, the
+        // upstream answers 11102 in its own words, which reads as a broken
+        // gateway. Name the real cause instead, and say how to recover.
+        if (isLaneAlias(requested) && !models.some((model) => model.id === body.model)) {
+          errorJSON(
+            res,
+            400,
+            `model ${requested} belongs to the account Lane was routing before this one; `
+            + "pick a model from the current list, or switch back",
+            "invalid_request_error"
+          );
+          return;
+        }
         fitEffort(body, models.find((model) => model.id === body.model));
         const chat = anthropicToChat(body);
         const id = randomUUID().replaceAll("-", "");

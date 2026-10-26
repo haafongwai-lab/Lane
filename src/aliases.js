@@ -25,6 +25,13 @@ export function withAliases(models, agent) {
   }));
 }
 
+// A model id Lane itself minted for Claude Desktop. Those are the only ids
+// Lane can recognise as its own after a catalogue change; every other id
+// came from the client and may name a model Lane has simply not heard of.
+export function isLaneAlias(id) {
+  return /^(anthropic\/lane-|mythos-lane-)/.test(String(id ?? ""));
+}
+
 export function resolveModel(requested, models, agent) {
   if (!requested) return requested;
   const direct = models.find((model) => model.id === requested);
