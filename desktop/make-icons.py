@@ -28,26 +28,78 @@ RADIUS_RATIO = 0.18
 # small sizes without the flat edges a single-pass GDI scale produces.
 SS = 8
 
+# How much of the canvas the tile occupies. Windows' own app icons leave a
+# margin: the artwork sits inside roughly 84% of the frame, with the rest
+# transparent. The source image has no such margin — it is the tile edge to
+# edge — so drawing it at 100% made Lane's start-menu shortcut look smaller
+# than every icon beside it once the shell laid them out on one grid.
+TILE_RATIO = 0.86
+# The small frames Windows shows in lists and the taskbar are already hard
+# to read; a margin there costs the mark the pixels it needs. The shell
+# draws 16/24/32 at their own sizes, so they keep a fuller tile.
+SMALL_RATIO = {16: 1.0, 24: 0.95, 32: 0.92}
+# How much of the tile the mark fills, keeping its own aspect ratio. The
+# source tile had 14% of its height as white above and below the mark; the
+# mark is now drawn against a tile of its own, so it fills nearly all of it
+# and the icon reads at the same weight as its neighbours.
+MARK_RATIO = 0.94
+
 
 def master() -> Image.Image:
-    """The 1024 artwork on a transparent canvas, cropped to its ink."""
+    """The mark alone, cropped to its ink.
+
+    The source carries its own white tile with a wide margin inside it
+    (14% of the height above and below the mark, 5% at each side). Drawn
+    as-is, that margin compounds with the frame's own: the mark ended up
+    filling only ~73% of the icon's height, so Lane's shortcut looked
+    smaller than every neighbour on the start menu. The white is dropped
+    here and a tile is drawn at frame time instead, which puts the mark and
+    the tile on separate terms.
+    """
     source = Image.open(SOURCE).convert("RGBA")
-    box = source.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+    w, h = source.size
+    px = source.load()
+
+    def ink(x: int, y: int) -> bool:
+        r, g, b, a = px[x, y]
+        return a > 8 and not (r > 245 and g > 245 and b > 245)
+
+    xs = [x for x in range(w) if any(ink(x, y) for y in range(0, h, 4))]
+    ys = [y for y in range(h) if any(ink(x, y) for x in range(0, w, 4))]
+    if not xs or not ys:
+        return source
+    box = (xs[0], ys[0], xs[-1] + 1, ys[-1] + 1)
     return source.crop(box)
 
 
 def frame(art: Image.Image, size: int) -> Image.Image:
-    """One icon frame, drawn at size*SS and averaged down."""
+    """One icon frame: a rounded tile with the mark centred on it."""
     big = size * SS
     canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    ratio = SMALL_RATIO.get(size, TILE_RATIO)
+    side = round(big * ratio)
+    inset = (big - side) // 2
+
     mask = Image.new("L", (big, big), 0)
     draw = ImageDraw.Draw(mask)
-    radius = round(big * RADIUS_RATIO)
-    draw.rounded_rectangle([0, 0, big - 1, big - 1], radius=radius, fill=255)
+    radius = round(side * RADIUS_RATIO)
+    draw.rounded_rectangle(
+        [inset, inset, inset + side - 1, inset + side - 1], radius=radius, fill=255
+    )
     canvas.paste(Image.new("RGBA", (big, big), (255, 255, 255, 255)), (0, 0), mask)
 
-    scaled = art.resize((big, big), Image.LANCZOS)
-    canvas.alpha_composite(scaled)
+    # The mark keeps its aspect ratio inside the tile with a small inset of
+    # its own, so a wide mark is not stretched to the tile's square.
+    inner = round(side * MARK_RATIO)
+    scale = min(inner / art.width, inner / art.height)
+    mark = art.resize(
+        (max(1, round(art.width * scale)), max(1, round(art.height * scale))),
+        Image.LANCZOS,
+    )
+    canvas.alpha_composite(
+        mark,
+        (inset + (side - mark.width) // 2, inset + (side - mark.height) // 2)
+    )
     # BOX is a plain area average: no negative lobes, so the corner arc
     # cannot smear a faint alpha tick into an otherwise transparent corner.
     return canvas.resize((size, size), Image.BOX)
