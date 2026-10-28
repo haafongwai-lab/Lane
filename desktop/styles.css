@@ -734,6 +734,10 @@ h1 {
 .usage-model { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .usage-model b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .usage-model code { flex: 0 0 auto; color: var(--faint); font-size: 10px; }
+/* A free model is a fact worth reading, not an absence: the dash it used to
+   share with "rate unknown" said the opposite. */
+.usage-model code.free { color: var(--green); font-weight: 600; }
+.usage-model code.unknown { color: var(--faint); }
 .usage-io { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-io i { color: var(--faint); font-style: normal; }
 .usage-cost { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }

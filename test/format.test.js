@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { esc, credits, rmb, percent, requestState, CREDITS_PER_YUAN } from "../desktop/format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, CREDITS_PER_YUAN } from "../desktop/format.js";
 
 /**
  * esc() is the only thing between a model name or a filesystem path and
@@ -103,4 +103,15 @@ test("a successful or running row keeps its own state", () => {
   assert.deepEqual(requestState({ status: "complete" }), { text: "完成", tone: "ok" });
   assert.deepEqual(requestState({ status: "running" }), { text: "进行中", tone: "live" });
   assert.deepEqual(requestState(null), { text: "—", tone: "ok" });
+});
+
+test("a free model is marked free, not shown as a dash", () => {
+  // usage.js used to fold a rate of 0 into null, so a free model rendered the
+  // same dash as a model whose rate was simply unknown.
+  assert.deepEqual(rateBadge(0), { text: "免费", tone: "free" });
+  assert.deepEqual(rateBadge(0.03), { text: "×0.03", tone: "rate" });
+  assert.deepEqual(rateBadge(1), { text: "×1", tone: "rate" });
+  assert.deepEqual(rateBadge(null), { text: "—", tone: "unknown" });
+  assert.deepEqual(rateBadge(undefined), { text: "—", tone: "unknown" });
+  assert.deepEqual(rateBadge(NaN), { text: "—", tone: "unknown" });
 });

@@ -90,3 +90,22 @@ export function requestState(item) {
   const kind = item.errorKind || kindFromText(item.error);
   return { text: KIND_LABELS[kind] || KIND_LABELS.unknown, tone: kind === "client-closed" ? "muted" : "err" };
 }
+
+/**
+ * A model's declared cost multiple, as the usage table shows it.
+ *
+ * The catalogue's number is a relative multiplier, not a price, and 0 means
+ * the model is free. That used to render as the same dash as "no rate
+ * known", because usage.js folded 0 into null on the way out — free models
+ * looked like models Lane had no information about. Returns `{ text, tone }`
+ * so the caller can colour it without repeating the rule.
+ */
+export function rateBadge(rate) {
+  if (rate === 0) return { text: "免费", tone: "free" };
+  if (!Number.isFinite(rate)) return { text: "—", tone: "unknown" };
+  const value = new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(rate);
+  return { text: `×${value}`, tone: "rate" };
+}

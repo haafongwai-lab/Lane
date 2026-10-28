@@ -185,7 +185,11 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     const modelRow = byModel.get(model) || {
       model,
       ...newCounter(),
-      rate: Number.isFinite(rate) && rate > 0 ? rate : null
+      // A rate of 0 is a free model, which is a fact about the model and has
+      // to reach the page: folding it into null made "free" and "no rate
+      // known" render the same dash. Only a rate that was never recorded
+      // (absent, or the 0 the catalogue sends for "not priced") stays null.
+      rate: Number.isFinite(rate) && rate >= 0 ? rate : null
     };
     accumulate(modelRow, piece);
     byModel.set(model, modelRow);

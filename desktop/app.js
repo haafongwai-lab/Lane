@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -80,7 +80,6 @@ function creditRate(model) {
     ? `<span class="rate-was">×${rate}</span><s>×${model.rateWas}</s>`
     : `×${rate}`;
 }
-
 function toast(message, error = false) {
   const node = $("#toast");
   node.textContent = message;
@@ -669,9 +668,10 @@ function renderUsageModels(models, totals) {
         <div class="usage-table-head"><span>模型</span><span>请求</span><span>积分</span></div>
         ${models.map((row) => {
           const color = colorFor(row.model);
+          const badge = rateBadge(row.rate);
           return `
           <div class="usage-table-row">
-            <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code>${Number.isFinite(row.rate) ? `×${row.rate}` : "—"}</code></div>
+            <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code class="${badge.tone}">${esc(badge.text)}</code></div>
             <span>${row.requests}</span>
             <span class="usage-cost">${credits(row.credits)}${row.credits > 0 ? ` <i class="soft-label">¥${rmb(row.credits)}</i>` : ""}</span>
           </div>`;
