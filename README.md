@@ -207,6 +207,35 @@ Runtime data is kept under `%LOCALAPPDATA%\lane` by default. An explicit
 `LANE_DATA_DIR` overrides it. The path is deliberately separate from
 magpie's.
 
+The request journal is `activity.jsonl`, one JSON object per line. A request
+appears several times over its life — on start, on each progress note, on
+its usage report and on finish — and the last line for an id is its state,
+so loading keeps the last one seen. A write therefore appends the row as it
+stands rather than rewriting the file: the cost of recording a request is
+one row, whatever the history holds, and a crash that tears the final line
+costs that one row instead of the whole journal. Every `MAX_ROWS` appends
+(and on any removal) the log is compacted to one line per row. An
+`activity.json` from an earlier version is converted on first start and then
+removed.
+
+## Layout
+
+```
+src/
+  server.js       HTTP surface: local-host checks, routes, control API
+  relay.js        upstream -> client: the three protocols' relay paths
+  control-center.js  the window's API (accounts, wiring, usage, extensions)
+  workbuddy.js    the provider boundary over the auth plugin
+  request-journal.js the append-only request log
+  translate/      protocol converters, pure and separately tested
+  agents/         Claude Desktop, Codex and ZCode wiring
+desktop/
+  main.js         Electron main: window, tray, gateway lifecycle
+  app.js          renderer
+  format.js       renderer helpers pure enough to test
+  openable.js     which external URLs the shell may open
+```
+
 ## Endpoint mapping
 
 | Client | Endpoint | Upstream |

@@ -1,3 +1,5 @@
+import { esc, credits, rmb, percent } from "./format.js";
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
@@ -10,14 +12,7 @@ let refreshQueued = null;
 let autostartPending = false;
 const enabledPending = new Map();
 
-function esc(value = "") {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function compact(number) {
   const value = Number(number || 0);
@@ -457,34 +452,11 @@ function agentLabel(agent) {
   return AGENT_LABELS[agent] || agent || "未知来源";
 }
 
-// Credits carry a lot of leading zeros at flash-model prices; show enough of
-// them to be meaningful, and never claim more precision than was recorded.
-function credits(value, digits = 4) {
-  const number = Number(value) || 0;
-  if (number === 0) return "0";
-  if (number >= 1000) return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(number);
-  if (number >= 1) return number.toFixed(2).replace(/\.?0+$/, "");
-  const text = number.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
-  // The journal keeps six decimals because a flash-model request can cost a
-  // ten-thousandth of one credit; rendering that as "0" reads as free.
-  return text === "0" ? `<0.${"0".repeat(digits - 1)}1` : text;
-}
 
-function percent(value) {
-  return `${(Number(value || 0) * 100).toFixed(1)}%`;
-}
 
-// The RMB value of WorkBuddy credits: 10 yuan buys 200 credits, so a credit
-// is a twentieth of a yuan. Billed credits are the only input — the
-// token-formula estimates proved untrustworthy and no longer show anywhere.
-const CREDITS_PER_YUAN = 20;
 
-function rmb(value) {
-  const yuan = (Number(value) || 0) / CREDITS_PER_YUAN;
-  if (yuan >= 100) return yuan.toFixed(0);
-  if (yuan >= 1) return yuan.toFixed(2);
-  return yuan.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-}
+
+
 
 function renderUsage() {
   if (!usage) return;

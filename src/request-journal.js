@@ -173,9 +173,14 @@ export class RequestJournal {
   }
 
   /**
-   * Converts the old `activity.json` array into the log. The old file is
-   * renamed rather than deleted first: if the conversion cannot finish, the
-   * original is still there under its own name and the next start retries.
+   * Converts the old `activity.json` array into the log, once.
+   *
+   * The legacy file is removed only after the log has been written, so a
+   * conversion that cannot finish leaves the original in place for the next
+   * start to retry. Rows the log already holds are not dropped: a machine
+   * that ran the new build and then met an old file again (a backup
+   * restored, a second install sharing the directory) keeps both, with the
+   * log's own rows winning because they are written last.
    */
   migrateLegacy() {
     let text;
@@ -199,8 +204,27 @@ export class RequestJournal {
     try {
       fs.mkdirSync(this.dir, { recursive: true });
       const kept = rows.filter((row) => Number.isFinite(row?.startedAt));
+      let existing = "";
+      try {
+        existing = fs.readFileSync(this.file, "utf8");
+      } catch {}
+      // One line per row, the log's own rows last so they supersede any
+      // older copy of the same request from the array.
       const body = kept.map((row) => `${JSON.stringify(row)}\n`).join("");
-      fs.writeFileSync(this.file, body, "utf8");
+      const merged = `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${body}`;
+      // The merge is idempotent in content but not in bytes: running it
+      // again appends a second copy of every row. A log that now carries the
+      // same ids twice is rewritten to one line each, so a legacy file that
+      // refuses to go away (a running instance still holding it) cannot grow
+      // the journal without bound.
+      const { rows: deduped } = parseLog(merged);
+      fs.writeFileSync(
+        this.file,
+        `${deduped.map((row) => `${JSON.stringify(row)}\n`).join("")}`,
+        "utf8"
+      );
+      // Only now is the legacy file redundant. A failure here leaves it,
+      // which is harmless: the merge above is idempotent.
       fs.rmSync(this.legacyFile, { force: true });
       console.error(`lane: converted ${kept.length} request(s) to ${path.basename(this.file)}`);
     } catch (error) {

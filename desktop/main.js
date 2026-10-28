@@ -10,6 +10,7 @@ import { dataDir } from "../src/config.js";
 import { claimOwnership, releaseOwnership } from "../src/owner.js";
 import { readSettings, writeSettings } from "../src/settings.js";
 import { readState } from "../src/agents/store.js";
+import { openableUrl } from "./openable.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -494,22 +495,9 @@ ipcMain.handle("lane:open", async (_event, target) => {
   }
   return "";
 });
-// The only pages Lane itself ever opens are WorkBuddy's sign-in hosts. The
-// renderer is CSP-restricted, but a compromised renderer could otherwise ask
-// this handler to open any HTTPS page it likes; a host allowlist keeps the
-// handler to the URLs Lane actually has a reason to open.
-const OPENABLE_HOSTS = new Set(["www.workbuddy.cn", "www.workbuddy.ai", "copilot.tencent.com"]);
-
-function openableUrl(url) {
-  if (typeof url !== "string") return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && OPENABLE_HOSTS.has(parsed.hostname) ? parsed.href : null;
-  } catch {
-    return null;
-  }
-}
-
+// The only pages Lane itself ever opens are WorkBuddy's sign-in hosts; the
+// allowlist and its reasoning live in openable.js, where they can be tested
+// without an Electron runtime.
 ipcMain.handle("lane:open-url", async (_event, url) => {
   const allowed = openableUrl(url);
   if (allowed) await shell.openExternal(allowed);

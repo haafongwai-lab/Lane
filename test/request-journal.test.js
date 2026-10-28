@@ -552,3 +552,59 @@ test("a failed append keeps the rows for the next attempt", async (t) => {
   assert.equal(row.id, record.id);
   assert.equal(row.status, "complete");
 });
+
+test("a legacy file met again does not drop rows the log already holds", async (t) => {
+  // The real sequence seen on this machine: the gateway converted once, then
+  // an old-file copy reappeared (a running instance still writing it). The
+  // second conversion must merge, not overwrite — the first version lost
+  // everything the new build had recorded in between.
+  const dir = tempDir(t);
+  const stamp = Date.now();
+  writeLegacy(dir, [{ id: "from-array", startedAt: stamp - 1000, status: "complete" }]);
+  const first = new RequestJournal({ dir });
+  assert.equal(first.list().length, 1);
+  const live = first.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  first.finish(live.id, { status: "complete" });
+  await first.flush();
+
+  // The old file is back, holding a different row.
+  writeLegacy(dir, [{ id: "array-again", startedAt: stamp, status: "complete" }]);
+  const second = new RequestJournal({ dir });
+  const ids = second.list().map((row) => row.id).sort();
+  assert.deepEqual(ids, ["array-again", "from-array", live.id].sort(),
+    "both the log's rows and the array's survive");
+  assert.equal(fs.existsSync(path.join(dir, "activity.json")), false);
+});
+
+test("converting the same legacy file twice is idempotent", async (t) => {
+  const dir = tempDir(t);
+  writeLegacy(dir, [{ id: "a", startedAt: Date.now(), status: "complete" }]);
+  new RequestJournal({ dir });
+  // A second pass over a log that already holds the row must not duplicate
+  // it. The loader keeps one row per id, so the assertion is on row count.
+  writeLegacy(dir, [{ id: "a", startedAt: Date.now(), status: "complete" }]);
+  const again = new RequestJournal({ dir });
+  assert.equal(again.list().length, 1);
+  await again.flush();
+  assert.equal(readLog(dir).length, 1);
+});
+
+test("a legacy file that will not go away does not grow the log", async (t) => {
+  // A running instance can hold activity.json open, so the conversion may
+  // find it again on the next start. Content-wise that is idempotent; the
+  // file must not accumulate a fresh copy of every row each time.
+  const dir = tempDir(t);
+  const stamp = Date.now();
+  const array = [{ id: "a", startedAt: stamp, status: "complete" }];
+  writeLegacy(dir, array);
+  new RequestJournal({ dir });
+  const once = fs.statSync(path.join(dir, "activity.jsonl")).size;
+
+  for (let round = 0; round < 3; round++) {
+    writeLegacy(dir, array);
+    new RequestJournal({ dir });
+  }
+  const after = fs.statSync(path.join(dir, "activity.jsonl")).size;
+  assert.equal(after, once, "the log is the same size after repeated conversions");
+  assert.equal(readLog(dir).length, 1);
+});
