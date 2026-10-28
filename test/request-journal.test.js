@@ -31,17 +31,50 @@ function livePid() {
   });
 }
 
+// The journal on disk is a log: the last line for an id is its state. Tests
+// read it the way the loader does, so a test never depends on how many
+// intermediate lines a burst happened to produce.
+function readLog(dir) {
+  const text = fs.readFileSync(path.join(dir, "activity.jsonl"), "utf8");
+  const byId = new Map();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      // A torn line is what the loader skips too; the helper must read the
+      // file the same way, or a test would fail on its fixture rather than
+      // on the behaviour.
+      continue;
+    }
+    byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
+function writeLegacy(dir, rows) {
+  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify(rows));
+}
+
+function writeLog(dir, rows) {
+  fs.writeFileSync(
+    path.join(dir, "activity.jsonl"),
+    rows.map((row) => `${JSON.stringify(row)}\n`).join("")
+  );
+}
+
 test("RequestJournal marks requests left running by a dead process as failed", async (t) => {
   const dir = tempDir(t);
   const pid = await deadPid();
-  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify([{
+  writeLegacy(dir, [{
     id: "old",
     owner: pid,
     status: "running",
     startedAt: Date.now() - 5000,
     finishedAt: null,
     durationMs: null
-  }]));
+  }]);
 
   const journal = new RequestJournal({ dir });
   const [request] = journal.list();
@@ -55,14 +88,14 @@ test("another Lane's live requests are left alone", async (t) => {
   const dir = tempDir(t);
   const other = await livePid();
   t.after(() => other.kill());
-  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify([{
+  writeLegacy(dir, [{
     id: "live",
     owner: other.pid,
     status: "running",
     startedAt: Date.now() - 1000,
     finishedAt: null,
     durationMs: null
-  }]));
+  }]);
 
   // A second Lane opening the same journal must not decide the owner's
   // in-flight request crashed while its process is still running.
@@ -87,14 +120,14 @@ test("the status snapshot carries only the newest requests, the journal keeps al
 
 test("a reader journal follows the file the owner writes", async (t) => {
   const dir = tempDir(t);
-  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify([{
+  writeLegacy(dir, [{
     id: "live",
     owner: process.pid,
     status: "running",
     startedAt: Date.now() - 1000,
     finishedAt: null,
     durationMs: null
- }]));
+  }]);
 
   // A secondary window reads the owner's file: its in-flight request is
   // genuinely running, and new rows appear as the owner writes them.
@@ -128,8 +161,7 @@ test("a reader journal that flushes does not overwrite the owner's file", async 
   // The reader quitting (control.stop → flush) must not roll the file back
   // to the older snapshot it still holds in memory.
   await reader.flush();
-  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.equal(onDisk.length, 2, "the owner's newer rows survive the reader's flush");
+  assert.equal(readLog(dir).length, 2, "the owner's newer rows survive the reader's flush");
 });
 
 test("credits come from the upstream's own report, not from arithmetic", async (t) => {
@@ -234,12 +266,16 @@ test("a burst of notes becomes one write, a finish reaches the disk at once", as
   journal.note(record.id, { firstTextMs: 12 });
   journal.note(record.id, { firstTextMs: 20 });
   // Nothing forced a write yet: the debounce is still holding it back.
-  assert.equal(fs.existsSync(path.join(dir, "activity.json")), false);
+  assert.equal(fs.existsSync(path.join(dir, "activity.jsonl")), false);
   journal.finish(record.id, { status: "complete" });
   await journal.flush();
-  const rows = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.equal(rows[0].status, "complete");
-  assert.equal(rows[0].firstTextMs, 20);
+  // The burst collapsed: the row's final state, written once.
+  const lines = fs.readFileSync(path.join(dir, "activity.jsonl"), "utf8")
+    .split("\n").filter(Boolean);
+  assert.equal(lines.length, 1, "one line for the whole request");
+  const [row] = readLog(dir);
+  assert.equal(row.status, "complete");
+  assert.equal(row.firstTextMs, 20);
 });
 
 test("a request remembers the context window it was served in", async (t) => {
@@ -267,8 +303,7 @@ test("a corrupt journal is set aside, not overwritten", async (t) => {
   assert.equal(fs.existsSync(path.join(dir, "activity.json.corrupt")), true);
   journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
   await journal.flush();
-  const rows = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.equal(rows.length, 1);
+  assert.equal(readLog(dir).length, 1);
   assert.equal(fs.existsSync(path.join(dir, "activity.json.corrupt")), true);
 });
 
@@ -278,14 +313,14 @@ test("a running row older than a day counts as crashed even if its pid lives", a
   // not make the row alive. Older than any real generation settles it.
   const other = await livePid();
   t.after(() => other.kill());
-  fs.writeFileSync(path.join(dir, "activity.json"), JSON.stringify([{
+  writeLegacy(dir, [{
     id: "zombie",
     owner: other.pid,
     status: "running",
     startedAt: Date.now() - 25 * 60 * 60 * 1000,
     finishedAt: null,
     durationMs: null
-  }]));
+  }]);
   const journal = new RequestJournal({ dir });
   const [row] = journal.list();
   assert.equal(row.status, "error");
@@ -298,23 +333,23 @@ test("an unreadable-but-present journal is never overwritten", async (t) => {
   // held back, so the unreadable original survives instead of being replaced
   // by a journal that started empty.
   const dir = tempDir(t);
-  fs.mkdirSync(path.join(dir, "activity.json"));
+  fs.mkdirSync(path.join(dir, "activity.jsonl"));
   const journal = new RequestJournal({ dir });
   const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
   journal.usage(record.id, { prompt_tokens: 10, completion_tokens: 2 });
   await journal.flush();
   // Still a directory — nothing was written over it.
-  assert.ok(fs.statSync(path.join(dir, "activity.json")).isDirectory());
+  assert.ok(fs.statSync(path.join(dir, "activity.jsonl")).isDirectory());
   // The in-memory row is intact for the running session.
   assert.equal(journal.list()[0].totalTokens, 12);
 });
 
 test("crash-leftover tmp files are cleaned on load", async (t) => {
   const dir = tempDir(t);
-  fs.writeFileSync(path.join(dir, "activity.json.999999.tmp"), "[]");
+  fs.writeFileSync(path.join(dir, "activity.jsonl.999999.tmp"), "[]");
   fs.writeFileSync(path.join(dir, "unrelated.json.999999.tmp"), "[]");
   new RequestJournal({ dir });
-  assert.equal(fs.existsSync(path.join(dir, "activity.json.999999.tmp")), false);
+  assert.equal(fs.existsSync(path.join(dir, "activity.jsonl.999999.tmp")), false);
   assert.equal(fs.existsSync(path.join(dir, "unrelated.json.999999.tmp")), true);
 });
 
@@ -369,8 +404,7 @@ test("removeByIds deletes exactly the named rows and spares running ones", async
   assert.equal(removed, 2);
   assert.deepEqual(journal.list().map((row) => row.id).sort(), ["c", "d"]);
   await journal.flush();
-  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.deepEqual(saved.map((row) => row.id).sort(), ["c", "d"]);
+  assert.deepEqual(readLog(dir).map((row) => row.id).sort(), ["c", "d"]);
   // An empty pick is a no-op, not a wipe.
   assert.equal(journal.removeByIds([]), 0);
   assert.equal(journal.list().length, 2);
@@ -394,6 +428,127 @@ test("removeByProject deletes one project's rows and spares running ones", async
   assert.equal(journal.removeByProject(""), 1);
   assert.deepEqual(journal.list().map((row) => row.id).sort(), ["docs-1", "lane-live"]);
   await journal.flush();
-  const saved = JSON.parse(fs.readFileSync(path.join(dir, "activity.json"), "utf8"));
-  assert.equal(saved.length, 2);
+  assert.equal(readLog(dir).length, 2);
+});
+
+test("a change appends one line instead of rewriting the journal", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  journal.finish(record.id, { status: "complete" });
+  await journal.flush();
+  const first = fs.statSync(path.join(dir, "activity.jsonl")).size;
+
+  // A second request must grow the file by its own line, not rewrite it:
+  // the cost of a write is the cost of one row, whatever the history holds.
+  const second = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  journal.finish(second.id, { status: "complete" });
+  await journal.flush();
+  const after = fs.statSync(path.join(dir, "activity.jsonl")).size;
+  assert.ok(after > first, "the log grew");
+  // Two rows of history cost well under a kilobyte each; a full rewrite of
+  // the array would have been the whole file again.
+  assert.ok(after - first < 4096, `append cost ${after - first} bytes`);
+  assert.equal(readLog(dir).length, 2);
+});
+
+test("the last line for a row wins", async (t) => {
+  const dir = tempDir(t);
+  writeLog(dir, [
+    { id: "a", startedAt: Date.now(), status: "running", model: "hy3" },
+    { id: "a", startedAt: Date.now(), status: "complete", model: "hy3", totalTokens: 9 },
+    { id: "b", startedAt: Date.now(), status: "complete", model: "hy3" }
+  ]);
+  const journal = new RequestJournal({ dir });
+  const row = journal.list().find((entry) => entry.id === "a");
+  assert.equal(row.status, "complete");
+  assert.equal(row.totalTokens, 9);
+  assert.equal(journal.list().length, 2, "an id appears once however often it was appended");
+});
+
+test("a torn last line costs one row, not the history", async (t) => {
+  const dir = tempDir(t);
+  const stamp = Date.now();
+  fs.writeFileSync(
+    path.join(dir, "activity.jsonl"),
+    `${JSON.stringify({ id: "a", startedAt: stamp, status: "complete" })}\n`
+    + `${JSON.stringify({ id: "b", startedAt: stamp, status: "complete" })}\n`
+    + '{"id":"c","startedAt":170000'
+  );
+  const journal = new RequestJournal({ dir });
+  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["a", "b"]);
+  // Saving still works: the torn tail does not put the journal read-only.
+  journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  await journal.flush();
+  assert.equal(readLog(dir).length, 3);
+});
+
+test("the old array file is converted once, and the conversion keeps its rows", async (t) => {
+  const dir = tempDir(t);
+  const stamp = Date.now();
+  writeLegacy(dir, [
+    { id: "old-1", startedAt: stamp - 1000, status: "complete", model: "hy3" },
+    { id: "old-2", startedAt: stamp, status: "complete", model: "hy3" }
+  ]);
+  const journal = new RequestJournal({ dir });
+  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["old-1", "old-2"]);
+  assert.equal(fs.existsSync(path.join(dir, "activity.json")), false, "the old file is gone");
+  assert.equal(readLog(dir).length, 2, "the log holds what the array held");
+
+  // Reopening reads the log; nothing is converted twice.
+  const again = new RequestJournal({ dir });
+  assert.equal(again.list().length, 2);
+  await again.flush();
+  assert.equal(readLog(dir).length, 2);
+});
+
+test("a run of appends compacts the log back to one line per row", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // Force the threshold with a handful of rows rather than thousands.
+  journal.appends = Number.MAX_SAFE_INTEGER;
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  journal.note(record.id, { firstTextMs: 5 });
+  journal.note(record.id, { firstTextMs: 9 });
+  journal.finish(record.id, { status: "complete" });
+  await journal.flush();
+  // The whole burst reached the disk as one line, and the compaction that
+  // followed reset the counter ready for the next run.
+  const lines = fs.readFileSync(path.join(dir, "activity.jsonl"), "utf8").split("\n").filter(Boolean);
+  assert.equal(lines.length, 1);
+  assert.equal(journal.appends, 0);
+  const [row] = readLog(dir);
+  assert.equal(row.status, "complete");
+  assert.equal(row.firstTextMs, 9);
+});
+
+test("a removal compacts the log so dropped rows leave it", async (t) => {
+  const dir = tempDir(t);
+  writeLog(dir, [
+    { id: "keep", startedAt: Date.now(), status: "complete", project: "p" },
+    { id: "drop", startedAt: Date.now(), status: "complete", project: "p" }
+  ]);
+  const journal = new RequestJournal({ dir });
+  assert.equal(journal.removeByIds(["drop"]), 1);
+  await journal.flush();
+  assert.deepEqual(readLog(dir).map((row) => row.id), ["keep"],
+    "the removed row is not left behind as an older line");
+});
+
+test("a failed append keeps the rows for the next attempt", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  journal.finish(record.id, { status: "complete" });
+  // Make the append fail: a directory where the log belongs.
+  fs.mkdirSync(path.join(dir, "activity.jsonl"));
+  await journal.flush();
+  // The row is still queued, not lost.
+  assert.ok(journal.pending.size >= 1, "the row is retained for the next write");
+  // Clear the obstacle: the next write lands the row.
+  fs.rmdirSync(path.join(dir, "activity.jsonl"));
+  await journal.flush();
+  const [row] = readLog(dir);
+  assert.equal(row.id, record.id);
+  assert.equal(row.status, "complete");
 });

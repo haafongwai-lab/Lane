@@ -22,9 +22,55 @@ const SAVE_DEBOUNCE_MS = 250;
 // by whatever process inherited the pid. Longer than any real generation.
 const MAX_RUN_MS = 24 * 60 * 60 * 1000;
 
+// The journal is a log, not a document. A row is rewritten several times
+// over its life (start, note, usage, finish), and the old store wrote the
+// whole array — pretty-printed — on every one of those changes: at 6000
+// rows that is ~1.5 MB of serialisation and disk per request, and it grows
+// with every day of use. One line per change makes each write O(1), and a
+// torn final line from a crash costs one row instead of the entire history.
+const FILE_NAME = "activity.jsonl";
+// The array-in-a-file the first versions wrote. Read once, converted to the
+// log on first load, then removed.
+const LEGACY_NAME = "activity.json";
+// Appends allowed between compactions. Compaction rewrites the file as one
+// line per surviving row; doing it after this many appends keeps the file
+// within roughly twice MAX_ROWS lines.
+const COMPACT_AFTER = MAX_ROWS;
+
 // The pid rules live in pid.js: a live owner's rows are never mistaken for a
 // crash, and a row that names no process at all (pid 0, an empty owner) is not
 // a live owner.
+
+/**
+ * The log as rows, latest state per id. A row can appear several times — it
+ * is appended on start, on each note and on finish — so the last line for an
+ * id is the one that counts. Lines that do not parse are a torn write from a
+ * crash; they are counted and skipped rather than failing the whole load.
+ */
+function parseLog(text) {
+  const byId = new Map();
+  let badLines = 0;
+  for (const line of String(text).split("\n")) {
+    if (!line.trim()) continue;
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      badLines += 1;
+      continue;
+    }
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      badLines += 1;
+      continue;
+    }
+    // A row with no id cannot be deduplicated; it is still a row, but it
+    // must be told apart from the one it supersedes, so it is kept under a
+    // synthetic key rather than dropped.
+    const key = typeof row.id === "string" && row.id ? row.id : `#${byId.size}`;
+    byId.set(key, row);
+  }
+  return { rows: [...byId.values()], badLines };
+}
 
 // The credits WorkBuddy says the request cost, in the unit its billing page
 // counts. Absent (undefined) when the upstream did not send one, which is not
@@ -47,7 +93,8 @@ export function estimatedCredits(request = {}, price) {
 export class RequestJournal {
   constructor({ dir, shared = false }) {
     this.dir = dir;
-    this.file = path.join(dir, "activity.json");
+    this.file = path.join(dir, FILE_NAME);
+    this.legacyFile = path.join(dir, LEGACY_NAME);
     // A secondary window owns no requests; it reads the file the gateway's
     // process writes and follows it as it changes.
     this.shared = shared;
@@ -55,10 +102,19 @@ export class RequestJournal {
     this.saveTimer = null;
     this.writing = Promise.resolve();
     this.writeFailed = false;
+    // Changes not yet appended. Each entry is the row as it stood when the
+    // change happened; the latest line for an id wins on reload.
+    this.pending = new Map();
+    this.appends = 0;
     this.load();
   }
 
   load() {
+    // The array-in-a-file from older versions is converted before anything
+    // else looks for the log: a user upgrading mid-day must keep the rows
+    // their history already held.
+    this.migrateLegacy();
+
     let saved;
     try {
       saved = fs.readFileSync(this.file, "utf8");
@@ -80,55 +136,78 @@ export class RequestJournal {
       console.error(`lane: the request journal at ${this.file} could not be read (${error?.code || error?.message}); it stays untouched until it reads again`);
       return;
     }
-    try {
-      const rows = JSON.parse(saved);
-      // A row without a starting time can't be placed in a day; drop it
-      // rather than let it count towards a total nothing can attribute.
-      this.requests = rows
-        .filter((request) => Number.isFinite(request?.startedAt))
-        .slice(0, MAX_ROWS);
-      // Only the process that owns the file rewrites rows left running: its
-      // own are in flight. Another Lane's rows are that Lane's business — a
-      // second process used to mark them failed on sight, breaking the
-      // owner's own view of its live requests; now only a pid that no longer
-      // exists counts as a crash.
-      if (!this.shared) {
-        for (const request of this.requests) {
-          if (request.status !== "running") continue;
-          const crashed = (request.owner !== process.pid && !processAlive(request.owner))
-            || Date.now() - request.startedAt > MAX_RUN_MS;
-          if (crashed) {
-            request.status = "error";
-            request.error = "Lane 上次退出时请求尚未完成";
-            request.finishedAt = request.finishedAt || Date.now();
-            request.durationMs = request.finishedAt - request.startedAt;
-          }
+
+    const { rows, badLines } = parseLog(saved);
+    // A line that does not parse is a torn write from a crash, not a
+    // corrupt history: the log's whole point is that one bad line costs one
+    // row. It is counted and reported, never quarantined wholesale.
+    if (badLines) {
+      console.error(`lane: ${badLines} line(s) in ${path.basename(this.file)} could not be read and were skipped`);
+    }
+    this.requests = rows
+      .filter((request) => Number.isFinite(request?.startedAt))
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, MAX_ROWS);
+    // Only the process that owns the file rewrites rows left running: its
+    // own are in flight. Another Lane's rows are that Lane's business — a
+    // second process used to mark them failed on sight, breaking the
+    // owner's own view of its live requests; now only a pid that no longer
+    // exists counts as a crash.
+    if (!this.shared) {
+      for (const request of this.requests) {
+        if (request.status !== "running") continue;
+        const crashed = (request.owner !== process.pid && !processAlive(request.owner))
+          || Date.now() - request.startedAt > MAX_RUN_MS;
+        if (crashed) {
+          request.status = "error";
+          request.error = "Lane 上次退出时请求尚未完成";
+          request.finishedAt = request.finishedAt || Date.now();
+          request.durationMs = request.finishedAt - request.startedAt;
         }
       }
-      this.readOnly = false;
-      this.prune();
-    } catch {
-      // A file that does not parse is corrupt — a crash can land a
-      // half-written file on disk. It is set aside for forensics rather than
-      // deleted: the next save would otherwise overwrite the only copy of
-      // the history with a journal that holds nothing. When even the
-      // set-aside fails (the corrupt file is held too), the journal goes
-      // read-only rather than perform that overwrite itself.
-      const quarantined = `${this.file}.corrupt`;
-      try { fs.rmSync(quarantined, { force: true }); } catch {}
-      let setAside = true;
-      try { fs.renameSync(this.file, quarantined); } catch { setAside = false; }
-      this.requests = [];
-      if (setAside) {
-        this.readOnly = false;
-        console.error(`lane: the request journal at ${this.file} is unreadable; it is kept as ${path.basename(quarantined)} and a new journal starts`);
-      } else {
-        this.readOnly = true;
-        console.error(`lane: the request journal at ${this.file} is unreadable and could not be set aside; it is never overwritten`);
-      }
     }
+    this.readOnly = false;
+    this.prune();
     this.rebuildBilledRates();
     this.cleanupTmp();
+  }
+
+  /**
+   * Converts the old `activity.json` array into the log. The old file is
+   * renamed rather than deleted first: if the conversion cannot finish, the
+   * original is still there under its own name and the next start retries.
+   */
+  migrateLegacy() {
+    let text;
+    try {
+      text = fs.readFileSync(this.legacyFile, "utf8");
+    } catch {
+      return;
+    }
+    let rows;
+    try {
+      rows = JSON.parse(text);
+      if (!Array.isArray(rows)) throw new Error("not an array");
+    } catch {
+      // An unreadable legacy file is set aside for forensics, exactly as the
+      // old loader did, and the log starts empty.
+      try { fs.renameSync(this.legacyFile, `${this.legacyFile}.corrupt`); } catch {
+        console.error(`lane: the old journal at ${this.legacyFile} is unreadable and could not be set aside`);
+      }
+      return;
+    }
+    try {
+      fs.mkdirSync(this.dir, { recursive: true });
+      const kept = rows.filter((row) => Number.isFinite(row?.startedAt));
+      const body = kept.map((row) => `${JSON.stringify(row)}\n`).join("");
+      fs.writeFileSync(this.file, body, "utf8");
+      fs.rmSync(this.legacyFile, { force: true });
+      console.error(`lane: converted ${kept.length} request(s) to ${path.basename(this.file)}`);
+    } catch (error) {
+      // The log was not written: leave the old file in place so nothing is
+      // lost, and let the next start try again.
+      console.error(`lane: could not convert the old journal: ${error?.message || error}`);
+    }
   }
 
   // Crash leftovers from the write-below-rename window. Their pid-suffixed
@@ -190,6 +269,9 @@ export class RequestJournal {
     const removed = this.requests.length - kept.length;
     this.requests = kept.slice(0, MAX_ROWS);
     this.rebuildBilledRates();
+    // Rows left the journal: a log can only grow, so the removal becomes a
+    // compaction. The next write is the last word on what the file holds.
+    this.appends = COMPACT_AFTER;
     this.save();
     return removed;
   }
@@ -207,6 +289,7 @@ export class RequestJournal {
     const removed = this.requests.length - kept.length;
     this.requests = kept;
     this.rebuildBilledRates();
+    this.appends = COMPACT_AFTER;
     this.save();
     return removed;
   }
@@ -223,6 +306,7 @@ export class RequestJournal {
     const removed = this.requests.length - kept.length;
     this.requests = kept;
     this.rebuildBilledRates();
+    this.appends = COMPACT_AFTER;
     this.save();
     return removed;
   }
@@ -285,7 +369,7 @@ export class RequestJournal {
     // enough for it to matter, checking every couple of hundred starts keeps
     // a long-running gateway from growing a journal nothing ever trims.
     if (this.started % TRIM_EVERY === 0) this.prune();
-    this.save();
+    this.dirty(request);
     return request;
   }
 
@@ -297,8 +381,9 @@ export class RequestJournal {
       finishedAt: Date.now()
     });
     request.durationMs = request.finishedAt - request.startedAt;
-    // The request is over: cancel the debounce and write now, so a crash
+    // The request is over: cancel the debounce and append now, so a crash
     // right after cannot leave it running forever.
+    this.dirty(request);
     return this.flush();
   }
 
@@ -348,14 +433,14 @@ export class RequestJournal {
       request.credits = estimatedCredits(request, this.calibratedPrice(request.model));
       request.creditsSource = "estimate";
     }
-    this.save();
+    this.dirty(request);
   }
 
   note(id, values = {}) {
     const request = this.requests.find((entry) => entry.id === id);
     if (!request) return;
     Object.assign(request, values);
-    this.save();
+    this.dirty(request);
   }
 
   list() {
@@ -392,55 +477,61 @@ export class RequestJournal {
     return this.write();
   }
 
+  /**
+   * Notes that a row changed. The row's current snapshot is what lands on
+   * disk; a burst of changes to one row between two writes collapses into a
+   * single line, and a change that supersedes one still pending replaces it
+   * rather than queueing behind it.
+   */
+  dirty(request) {
+    if (!request?.id) return;
+    this.pending.set(request.id, request);
+    this.save();
+  }
+
   write() {
     // A shared journal follows the owner's file; flushing its own stale
     // snapshot over the owner's newer rows would lose them, so a reader
     // never writes.
     if (this.shared) return Promise.resolve();
     // A journal that could not read its file holds only what arrived after
-    // the failure; writing would replace the unreadable original with that
-    // near-empty list. Each write first tries to recover — the failure is
-    // usually a transient lock — and a recovery that still fails means
-    // still no write.
-    if (this.readOnly && !this.recover()) return Promise.resolve();
+    // the failure; appending to it is still safe (a log only grows), so
+    // unlike the old whole-file rewrite there is nothing to recover here.
     const run = this.writing.then(() => this.writeNow());
     this.writing = run.catch(() => {});
     return run;
   }
 
-  // One attempt to come back from a read failure: re-read the file and fold
-  // the rows this session kept in memory over it, so nothing is lost on
-  // either side. False while the file still cannot be read.
-  recover() {
-    let rows;
-    try {
-      rows = JSON.parse(fs.readFileSync(this.file, "utf8"));
-    } catch {
-      return false;
-    }
-    const merged = new Map();
-    for (const row of Array.isArray(rows) ? rows : []) {
-      if (Number.isFinite(row?.startedAt)) merged.set(row.id, row);
-    }
-    for (const row of this.requests) merged.set(row.id, row);
-    this.requests = [...merged.values()]
-      .sort((a, b) => b.startedAt - a.startedAt)
-      .slice(0, MAX_ROWS);
-    this.readOnly = false;
-    this.rebuildBilledRates();
-    return true;
-  }
-
   async writeNow() {
+    if (!this.pending.size) {
+      // Nothing changed, but a compaction may still be due — a long run
+      // appends without a pause and needs the file trimmed.
+      if (this.appends >= COMPACT_AFTER) return this.compact();
+      return;
+    }
+    const rows = [...this.pending.values()];
+    this.pending.clear();
     try {
       await fsp.mkdir(this.dir, { recursive: true });
-      const target = `${this.file}.${process.pid}.tmp`;
-      await fsp.writeFile(target, `${JSON.stringify(this.requests, null, 2)}\n`, "utf8");
-      await fsp.rename(target, this.file);
+      const body = rows.map((row) => `${JSON.stringify(row)}\n`).join("");
+      // A crash can leave the log without a final newline. Appending straight
+      // on would glue the first new row to that torn tail, making one
+      // unreadable line instead of one skipped line and one good row.
+      const separator = await this.endsWithoutNewline() ? "\n" : "";
+      // `a` is the whole point: one syscall, no rewrite of what is already
+      // there, and the previous content survives a crash mid-append.
+      await fsp.appendFile(this.file, `${separator}${body}`, "utf8");
+      this.appends += rows.length;
       // Solved is solved: a failure after a successful write must be
       // reported again, not swallowed by the last outage's flag.
       this.writeFailed = false;
+      if (this.appends >= COMPACT_AFTER) await this.compact();
     } catch (error) {
+      // The rows are put back so the next write carries them; dropping them
+      // here would lose a completed request's accounting silently.
+      for (const row of rows) {
+        if (!this.pending.has(row.id)) this.pending.set(row.id, row);
+      }
       // A journal that cannot be written must at least say so: losing the
       // day's accounting silently (disk full, directory deleted) reads as a
       // gateway that records nothing. Once per failure streak — the flag
@@ -448,6 +539,52 @@ export class RequestJournal {
       if (!this.writeFailed) {
         this.writeFailed = true;
         console.error(`lane: cannot save the request journal to ${this.file}: ${error?.message || error}`);
+      }
+    }
+  }
+
+  /**
+   * Whether the log's last byte is not a newline — a torn write from a
+   * crash. Cheap: one stat and one byte read, only when the file exists.
+   */
+  async endsWithoutNewline() {
+    let handle;
+    try {
+      handle = await fsp.open(this.file, "r");
+      const { size } = await handle.stat();
+      if (!size) return false;
+      const buffer = Buffer.alloc(1);
+      await handle.read(buffer, 0, 1, size - 1);
+      return buffer[0] !== 0x0a;
+    } catch {
+      // No file yet (the append creates it) or it cannot be inspected: the
+      // append is safe either way, a leading newline at the start of a fresh
+      // file being an empty line the loader skips.
+      return false;
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Rewrites the log as one line per surviving row. The replacement is
+   * built beside the log and renamed into place, so a crash during the
+   * rewrite leaves the previous log intact; any rows that changed while it
+   * was building are appended afterwards by the next write.
+   */
+  async compact() {
+    const target = `${this.file}.${process.pid}.tmp`;
+    try {
+      await fsp.mkdir(this.dir, { recursive: true });
+      const body = this.requests.map((row) => `${JSON.stringify(row)}\n`).join("");
+      await fsp.writeFile(target, body, "utf8");
+      await fsp.rename(target, this.file);
+      this.appends = 0;
+    } catch (error) {
+      try { await fsp.rm(target, { force: true }); } catch {}
+      if (!this.writeFailed) {
+        this.writeFailed = true;
+        console.error(`lane: cannot compact the request journal at ${this.file}: ${error?.message || error}`);
       }
     }
   }
