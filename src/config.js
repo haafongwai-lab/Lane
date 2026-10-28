@@ -1,30 +1,12 @@
-import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { localAppData } from "./winenv.js";
 
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 3426;
 
 export function dataDir(env = process.env) {
   if (env.LANE_DATA_DIR) return path.resolve(env.LANE_DATA_DIR);
-  const base =
-    env.LOCALAPPDATA ||
-    (process.platform === "win32"
-      ? windowsLocalAppData()
-      : path.join(os.homedir(), ".local", "share"));
-  return path.join(base, "lane");
-}
-
-function windowsLocalAppData() {
-  try {
-    const known = execFileSync(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Environment]::GetEnvironmentVariable('LOCALAPPDATA','User')"],
-      { encoding: "utf8", windowsHide: true, timeout: 3000 }
-    ).trim();
-    if (known) return known;
-  } catch {}
-  return path.join(os.homedir(), "AppData", "Local");
+  return path.join(localAppData(env), "lane");
 }
 
 export function parseAddress(value) {

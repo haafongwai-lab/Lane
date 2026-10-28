@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { processAlive } from "./pid.js";
 import { billedRates } from "./usage.js";
+import { kindFromText } from "./error-kind.js";
 
 const KEEP_DAYS = 120;
 const MAX_ROWS = 6000;
@@ -383,7 +384,11 @@ export class RequestJournal {
       // free, which is a different thing from "not billed yet".
       credits: null,
       firstTextMs: null,
-      error: ""
+      error: "",
+      // Why it failed, in the vocabulary of error-kind.js: "" until the
+      // request ends, and "" for one that succeeded. The text of `error` says
+      // what the upstream said; this says whose problem it is.
+      errorKind: ""
     };
     this.requests.unshift(request);
     this.requests = this.requests.slice(0, MAX_ROWS);
@@ -405,6 +410,15 @@ export class RequestJournal {
       finishedAt: Date.now()
     });
     request.durationMs = request.finishedAt - request.startedAt;
+    // The kind is recorded here rather than at each call site: every path
+    // that fails a request already hands over the error, and forgetting to
+    // pass a kind on one of them would leave an unexplained failure in the
+    // list. An explicit `errorKind` still wins.
+    if (request.status !== "complete") {
+      request.errorKind = values.errorKind || request.errorKind || kindFromText(request.error);
+    } else {
+      request.errorKind = "";
+    }
     // The request is over: cancel the debounce and append now, so a crash
     // right after cannot leave it running forever.
     this.dirty(request);

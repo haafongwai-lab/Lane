@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent } from "./format.js";
+import { esc, credits, rmb, percent, requestState } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -804,7 +804,7 @@ function renderUsageRecent() {
     // show: a missing value is unknown, not a zero percent.
     const cacheKnown = item.cachedTokens != null;
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
-    const state = item.status === "running" ? "进行中" : item.status === "error" ? "失败" : "完成";
+    const state = requestState(item);
     // A billed credit is WorkBuddy's own number and the only one shown; a
     // row it did not cost stays uncosted — the token-formula estimate proved
     // untrustworthy and no longer displays.
@@ -816,7 +816,7 @@ function renderUsageRecent() {
       <span class="recent-time">${esc(when)}</span>
       <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
       <span class="recent-model">${esc(item.model)}</span>
-      <span class="recent-state ${item.status === "error" ? "err" : item.status === "running" ? "live" : "ok"}">${state}</span>
+      <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
       <span class="recent-cost">${cost}</span>

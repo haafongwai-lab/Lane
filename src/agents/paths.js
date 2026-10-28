@@ -1,28 +1,10 @@
-import os from "node:os";
 import path from "node:path";
 import { readdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { localAppData, userProfile } from "../winenv.js";
 
 function claudeLocalAppData(env = process.env) {
   if (env.LANE_CLAUDE_LOCALAPPDATA) return path.resolve(env.LANE_CLAUDE_LOCALAPPDATA);
-  return (
-    env.LOCALAPPDATA ||
-    (process.platform === "win32"
-      ? windowsLocalAppData()
-      : path.join(os.homedir(), ".local", "share"))
-  );
-}
-
-function windowsLocalAppData() {
-  try {
-    const known = execFileSync(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Environment]::GetEnvironmentVariable('LOCALAPPDATA','User')"],
-      { encoding: "utf8", windowsHide: true, timeout: 3000 }
-    ).trim();
-    if (known) return known;
-  } catch {}
-  return path.join(os.homedir(), "AppData", "Local");
+  return localAppData(env);
 }
 
 export function claudePaths(env = process.env) {
@@ -51,18 +33,6 @@ export function codexConfigPath(env = process.env) {
   if (env.LANE_CODEX_CONFIG) return path.resolve(env.LANE_CODEX_CONFIG);
   const home = env.CODEX_HOME
     ? path.resolve(env.CODEX_HOME)
-    : path.join(env.USERPROFILE || windowsUserProfile(), ".codex");
+    : path.join(userProfile(env), ".codex");
   return path.join(home, "config.toml");
-}
-
-function windowsUserProfile() {
-  try {
-    const known = execFileSync(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Environment]::GetEnvironmentVariable('USERPROFILE','User')"],
-      { encoding: "utf8", windowsHide: true, timeout: 3000 }
-    ).trim();
-    if (known) return known;
-  } catch {}
-  return os.homedir();
 }

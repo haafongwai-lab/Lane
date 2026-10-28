@@ -1385,3 +1385,62 @@ test("a long-session body over the old 8 MB floor passes", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("each failure kind reaches the client as its own status", async () => {
+  // Before error kinds existed all four of these were a 500 or a 200 with an
+  // empty body, so an upstream that never answered looked like a Lane bug.
+  const cases = [
+    ["upstream-timeout", "WorkBuddy did not answer within 120s", "AbortError", 504, "upstream_timeout"],
+    ["upstream-error", '{"code":11158,"msg":"not allowed"}', "Error", 502, "upstream_error"],
+    ["upstream-unreadable", "upstream returned no usable events", "Error", 502, "upstream_error"]
+  ];
+  for (const [kind, message, name, status, type] of cases) {
+    const provider = {
+      async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+      async chat() {
+        throw Object.assign(new Error(message), { name, kind });
+      }
+    };
+    const server = createServer({ provider });
+    const base = await listen(server);
+    try {
+      const response = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+      });
+      assert.equal(response.status, status, kind);
+      const body = await response.json();
+      assert.equal(body.error.type, type, kind);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+});
+
+test("a client that closed its connection is not answered on a dead socket", async () => {
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      throw Object.assign(new Error("client closed the connection"), {
+        name: "AbortError",
+        kind: "client-closed"
+      });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    // The relay ends the response rather than writing a JSON error body to a
+    // socket the client has already abandoned.
+    await response.text().catch(() => "");
+    assert.ok(response.status === 200 || response.status === 499, String(response.status));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { json, errorJSON } from "./errors.js";
 import { SSEDecoder } from "./translate/stream.js";
 import { parseSSEData } from "./translate/common.js";
+import { ERROR_KIND, withKind, kindOf } from "./error-kind.js";
 
 /**
  * The upstream side of every protocol: how a provider's answer becomes the
@@ -96,10 +97,14 @@ export async function proxyChat(res, provider, body, options = {}) {
     ...projectFields(options.project)
   });
   // A client that hangs up mid-generation must not keep the upstream running:
-  // WorkBuddy bills the whole stream whether anyone reads it or not.
+  // WorkBuddy bills the whole stream whether anyone reads it or not. The
+  // reason carries the kind, because an AbortError on its own cannot tell
+  // this apart from the provider's own timeout.
   const abort = new AbortController();
   res.on("close", () => {
-    if (!res.writableEnded) abort.abort();
+    if (!res.writableEnded) {
+      abort.abort(withKind(new Error("client closed the connection"), ERROR_KIND.clientClosed));
+    }
   });
   try {
     const upstream = await provider.chat(body, { signal: abort.signal });
@@ -131,7 +136,8 @@ export async function proxyChat(res, provider, body, options = {}) {
   } catch (error) {
     options.control?.journal.finish(record?.id, {
       status: "error",
-      error: error?.message || "request failed"
+      error: error?.message || "request failed",
+      errorKind: kindOf(error)
     });
     // A streamed answer has its head already on the wire; writing a JSON
     // error head now throws ERR_HTTP_HEADERS_SENT from inside this catch,
@@ -331,7 +337,9 @@ export async function relayChat(res, upstream, body, options = {}) {
 export async function proxyProtocol(res, provider, chat, options) {
   const abort = new AbortController();
   res.on("close", () => {
-    if (!res.writableEnded) abort.abort();
+    if (!res.writableEnded) {
+      abort.abort(withKind(new Error("client closed the connection"), ERROR_KIND.clientClosed));
+    }
   });
   try {
     const state = { id: options.id };
@@ -439,7 +447,8 @@ export async function proxyProtocol(res, provider, chat, options) {
   } catch (error) {
     options.control?.journal.finish(options.record?.id, {
       status: "error",
-      error: error?.message || "request failed"
+      error: error?.message || "request failed",
+      errorKind: kindOf(error)
     });
     if (res.headersSent) {
       if (!res.writableEnded) {
@@ -462,8 +471,23 @@ export function isSSE(text) {
  * rethrown for the top-level handler to report as a gateway error. The
  * distinction matters because a 502 from the upstream used to flatten into a
  * 500, which reads as a Lane bug rather than what the upstream said.
+ *
+ * A client that closed its own connection gets no response at all — there is
+ * nobody left to read it, and writing one only produces a second error on a
+ * socket that is already gone.
  */
 export function unavailable(res, error) {
+  if (error?.kind === ERROR_KIND.clientClosed || kindOf(error) === ERROR_KIND.clientClosed) {
+    if (!res.writableEnded) res.end();
+    return;
+  }
+  // The upstream accepted the request and never answered. 504 says exactly
+  // that; left to the generic path it became a 500, which blames Lane for
+  // the upstream's silence.
+  if (kindOf(error) === ERROR_KIND.upstreamTimeout) {
+    errorJSON(res, 504, error.message || "upstream did not answer in time", "upstream_timeout");
+    return;
+  }
   if (
     error?.name === "ProviderUnavailable" ||
     /not signed in|signed out|sign in again/i.test(error?.message || "")
@@ -473,8 +497,16 @@ export function unavailable(res, error) {
   }
   // A failure the upstream itself produced — a refusal, a non-JSON body —
   // keeps its status and its type instead of flattening into a 500 that
-  // reads as a gateway bug.
-  if (Number(error?.status) === 502) {
+  // reads as a gateway bug. The kind is checked as well as the status: an
+  // error already classified as the upstream's does not need to carry a
+  // number to be reported as one.
+  const kind = kindOf(error);
+  if (
+    Number(error?.status) === 502 ||
+    kind === ERROR_KIND.upstreamError ||
+    kind === ERROR_KIND.upstreamUnreadable ||
+    kind === ERROR_KIND.upstreamStream
+  ) {
     errorJSON(res, 502, error.message, "upstream_error");
     return;
   }

@@ -809,6 +809,9 @@ h1 {
 .recent-state.ok { color: var(--green); }
 .recent-state.live { color: #3f7fb8; }
 .recent-state.err { color: var(--red); }
+/* A client closing its window is not a fault: muted, so it does not read as
+   one more failure in a column the eye scans for red. */
+.recent-state.muted { color: var(--muted); }
 .recent-ctx, .recent-cache { color: var(--muted); font-variant-numeric: tabular-nums; }
 .recent-cost { text-align: right; font-variant-numeric: tabular-nums; }
 

@@ -49,3 +49,44 @@ export function rmb(value) {
 export function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
 }
+
+/**
+ * The request row's status cell.
+ *
+ * A failed request used to read "失败" whatever happened, so a client
+ * closing its window, an upstream that never answered and an upstream that
+ * refused the model all looked identical — during one real outage the list
+ * showed fifteen identical failures and the only way to tell them apart was
+ * to read the gateway log. The row says whose problem it is instead; the
+ * journal stores `errorKind`, and a row written before it existed falls back
+ * to the same reading of its message.
+ */
+const KIND_LABELS = {
+  "client-closed": "客户端断开",
+  "upstream-timeout": "上游未响应",
+  "upstream-error": "上游拒绝",
+  "upstream-stream": "上游中断",
+  "upstream-unreadable": "响应无法解析",
+  "not-signed-in": "未登录",
+  unknown: "失败"
+};
+
+// The same reading error-kind.js applies, repeated here because the renderer
+// cannot import from src/. Only rows written before `errorKind` existed and
+// rows whose kind is empty need it.
+function kindFromText(text) {
+  const message = String(text ?? "");
+  if (/did not answer within/i.test(message)) return "upstream-timeout";
+  if (/aborted|abort|client closed/i.test(message)) return "client-closed";
+  if (/not signed in|signed out|sign in again/i.test(message)) return "not-signed-in";
+  if (/invalid JSON|without choices|no usable events|non-JSON/i.test(message)) return "upstream-unreadable";
+  return "unknown";
+}
+
+export function requestState(item) {
+  if (!item) return { text: "—", tone: "ok" };
+  if (item.status === "running") return { text: "进行中", tone: "live" };
+  if (item.status !== "error") return { text: "完成", tone: "ok" };
+  const kind = item.errorKind || kindFromText(item.error);
+  return { text: KIND_LABELS[kind] || KIND_LABELS.unknown, tone: kind === "client-closed" ? "muted" : "err" };
+}

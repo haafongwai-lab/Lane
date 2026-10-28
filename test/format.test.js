@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { esc, credits, rmb, percent, CREDITS_PER_YUAN } from "../desktop/format.js";
+import { esc, credits, rmb, percent, requestState, CREDITS_PER_YUAN } from "../desktop/format.js";
 
 /**
  * esc() is the only thing between a model name or a filesystem path and
@@ -70,4 +70,37 @@ test("percent renders a ratio as one decimal", () => {
   assert.equal(percent(1), "100.0%");
   assert.equal(percent(0), "0.0%");
   assert.equal(percent(undefined), "0.0%");
+});
+
+test("a failed row says whose problem it is, not just that it failed", () => {
+  // The status column used to read "失败" for all of these.
+  assert.deepEqual(requestState({ status: "error", errorKind: "upstream-timeout" }),
+    { text: "上游未响应", tone: "err" });
+  assert.deepEqual(requestState({ status: "error", errorKind: "upstream-error" }),
+    { text: "上游拒绝", tone: "err" });
+  assert.deepEqual(requestState({ status: "error", errorKind: "upstream-unreadable" }),
+    { text: "响应无法解析", tone: "err" });
+  assert.deepEqual(requestState({ status: "error", errorKind: "not-signed-in" }),
+    { text: "未登录", tone: "err" });
+});
+
+test("a client closing its window is muted, not red", () => {
+  assert.deepEqual(requestState({ status: "error", errorKind: "client-closed" }),
+    { text: "客户端断开", tone: "muted" });
+});
+
+test("a row written before errorKind existed falls back to its message", () => {
+  assert.equal(requestState({ status: "error", error: "WorkBuddy did not answer within 120s" }).text,
+    "上游未响应");
+  assert.equal(requestState({ status: "error", error: "This operation was aborted" }).text,
+    "客户端断开");
+  assert.equal(requestState({ status: "error", error: "upstream returned no usable events" }).text,
+    "响应无法解析");
+  assert.equal(requestState({ status: "error", error: "something else" }).text, "失败");
+});
+
+test("a successful or running row keeps its own state", () => {
+  assert.deepEqual(requestState({ status: "complete" }), { text: "完成", tone: "ok" });
+  assert.deepEqual(requestState({ status: "running" }), { text: "进行中", tone: "live" });
+  assert.deepEqual(requestState(null), { text: "—", tone: "ok" });
 });

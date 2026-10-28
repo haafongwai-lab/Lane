@@ -251,6 +251,26 @@ client, depending on what that client asked for.
 The Codex provider entry sets `supports_websockets = false`. Codex therefore
 uses HTTP Responses instead of trying the unsupported WebSocket transport.
 
+## Failures
+
+A failed request records why, not just that it failed. The journal keeps an
+`errorKind` beside the upstream's own message, and the request list shows it:
+
+| Kind | Status | What happened |
+| --- | --- | --- |
+| `client-closed` | — | The client hung up; no fault, and nothing to report |
+| `upstream-timeout` | 504 | The upstream accepted the request and never answered |
+| `upstream-error` | 502 | The upstream refused it, with its own message |
+| `upstream-unreadable` | 502 | A 200 whose body was not something Lane could read |
+| `upstream-stream` | 502 | The stream broke after it started |
+| `not-signed-in` | 503 | No usable account |
+
+The distinction is made where the abort is raised, because that is the only
+place that knows: this runtime reports a client hang-up and an upstream
+timeout as the same `AbortError`. Before it existed, an outage produced rows
+indistinguishable from ordinary failures.
+
+
 ## Known limits
 
 - The Codex Responses WebSocket is not implemented. Lane wires Codex to HTTP
