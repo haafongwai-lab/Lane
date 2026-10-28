@@ -608,3 +608,35 @@ test("a legacy file that will not go away does not grow the log", async (t) => {
   assert.equal(after, once, "the log is the same size after repeated conversions");
   assert.equal(readLog(dir).length, 1);
 });
+
+test("an unchanged legacy file is converted only once", async (t) => {
+  // A previous build still installed beside this one keeps writing
+  // activity.json. Without a persisted stamp the conversion ran on every
+  // start, rewriting the whole log each time for rows already present.
+  const dir = tempDir(t);
+  writeLegacy(dir, [{ id: "a", startedAt: Date.now(), status: "complete" }]);
+  new RequestJournal({ dir });
+  // The legacy file stays (the old build holds it open) and is not touched:
+  // the same mtime and size must not trigger a second conversion.
+  const sizeBefore = fs.statSync(path.join(dir, "activity.jsonl")).size;
+  const mtimeBefore = fs.statSync(path.join(dir, "activity.jsonl")).mtimeMs;
+
+  new RequestJournal({ dir });
+  assert.equal(fs.statSync(path.join(dir, "activity.jsonl")).size, sizeBefore);
+  assert.equal(fs.statSync(path.join(dir, "activity.jsonl")).mtimeMs, mtimeBefore,
+    "the log was not rewritten for a file it already absorbed");
+});
+
+test("a changed legacy file is converted again", async (t) => {
+  const dir = tempDir(t);
+  writeLegacy(dir, [{ id: "a", startedAt: Date.now(), status: "complete" }]);
+  new RequestJournal({ dir });
+  // The old build wrote one more request: different bytes, so it must be
+  // absorbed rather than skipped.
+  writeLegacy(dir, [
+    { id: "a", startedAt: Date.now(), status: "complete" },
+    { id: "b", startedAt: Date.now(), status: "complete" }
+  ]);
+  const journal = new RequestJournal({ dir });
+  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["a", "b"]);
+});

@@ -38,6 +38,23 @@ const LEGACY_NAME = "activity.json";
 // within roughly twice MAX_ROWS lines.
 const COMPACT_AFTER = MAX_ROWS;
 
+// The identity of the legacy array this log has already absorbed: its mtime
+// and size. Persisted rather than held in memory, because the conversion has
+// to stay done across restarts.
+function readStamp(file) {
+  try {
+    return fs.readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeStamp(file, stamp) {
+  try {
+    fs.writeFileSync(file, stamp, "utf8");
+  } catch {}
+}
+
 // The pid rules live in pid.js: a live owner's rows are never mistaken for a
 // crash, and a row that names no process at all (pid 0, an empty owner) is not
 // a live owner.
@@ -96,6 +113,10 @@ export class RequestJournal {
     this.dir = dir;
     this.file = path.join(dir, FILE_NAME);
     this.legacyFile = path.join(dir, LEGACY_NAME);
+    // Remembers which legacy file was already converted, so a start does not
+    // repeat work whose result is already in the log. Kept beside the log
+    // because it is part of the journal's state, not a preference.
+    this.stampFile = path.join(dir, `${FILE_NAME}.migrated`);
     // A secondary window owns no requests; it reads the file the gateway's
     // process writes and follows it as it changes.
     this.shared = shared;
@@ -130,11 +151,13 @@ export class RequestJournal {
         this.requests = [];
         this.rebuildBilledRates();
         this.cleanupTmp();
+        this.markRead();
         return;
       }
       this.readOnly = true;
       this.rebuildBilledRates();
       console.error(`lane: the request journal at ${this.file} could not be read (${error?.code || error?.message}); it stays untouched until it reads again`);
+      this.markRead();
       return;
     }
 
@@ -171,6 +194,17 @@ export class RequestJournal {
     this.prune();
     this.rebuildBilledRates();
     this.cleanupTmp();
+    this.markRead();
+  }
+
+  /** Remembers the file's identity so an unchanged file is not re-read. */
+  markRead() {
+    try {
+      const stat = fs.statSync(this.file);
+      this.lastStamp = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      this.lastStamp = "";
+    }
   }
 
   /**
@@ -185,7 +219,16 @@ export class RequestJournal {
    */
   migrateLegacy() {
     let text;
+    let stamp;
     try {
+      const stat = fs.statSync(this.legacyFile);
+      // A legacy file this journal has already converted is skipped. An old
+      // build still installed beside this one keeps rewriting that file —
+      // observed on a real machine, where the previous release ran throughout
+      // — so without this the conversion ran on every start and rewrote the
+      // whole log each time, for rows that were already in it.
+      stamp = `${stat.mtimeMs}:${stat.size}`;
+      if (stamp === this.migratedStamp || stamp === readStamp(this.stampFile)) return;
       text = fs.readFileSync(this.legacyFile, "utf8");
     } catch {
       return;
@@ -224,8 +267,11 @@ export class RequestJournal {
         `${deduped.map((row) => `${JSON.stringify(row)}\n`).join("")}`,
         "utf8"
       );
-      // Only now is the legacy file redundant. A failure here leaves it,
-      // which is harmless: the merge above is idempotent.
+      this.migratedStamp = stamp;
+      writeStamp(this.stampFile, stamp);
+      // Only now is the legacy file redundant. A failure to remove it is
+      // harmless: the stamp above stops the next start from converting the
+      // same bytes again.
       fs.rmSync(this.legacyFile, { force: true });
       console.error(`lane: converted ${kept.length} request(s) to ${path.basename(this.file)}`);
     } catch (error) {
@@ -483,10 +529,32 @@ export class RequestJournal {
 
   list() {
     // The gateway's own journal changes only through its requests, so its
-    // copy is the truth. A reader's copy would go stale, so it re-reads
-    // the file on every read instead.
-    if (this.shared) this.load();
+    // copy is the truth. A reader's copy would go stale, so it follows the
+    // file — but only when the file actually changed.
+    //
+    // Re-reading unconditionally cost ~11 ms per call at 1674 rows (a full
+    // read plus a JSON parse of every line), and the window polls status
+    // every three seconds: tens of milliseconds a minute spent parsing a file
+    // that had not moved. The stat is microseconds and answers the same
+    // question, since every write here ends in an append or a rename, both of
+    // which move mtime and size.
+    if (this.shared && this.changedSinceRead()) this.load();
     return this.requests;
+  }
+
+  /** Whether the file this reader follows has changed since it last loaded. */
+  changedSinceRead() {
+    let stat;
+    try {
+      stat = fs.statSync(this.file);
+    } catch {
+      // Gone or unreadable: let load() decide what that means.
+      return true;
+    }
+    const stamp = `${stat.mtimeMs}:${stat.size}`;
+    if (stamp === this.lastStamp) return false;
+    this.lastStamp = stamp;
+    return true;
   }
 
   // What the status snapshot carries: enough for the route card and the
