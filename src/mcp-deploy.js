@@ -17,9 +17,11 @@ import { readState, writeState, writeTextAtomic } from "./agents/store.js";
  *   Codex           config.toml → [mcp_servers.<name>] tables with an env
  *                     sub-table — stdio only, the shape `codex mcp add`
  *                     writes.
- *   ZCode           v2 config.json → mcp.<name>: { type: "local",
- *                     command: [..], environment } or { type: "remote",
- *                     url, headers } — both transports, OpenCode's schema.
+ *   ZCode           cli config.json → mcp.servers.<name>:
+ *                     { type: "stdio", command, args, env } or
+ *                     { type: "http", url, headers } — both transports,
+ *                     ZCode's own schema (command is a string, not an
+ *                     OpenCode-style array).
  *
  * The deploy state lives in wiring.json next to the agents' wiring: per
  * client, the names Lane wrote last time, so a later deploy only touches
@@ -97,13 +99,18 @@ function claudeEntry(server) {
 }
 
 function zcodeEntry(server) {
+  // ZCode's own schema, not OpenCode's: `command` is a string and the rest
+  // of the argv lives in `args`, under `mcp.servers.<name>` in the CLI
+  // config. The schema is strict — unknown keys are dropped — so only
+  // documented fields are written. `enabled` is true by default and omitted.
   if (server.transport === "http") {
-    const entry = { type: "remote", url: server.url, enabled: true };
+    const entry = { type: "http", url: server.url };
     if (server.headers && Object.keys(server.headers).length) entry.headers = server.headers;
     return entry;
   }
-  const entry = { type: "local", enabled: true, command: [server.command, ...(server.args || [])] };
-  if (server.env && Object.keys(server.env).length) entry.environment = server.env;
+  const entry = { type: "stdio", command: server.command };
+  if (server.args?.length) entry.args = server.args;
+  if (server.env && Object.keys(server.env).length) entry.env = server.env;
   return entry;
 }
 
@@ -116,12 +123,21 @@ function claudeConfigs(env) {
   return out;
 }
 
-function zcodeConfigPath(env = process.env) {
+// ZCode reads MCP servers from its CLI config's `mcp.servers`, not from the
+// v2 provider config. An earlier Lane wrote them into v2/config.json in
+// OpenCode's shape — a file ZCode does not read MCP from, in a schema it
+// would reject (command as an array) — and servers deployed there never
+// appeared in the client.
+function zcodeCliConfigPath(env = process.env) {
+  return path.join(zcodePaths(env).home, "cli", "config.json");
+}
+
+function zcodeLegacyConfigPath(env = process.env) {
   return path.join(zcodePaths(env).dir, "config.json");
 }
 
 function zcodeConfigs(env) {
-  return [{ file: zcodeConfigPath(env) }];
+  return [{ file: zcodeCliConfigPath(env) }];
 }
 
 function codexConfigs(env) {
@@ -176,7 +192,7 @@ export async function targets(env = process.env) {
     installed: claude.length > 0 ? Boolean(claude[0].root) : false
   });
   out.push({ agent: "codex", stdioOnly: true, config: codexConfigPath(env) });
-  out.push({ agent: "zcode", stdioOnly: false, config: zcodeConfigPath(env) });
+  out.push({ agent: "zcode", stdioOnly: false, config: zcodeCliConfigPath(env) });
   return out;
 }
 
@@ -232,19 +248,46 @@ export async function deploy(servers, env = process.env) {
   state.mcp.codex = codex.active.map((s) => s.name);
   report.push({ agent: "codex", written: codex.active.map((s) => s.name), unsupported: codex.unsupported });
 
-  // -- ZCode: mcp.<name> in config.json, both transports --------------------
+  // -- ZCode: mcp.servers.<name> in the CLI config, both transports ---------
   const zcode = forClient(servers, "zcode", false);
+  // Captured before the state is overwritten: these are the names a previous
+  // deploy left behind, in the CLI config and in the legacy v2 location.
+  const zcodePrev = state.mcp.zcode || [];
   const zc = zcodeConfigs(env)[0];
   const { doc: zdoc, existed: zExisted } = await readConfig(zc.file);
   if (zdoc) {
-    const bag = zdoc.mcp && typeof zdoc.mcp === "object" ? zdoc.mcp : {};
-    for (const name of state.mcp.zcode || []) delete bag[name];
+    // The CLI config carries the user's settings; only Lane's own names under
+    // mcp.servers are touched, everything else passes through untouched.
+    const mcp = zdoc.mcp && typeof zdoc.mcp === "object" ? zdoc.mcp : {};
+    const bag = mcp.servers && typeof mcp.servers === "object" ? mcp.servers : {};
+    for (const name of zcodePrev) delete bag[name];
     for (const s of zcode.active) bag[s.name] = zcodeEntry(s);
-    if (Object.keys(bag).length) zdoc.mcp = bag;
+    if (Object.keys(bag).length) mcp.servers = bag;
+    else delete mcp.servers;
+    if (Object.keys(mcp).length) zdoc.mcp = mcp;
     else delete zdoc.mcp;
     await writeIfChangedJSON(zc.file, zdoc);
     state.mcp.zcode = zcode.active.map((s) => s.name);
     report.push({ agent: "zcode", written: zcode.active.map((s) => s.name), unsupported: [] });
+
+    // A build from before the target change left entries in v2/config.json,
+    // in a shape ZCode ignores. Those are Lane's own (the names above), and
+    // they are removed so the user's config does not keep them forever.
+    if (zcodePrev.length) {
+      const legacyPath = zcodeLegacyConfigPath(env);
+      const { doc: legacyDoc, existed } = await readConfig(legacyPath);
+      if (existed && legacyDoc && legacyDoc.mcp && typeof legacyDoc.mcp === "object") {
+        let changed = false;
+        for (const name of zcodePrev) {
+          if (legacyDoc.mcp[name] !== undefined) {
+            delete legacyDoc.mcp[name];
+            changed = true;
+          }
+        }
+        if (!Object.keys(legacyDoc.mcp).length) delete legacyDoc.mcp;
+        if (changed) await writeIfChangedJSON(legacyPath, legacyDoc);
+      }
+    }
   } else if (zExisted) {
     report.push({ agent: "zcode", error: "配置无法解析，已跳过" });
   }

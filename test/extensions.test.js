@@ -76,9 +76,11 @@ test("deploy writes stdio entries into every client in its own shape", async (t)
   assert.match(toml, /command = "npx"/);
   assert.match(toml, /\[mcp_servers\."weather"\.env\]/);
 
-  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "v2", "config.json"), "utf8"));
-  assert.equal(zcode.mcp.weather.type, "local");
-  assert.deepEqual(zcode.mcp.weather.command, ["npx", "-y", "w"]);
+  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
+  assert.equal(zcode.mcp.servers.weather.type, "stdio");
+  assert.equal(zcode.mcp.servers.weather.command, "npx");
+  assert.deepEqual(zcode.mcp.servers.weather.args, ["-y", "w"]);
+  assert.deepEqual(zcode.mcp.servers.weather.env, { KEY: "v" });
 
   // The wiring records what was written per client.
   const state = await readState(env);
@@ -138,8 +140,8 @@ test("undeployAll clears every client of Lane's entries", async (t) => {
   assert.ok(!claude.mcpServers?.w);
   const toml = fs.readFileSync(path.join(env.CODEX_HOME, "config.toml"), "utf8");
   assert.doesNotMatch(toml, /mcp_servers/);
-  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "v2", "config.json"), "utf8"));
-  assert.ok(!zcode.mcp?.w);
+  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
+  assert.ok(!zcode.mcp?.servers?.w);
 });
 
 test("a broken client config is skipped, not rewritten", async (t) => {
@@ -260,4 +262,47 @@ test("removeFromLibrary('..') deletes nothing outside the library", async (t) =>
   await assert.rejects(() => removeFromLibrary("..", env), /技能名不合法/);
   assert.ok(fs.existsSync(path.join(root, "keep-me.txt")), "the data directory survived");
   assert.ok(fs.existsSync(path.join(root, "skills", "weather", "SKILL.md")), "the library survived");
+});
+
+test("a ZCode entry lands in the CLI config the client actually reads", async (t) => {
+  const { env, root } = tempEnv(t);
+  assertSandboxed(env);
+  // The user's CLI config carries settings Lane must not disturb.
+  const cfg = path.join(env.ZCODE_HOME, "cli", "config.json");
+  fs.mkdirSync(path.dirname(cfg), { recursive: true });
+  fs.writeFileSync(cfg, JSON.stringify({ plugins: { enabledPlugins: { "x@y": true } } }));
+
+  await deploy([{ name: "ticket", transport: "stdio", command: "npx", args: ["-y", "12306-mcp"], agents: ["zcode"] }], env);
+
+  const doc = JSON.parse(fs.readFileSync(cfg, "utf8"));
+  const entry = doc.mcp?.servers?.ticket;
+  assert.ok(entry, "the server is under mcp.servers, where ZCode reads it");
+  assert.equal(entry.type, "stdio");
+  assert.equal(entry.command, "npx", "command is a string, not an OpenCode array");
+  assert.deepEqual(entry.args, ["-y", "12306-mcp"]);
+  assert.ok(doc.plugins?.enabledPlugins?.["x@y"], "the user's own settings survive");
+});
+
+test("a legacy v2/config.json entry is cleaned up on the next deploy", async (t) => {
+  const { env, root } = tempEnv(t);
+  assertSandboxed(env);
+  // What the previous Lane wrote: OpenCode's shape, in a file ZCode does not
+  // read MCP from, next to data that is not Lane's to remove.
+  const legacy = path.join(env.ZCODE_HOME, "v2", "config.json");
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  fs.writeFileSync(legacy, JSON.stringify({
+    provider: { mine: true },
+    mcp: { "12306-mcp": { type: "local", command: ["npx", "-y", "12306-mcp"] } }
+  }));
+  // The wiring state the old build left behind: it knows it wrote this name,
+  // which is how the cleanup can tell Lane's entry from anything else.
+  await writeState({ mcp: { zcode: ["12306-mcp"] } }, env);
+
+  await deploy([{ name: "ticket", transport: "stdio", command: "npx", args: ["-y", "t"], agents: ["zcode"] }], env);
+
+  const doc = JSON.parse(fs.readFileSync(legacy, "utf8"));
+  assert.ok(!doc.mcp, "the stray mcp key is gone");
+  assert.deepEqual(doc.provider, { mine: true }, "ZCode's own data survives");
+  const cli = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
+  assert.ok(cli.mcp?.servers?.ticket, "the entry lives in the CLI config");
 });

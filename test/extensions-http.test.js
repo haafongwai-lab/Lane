@@ -86,8 +86,10 @@ test("MCP routes: add, list with targets, toggle, set agents, remove", async (t)
   // It really landed in the clients' own files.
   const toml = fs.readFileSync(path.join(env.CODEX_HOME, "config.toml"), "utf8");
   assert.match(toml, /\[mcp_servers\."filesystem"\]/);
-  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "v2", "config.json"), "utf8"));
-  assert.deepEqual(zcode.mcp.filesystem.command, ["npx", "-y", "fs-server"]);
+  const zcode = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
+  assert.equal(zcode.mcp.servers.filesystem.type, "stdio");
+  assert.equal(zcode.mcp.servers.filesystem.command, "npx");
+  assert.deepEqual(zcode.mcp.servers.filesystem.args, ["-y", "fs-server"]);
 
   // Toggle off: the entries are withdrawn from the configs.
   const off = await (await post(base, "/lane/mcp/toggle", { name: "filesystem", off: true })).json();
@@ -105,8 +107,8 @@ test("MCP routes: add, list with targets, toggle, set agents, remove", async (t)
   // Remove: gone from the registry and from ZCode.
   const removed = await (await post(base, "/lane/mcp/remove", { name: "filesystem" })).json();
   assert.equal(removed.removed, true);
-  const zcodeAfter = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "v2", "config.json"), "utf8"));
-  assert.ok(!zcodeAfter.mcp?.filesystem);
+  const zcodeAfter = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
+  assert.ok(!zcodeAfter.mcp?.servers?.filesystem);
   const listed = await (await fetch(`${base}/lane/mcp`)).json();
   assert.deepEqual(listed.servers, []);
 });
