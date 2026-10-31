@@ -336,13 +336,16 @@ export async function relayChat(res, upstream, body, options = {}) {
  */
 export async function proxyProtocol(res, provider, chat, options) {
   const abort = new AbortController();
+  // Hoisted for the catch: whether the answer was already delivered decides
+  // how a late abort is recorded.
+  let state = null;
   res.on("close", () => {
     if (!res.writableEnded) {
       abort.abort(withKind(new Error("client closed the connection"), ERROR_KIND.clientClosed));
     }
   });
   try {
-    const state = { id: options.id };
+    state = { id: options.id };
     const upstream = await provider.chat({ ...chat, stream: true }, { signal: abort.signal });
     if (!upstream.ok) {
       const text = await upstream.text();
@@ -445,6 +448,19 @@ export async function proxyProtocol(res, provider, chat, options) {
     options.control?.invalidateUsage?.();
     json(res, 200, output);
   } catch (error) {
+    // The client can close the connection the moment it has the whole answer
+    // (reqwest cancels on drop; Codex does this after `response.completed`)
+    // while Lane is still waiting for the upstream's trailing bytes. The
+    // abort then lands here, after the completed event was already written.
+    // That is a delivered answer, not a failure: recording it as one filled
+    // the activity list with phantom "客户端断开" failures on every turn.
+    if (state && state.started && state.finished) {
+      options.control?.journal.usage(options.record?.id, state.usage);
+      options.control?.journal.finish(options.record?.id, { status: "complete" });
+      options.control?.invalidateUsage?.();
+      if (!res.writableEnded) res.end();
+      return;
+    }
     options.control?.journal.finish(options.record?.id, {
       status: "error",
       error: error?.message || "request failed",

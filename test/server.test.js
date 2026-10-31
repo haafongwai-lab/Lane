@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { createServer } from "../src/server.js";
 
 function listen(server) {
@@ -1440,6 +1443,80 @@ test("a client that closed its connection is not answered on a dead socket", asy
     // socket the client has already abandoned.
     await response.text().catch(() => "");
     assert.ok(response.status === 200 || response.status === 499, String(response.status));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a client that hangs up after the completed event is a delivered answer", async () => {
+  // Codex closes the connection the moment it processes response.completed,
+  // while Lane is still waiting for the upstream's trailing chunks. The
+  // relay used to record that as a failed ("客户端断开") request, so a fully
+  // answered turn filled the activity list with phantom failures.
+  const journal = new (await import("../src/request-journal.js")).RequestJournal({
+    dir: (await fs.mkdtemp(path.join(os.tmpdir(), "lane-relay-")))
+  });
+  const control = { journal, invalidateUsage() {} };
+  // The upstream sends the finish decision, then holds the stream open
+  // (trailing usage arrives late, as WorkBuddy's does) until cancelled.
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat(body, { signal } = {}) {
+      let finished = false;
+      return new Response(new ReadableStream({
+        async pull(controller) {
+          if (!finished) {
+            finished = true;
+            controller.enqueue(new TextEncoder().encode(
+              'data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n'
+            ));
+            return;
+          }
+          // WorkBuddy holds the stream open for its trailing report, and a
+          // real fetch body errors when the request is aborted. The fake
+          // errors the same way: a pull that merely hangs would swallow the
+          // cancel, and with it the race this test exercises.
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, 10_000);
+            signal?.addEventListener("abort", () => {
+              clearTimeout(timer);
+              reject();
+            }, { once: true });
+          }).catch(() => controller.error(new Error("aborted")));
+        }
+      }), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider, control });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", stream: true, input: "hi" })
+    });
+    assert.equal(response.status, 200);
+    // Read exactly like Codex does: stop at response.completed and drop the
+    // connection without waiting for the server to close it.
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let seen = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      seen += decoder.decode(value, { stream: true });
+      if (seen.includes("response.completed")) {
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+    assert.match(seen, /response\.completed/);
+    // The relay's bookkeeping lands on the next ticks.
+    await new Promise((r) => setTimeout(r, 300));
+    const [row] = journal.list();
+    assert.equal(row.status, "complete", `row was ${row.status}: ${row.error}`);
+    assert.equal(row.errorKind || "", "", "no error kind for a delivered answer");
+    assert.equal(row.outputTokens, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
