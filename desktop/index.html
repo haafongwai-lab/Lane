@@ -265,6 +265,17 @@
                 <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="zcode" checked><b>ZCode</b></label>
               </div>
 
+              <div class="mcp-json">
+                <button type="button" class="ghost small" id="mcp-json-toggle">从 JSON 粘贴</button>
+                <div id="mcp-json-area" hidden>
+                  <textarea id="mcp-json-text" rows="7" spellcheck="false"
+                    placeholder='粘贴服务方给出的配置，例如：&#10;{ "mcpServers": { "12306-mcp": { "command": "npx", "args": ["-y", "12306-mcp"] } } }'></textarea>
+                  <div class="mcp-json-actions">
+                    <button type="button" class="ghost small" id="mcp-json-parse">解析并填充</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="mcp-editor-actions">
                 <button class="ghost small" id="mcp-cancel">取消</button>
                 <button class="primary" id="mcp-save">保存并写入</button>

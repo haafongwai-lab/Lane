@@ -109,3 +109,106 @@ export function rateBadge(rate) {
   }).format(rate);
   return { text: `×${value}`, tone: "rate" };
 }
+
+/**
+ * Parses an MCP server out of the JSON snippets servers publish.
+ *
+ * Every source uses a slightly different wrapper for the same information:
+ * Claude Desktop style {"mcpServers": {name: {...}}}, ZCode style
+ * {"mcp": {"servers": {...}}}, OpenCode-style entries with command as an
+ * array, or a bare server object. Accepting all of them here is what makes
+ * "paste the config from the README" work; the form stays the single place
+ * that validates and saves.
+ *
+ * Returns { ok, server } with the fields the form expects — name optional
+ * (the form's own name field wins when filled) — or { ok: false, error }.
+ */
+export function parseMcpJson(text) {
+  var doc;
+  try {
+    doc = JSON.parse(String(text || ""));
+  } catch (error) {
+    return { ok: false, error: "不是有效的 JSON：" + error.message };
+  }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return { ok: false, error: "JSON 需要是一个对象" };
+  }
+
+  var raw = null;
+  var name = "";
+  if (doc.mcpServers && typeof doc.mcpServers === "object") {
+    var first = firstEntry(doc.mcpServers);
+    raw = first.value; name = first.name;
+  } else if (doc.mcp && typeof doc.mcp === "object" && doc.mcp.servers && typeof doc.mcp.servers === "object") {
+    var first2 = firstEntry(doc.mcp.servers);
+    raw = first2.value; name = first2.name;
+  } else if (typeof doc.command === "string" || typeof doc.url === "string") {
+    raw = doc; name = String(doc.name || "");
+  } else {
+    var keys = Object.keys(doc);
+    var only = keys.length === 1 && doc[keys[0]] && typeof doc[keys[0]] === "object" && !Array.isArray(doc[keys[0]]);
+    if (only) { raw = doc[keys[0]]; name = keys[0]; }
+    else return { ok: false, error: "找不到服务器定义：需要 mcpServers、mcp.servers 或含 command/url 的对象" };
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: "服务器定义需要是一个对象" };
+  }
+
+  // OpenCode-style command arrays fold into command + args.
+  var command = raw.command;
+  var args = Array.isArray(raw.args) ? raw.args.map(String) : [];
+  if (Array.isArray(command)) {
+    args = command.slice(1).map(String).concat(args);
+    command = command.length ? String(command[0]) : "";
+  } else if (command != null) {
+    command = String(command);
+  }
+  var url = raw.url != null ? String(raw.url) : "";
+  var type = String(raw.type || "").toLowerCase();
+  var transport;
+  if (type === "http" || type === "sse" || type === "remote") transport = "http";
+  else if (type === "local" || type === "stdio") transport = "stdio";
+  else transport = command ? "stdio" : url ? "http" : "";
+  if (!transport) {
+    return { ok: false, error: "条目里既没有 command 也没有 url，无法判断类型" };
+  }
+
+  var server = { transport: transport };
+  if (name) {
+    if (!/^[\w][\w.-]*$/.test(name)) {
+      return { ok: false, error: "名称「" + name + "」不合法：需为字母、数字、点、连字符或下划线" };
+    }
+    server.name = name;
+  }
+  if (transport === "stdio") {
+    if (!command) return { ok: false, error: "stdio 服务缺少 command" };
+    server.command = command;
+    if (args.length) server.args = args;
+    if (raw.env && typeof raw.env === "object" && !Array.isArray(raw.env)) {
+      var env = {};
+      for (var k in raw.env) {
+        if (String(k).trim() && raw.env[k] != null) env[String(k).trim()] = String(raw.env[k]);
+      }
+      if (Object.keys(env).length) server.env = env;
+    }
+  } else {
+    if (!url) return { ok: false, error: "http 服务缺少 url" };
+    server.url = url;
+    if (raw.headers && typeof raw.headers === "object" && !Array.isArray(raw.headers)) {
+      var headers = {};
+      for (var h in raw.headers) {
+        if (String(h).trim() && raw.headers[h] != null) headers[String(h).trim()] = String(raw.headers[h]);
+      }
+      if (Object.keys(headers).length) server.headers = headers;
+    }
+  }
+  return { ok: true, server: server };
+}
+
+function firstEntry(map) {
+  for (var key of Object.keys(map)) {
+    var value = map[key];
+    if (value && typeof value === "object") return { name: key, value: value };
+  }
+  return { name: "", value: null };
+}

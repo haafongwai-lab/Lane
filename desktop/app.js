@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState, rateBadge } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -1281,6 +1281,8 @@ function showEditor(visible) {
   ["mcp-name", "mcp-command", "mcp-args", "mcp-env", "mcp-url", "mcp-headers"].forEach(function (id) {
     document.getElementById(id).value = "";
   });
+  document.getElementById("mcp-json-text").value = "";
+  document.getElementById("mcp-json-area").hidden = true;
 }
 
 function setTransport(kind) {
@@ -1317,6 +1319,38 @@ $("#mcp-add").addEventListener("click", function () {
   }
 });
 $("#mcp-cancel").addEventListener("click", function () { showEditor(false); });
+
+// -- paste-JSON entry --------------------------------------------------------
+document.getElementById("mcp-json-toggle").addEventListener("click", function () {
+  var area = document.getElementById("mcp-json-area");
+  area.hidden = !area.hidden;
+  if (!area.hidden) document.getElementById("mcp-json-text").focus();
+});
+
+document.getElementById("mcp-json-parse").addEventListener("click", function () {
+  var result = parseMcpJson(document.getElementById("mcp-json-text").value);
+  if (!result.ok) {
+    toast(result.error, true);
+    return;
+  }
+  var server = result.server;
+  if (server.name && !document.getElementById("mcp-name").value.trim()) {
+    document.getElementById("mcp-name").value = server.name;
+  }
+  setTransport(server.transport);
+  if (server.transport === "stdio") {
+    document.getElementById("mcp-command").value = server.command || "";
+    document.getElementById("mcp-args").value = (server.args || []).join(" ");
+    document.getElementById("mcp-env").value = Object.entries(server.env || {})
+      .map(function (pair) { return pair[0] + "=" + pair[1]; }).join(", ");
+  } else {
+    document.getElementById("mcp-url").value = server.url || "";
+    document.getElementById("mcp-headers").value = Object.entries(server.headers || {})
+      .map(function (pair) { return pair[0] + ": " + pair[1]; }).join(", ");
+  }
+  document.getElementById("mcp-json-area").hidden = true;
+  toast("已从 JSON 填充，确认后保存");
+});
 
 document.getElementById("mcp-transport").addEventListener("click", function (e) {
   var button = e.target.closest("button[data-t]");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { esc, credits, rmb, percent, requestState, rateBadge, CREDITS_PER_YUAN } from "../desktop/format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, CREDITS_PER_YUAN } from "../desktop/format.js";
 
 /**
  * esc() is the only thing between a model name or a filesystem path and
@@ -114,4 +114,67 @@ test("a free model is marked free, not shown as a dash", () => {
   assert.deepEqual(rateBadge(null), { text: "—", tone: "unknown" });
   assert.deepEqual(rateBadge(undefined), { text: "—", tone: "unknown" });
   assert.deepEqual(rateBadge(NaN), { text: "—", tone: "unknown" });
+});
+
+test("parseMcpJson reads the Claude Desktop shape", () => {
+  const r = parseMcpJson(JSON.stringify({
+    mcpServers: { "12306-mcp": { command: "npx", args: ["-y", "12306-mcp"] } }
+  }));
+  assert.equal(r.ok, true);
+  assert.equal(r.server.name, "12306-mcp");
+  assert.equal(r.server.transport, "stdio");
+  assert.equal(r.server.command, "npx");
+  assert.deepEqual(r.server.args, ["-y", "12306-mcp"]);
+});
+
+test("parseMcpJson reads the ZCode and OpenCode shapes", () => {
+  const zcode = parseMcpJson(JSON.stringify({
+    mcp: { servers: { weather: { type: "stdio", command: "node", args: ["w.js"], env: { KEY: "v" } } } }
+  }));
+  assert.equal(zcode.ok, true);
+  assert.equal(zcode.server.name, "weather");
+  assert.deepEqual(zcode.server.env, { KEY: "v" });
+
+  // OpenCode folds the argv into one array.
+  const opencode = parseMcpJson(JSON.stringify({
+    mcpServers: { fs: { command: ["npx", "-y", "fs-server"] } }
+  }));
+  assert.equal(opencode.ok, true);
+  assert.equal(opencode.server.command, "npx");
+  assert.deepEqual(opencode.server.args, ["-y", "fs-server"]);
+});
+
+test("parseMcpJson reads bare objects and http entries", () => {
+  const bare = parseMcpJson(JSON.stringify({ command: "npx", args: ["-y", "x"] }));
+  assert.equal(bare.ok, true);
+  assert.equal(bare.server.command, "npx");
+  assert.equal(bare.server.name, undefined, "no name in the snippet; the form's name field decides");
+
+  const named = parseMcpJson(JSON.stringify({ weather: { command: "w.exe" } }));
+  assert.equal(named.ok, true);
+  assert.equal(named.server.name, "weather");
+
+  const http = parseMcpJson(JSON.stringify({
+    mcpServers: { remote: { type: "http", url: "https://x/mcp", headers: { Authorization: "Bearer t" } } }
+  }));
+  assert.equal(http.ok, true);
+  assert.equal(http.server.transport, "http");
+  assert.equal(http.server.url, "https://x/mcp");
+  assert.deepEqual(http.server.headers, { Authorization: "Bearer t" });
+});
+
+test("parseMcpJson refuses junk with a reason", () => {
+  for (const [text, match] of [
+    ["{ not json", /不是有效的 JSON/],
+    ["[1,2]", /需要是一个对象/],
+    ['{"foo": 1, "bar": 2}', /找不到服务器定义/],
+    [JSON.stringify({ mcpServers: {} }), /找不到服务器定义|需要是一个对象/],
+    [JSON.stringify({ mcpServers: { bad: {} } }), /既没有 command 也没有 url/],
+    [JSON.stringify({ mcpServers: { "bad name!": { command: "x" } } }), /不合法/],
+    [JSON.stringify({ mcpServers: { stdio: { type: "stdio" } } }), /缺少 command/]
+  ]) {
+    const r = parseMcpJson(text);
+    assert.equal(r.ok, false, text);
+    assert.match(r.error, match, text);
+  }
 });
