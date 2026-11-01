@@ -1048,7 +1048,9 @@ $("#usage-context-projects").addEventListener("click", async (event) => {
   button.disabled = true;
   try {
     const result = await window.lane.clearProject(project);
-    toast(`已删除 ${result?.removed ?? 0} 条记录`);
+    const removed = result?.removed ?? 0;
+    if (removed > 0) toast(`已删除 ${removed} 条记录`);
+    else toast("没有删除记录：该项目在当前记录里已不存在", true);
   } catch (error) {
     toast(error.message || "删除失败", true);
   } finally {
@@ -1084,8 +1086,12 @@ $("#clear-projects-selected").addEventListener("click", async () => {
       const result = await window.lane.clearProject(row.id);
       removed += result?.removed ?? 0;
     }
-    toast(`已删除 ${removed} 条记录`);
-    ctxSelected.clear();
+    if (removed > 0) {
+      toast(`已删除 ${removed} 条记录`);
+      ctxSelected.clear();
+    } else {
+      toast("没有删除记录：所选项目在当前记录里已不存在", true);
+    }
   } catch (error) {
     toast(error.message || "删除失败", true);
   } finally {

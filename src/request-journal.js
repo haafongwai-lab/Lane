@@ -358,6 +358,17 @@ export class RequestJournal {
   removeByIds(ids = []) {
     const drop = new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string"));
     if (!drop.size) return 0;
+    // Why a delete came back empty: the caller's ids matched rows that are
+    // running (spared), or matched nothing at all. The distinction is the
+    // difference between "the client sent stale ids" and "the vendor kept
+    // the request open" - without it both read as a silent no-op.
+    const matched = this.requests.filter((request) => drop.has(request.id));
+    const running = matched.filter((request) => request.status === "running").length;
+    if (matched.length && matched.length === running) {
+      console.error(`lane: delete skipped - all ${running} matched request(s) are still running`);
+    } else if (!matched.length) {
+      console.error(`lane: delete matched nothing - ${drop.size} id(s) not in the journal (${this.requests.length} rows held)`);
+    }
     const kept = this.requests.filter(
       (request) => !drop.has(request.id) || request.status === "running"
     );
@@ -375,6 +386,10 @@ export class RequestJournal {
    */
   removeByProject(projectId) {
     const key = String(projectId ?? "");
+    const held = this.requests.filter((request) => (request.project || "") === key);
+    if (!held.length) {
+      console.error(`lane: project delete matched nothing - ${JSON.stringify(key)} not among the projects held (${this.requests.length} rows, ${new Set(this.requests.map((r) => r.project || "")).size} distinct)`);
+    }
     const kept = this.requests.filter(
       (request) => (request.project || "") !== key || request.status === "running"
     );
