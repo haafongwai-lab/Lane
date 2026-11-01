@@ -348,6 +348,7 @@ export class RequestJournal {
     // compaction. The next write is the last word on what the file holds.
     this.appends = COMPACT_AFTER;
     this.save();
+    console.log(`lane: cleared before today - ${removed} row(s) removed, ${this.requests.length} kept`);
     return removed;
   }
 
@@ -377,6 +378,7 @@ export class RequestJournal {
     this.rebuildBilledRates();
     this.appends = COMPACT_AFTER;
     this.save();
+    console.log(`lane: deleted by id - ${removed} row(s) of ${drop.size} requested`);
     return removed;
   }
 
@@ -398,6 +400,7 @@ export class RequestJournal {
     this.rebuildBilledRates();
     this.appends = COMPACT_AFTER;
     this.save();
+    console.log(`lane: deleted by project - ${removed} row(s) of project ${JSON.stringify(key)}`);
     return removed;
   }
 
