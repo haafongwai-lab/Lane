@@ -1,138 +1,100 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  freeWindow,
-  isFreeWindowModel,
-  resetInstant,
-  FREE_WINDOW_SPAN,
-  FREE_WINDOW_CAP
-} from "../src/free-window.js";
+import { freeAllowance } from "../src/free-window.js";
 
 /**
- * The window is derived, not reported: no endpoint says where it began. These
- * pin the rules that make the derivation match the vendor's — the same rules
- * the plugin applies to magpie's ledger — because a window read a day early
- * would report a spend that was never in it.
+ * The card is about a *plan*, not a model. Measured on the real accounts:
+ * the domestic plan bills deepseek-v4.1-flash on every request (899 credits
+ * across two accounts), while the international Free plan charges nothing for
+ * it and reports the model in `notModels`. An earlier version of this module
+ * assumed the model itself was free within a rolling window; the journal
+ * disproved that, and these tests pin the corrected reading.
  */
 
-const HOUR = 60 * 60 * 1000;
-const T0 = Date.UTC(2026, 10, 1, 0, 0, 0); // 2026-11-01T00:00Z
+const NOW = Date.parse("2026-11-01T00:00:00Z");
 
-function row(at, { tokens = 1_000_000, model = "deepseek-v4.1-flash", status = "complete", error = "", accountId = "a1" } = {}) {
+function usage(overrides = {}) {
   return {
-    model,
-    status,
-    error,
-    accountId,
-    domain: "www.workbuddy.ai",
-    startedAt: at,
-    inputTokens: tokens,
-    outputTokens: 0
+    plan: "Free",
+    windows: [{
+      name: "Credits",
+      used: 37.93,
+      amount: 117.58,
+      limit: 310,
+      unit: "credits",
+      runsOutAt: "2026-11-19T16:14:43.000Z",
+      notModels: ["hy3", "deepseek-v4.1-flash"],
+      ...overrides
+    }]
   };
 }
 
-test("only the model the allowance belongs to counts", () => {
-  assert.equal(isFreeWindowModel("deepseek-v4.1-flash"), true);
-  assert.equal(isFreeWindowModel("deepseek-v4.1-flash-sg"), true);
-  assert.equal(isFreeWindowModel("glm-5.3-flash"), false);
-  assert.equal(isFreeWindowModel(""), false);
-  assert.equal(isFreeWindowModel(undefined), false);
+function row(model, { status = "complete", credits = 0, at = NOW } = {}) {
+  return { model, status, credits, startedAt: at };
+}
+
+test("a Free plan's allowance is read from the account's own report", () => {
+  const a = freeAllowance(usage(), [], { now: NOW });
+  assert.ok(a);
+  assert.equal(a.plan, "Free");
+  assert.ok(Math.abs(a.used - 117.58) < 1e-9);
+  assert.equal(a.limit, 310);
+  assert.ok(Math.abs(a.left - 192.42) < 1e-9);
+  assert.equal(Math.round(a.percent), 38);
+  assert.ok(Math.abs(a.leftYuan - 192.42 / 20) < 1e-9);
+  assert.deepEqual(a.freeModels, ["hy3", "deepseek-v4.1-flash"]);
+  // 18 days 16h from now: the allowance serves today too, so the count is
+  // ceil — "含今天还可用 19 天" is the reading a user acts on.
+  assert.equal(a.daysLeft, 19);
 });
 
-test("a run of requests inside 24h is one window", () => {
-  const rows = [row(T0), row(T0 + HOUR), row(T0 + 5 * HOUR)];
-  const w = freeWindow(rows, { now: T0 + 6 * HOUR });
-  assert.ok(w, "a window is open");
-  assert.equal(w.start, T0);
-  assert.equal(w.end, T0 + FREE_WINDOW_SPAN);
-  assert.equal(w.usedTokens, 3_000_000);
-  assert.equal(w.requests, 3);
-  assert.equal(w.percent, (100 * 3_000_000) / FREE_WINDOW_CAP);
+test("a paid plan gets no card at all", () => {
+  // The domestic accounts are the measured case: every request is billed.
+  assert.equal(freeAllowance({ plan: "Personal", windows: usage().windows }, [], { now: NOW }), null);
+  assert.equal(freeAllowance({ plan: "Pro", windows: usage().windows }, [], { now: NOW }), null);
 });
 
-test("a request a day later opens a new window", () => {
-  const rows = [row(T0), row(T0 + FREE_WINDOW_SPAN + HOUR)];
-  const w = freeWindow(rows, { now: T0 + FREE_WINDOW_SPAN + 2 * HOUR });
-  assert.ok(w);
-  assert.equal(w.start, T0 + FREE_WINDOW_SPAN + HOUR, "the second request opened it");
-  assert.equal(w.usedTokens, 1_000_000, "the earlier request is not in this window");
+test("a failed or empty usage report gets no card", () => {
+  assert.equal(freeAllowance(null, [], { now: NOW }), null);
+  assert.equal(freeAllowance({ error: "not signed in" }, [], { now: NOW }), null);
+  assert.equal(freeAllowance({ plan: "Free", windows: [] }, [], { now: NOW }), null);
+  assert.equal(freeAllowance(usage({ limit: 0 }), [], { now: NOW }), null);
 });
 
-test("a window that has lapsed is not reported at all", () => {
-  const rows = [row(T0), row(T0 + HOUR)];
-  assert.equal(freeWindow(rows, { now: T0 + FREE_WINDOW_SPAN + 1 }), null);
-});
-
-test("another account's traffic does not enter this one's window", () => {
+test("request counting follows the plan's own not-models list", () => {
   const rows = [
-    row(T0, { accountId: "a1" }),
-    row(T0 + HOUR, { accountId: "a2", tokens: 50_000_000 })
+    row("deepseek-v4.1-flash"),
+    row("hy3"),
+    row("glm-5.3-flash"),          // charged on this plan: not counted
+    row("deepseek-v4.1-flash", { status: "error" })
   ];
-  const w = freeWindow(rows, { accountId: "a1", now: T0 + 2 * HOUR });
-  assert.equal(w.usedTokens, 1_000_000);
-  const other = freeWindow(rows, { accountId: "a2", now: T0 + 2 * HOUR });
-  assert.equal(other.usedTokens, 50_000_000, "each account has its own allowance");
+  const a = freeAllowance(usage(), rows, { now: NOW });
+  assert.equal(a.freeRequests, 2, "two answered requests on free models");
 });
 
-test("the domestic build's rows make no window", () => {
-  const rows = [{ ...row(T0), domain: "www.workbuddy.cn" }];
-  assert.equal(freeWindow(rows, { now: T0 + HOUR }), null);
+test("a report that names no not-models counts answered traffic", () => {
+  const rows = [row("anything"), row("else"), row("x", { status: "error" })];
+  const a = freeAllowance(usage({ notModels: [] }), rows, { now: NOW });
+  assert.equal(a.freeRequests, 2);
 });
 
-test("failed requests do not spend the allowance", () => {
-  const rows = [
-    row(T0),
-    row(T0 + HOUR, { status: "error", error: "model refused" })
-  ];
-  const w = freeWindow(rows, { now: T0 + 2 * HOUR });
-  assert.equal(w.usedTokens, 1_000_000);
-  assert.equal(w.requests, 1);
+test("an exhausted allowance reads as zero left, not as absent", () => {
+  const a = freeAllowance(usage({ amount: 310 }), [], { now: NOW });
+  assert.ok(Math.abs(a.left) < 1e-9);
+  assert.ok(Math.abs(a.percent - 100) < 1e-9);
 });
 
-test("a refusal that names a reset ends the window it refused in", () => {
-  // The vendor's own answer is exact, so the window it names closes: the
-  // first request after that instant opens a new one, even though it is well
-  // inside 24 hours of the window that was refused.
-  const reset = "2026-11-01T12:00:00Z";
-  const rows = [
-    row(T0),
-    row(T0 + HOUR, {
-      status: "error",
-      error: `allowance exhausted, reset at 2026-11-01 20:00:00 UTC+8`
-    }),
-    row(T0 + 13 * HOUR, { tokens: 7_000_000 })
-  ];
-  assert.equal(resetInstant(`reset at 2026-11-01 20:00:00 UTC+8`), Date.parse(reset));
-  const w = freeWindow(rows, { now: T0 + 14 * HOUR });
-  assert.equal(w.start, T0 + 13 * HOUR, "the post-reset request opened the new window");
-  assert.equal(w.usedTokens, 7_000_000);
+test("a missing reset date leaves the days unknown rather than inventing one", () => {
+  const a = freeAllowance(usage({ runsOutAt: "" }), [], { now: NOW });
+  assert.equal(a.runsOutAt, "");
+  assert.equal(a.daysLeft, null);
 });
 
-test("a reset with no readable offset is not used as an edge", () => {
-  assert.ok(Number.isNaN(resetInstant("reset at 2026-11-01 20:00:00")));
-  assert.ok(Number.isNaN(resetInstant("no reset here")));
-  assert.ok(Number.isNaN(resetInstant("")));
-});
-
-test("a gap longer than the span starts the chain at the later row", () => {
-  // Rows: day 1 morning, day 3 morning (gap of two days), then the same day.
-  const rows = [
-    row(T0),
-    row(T0 + 48 * HOUR),
-    row(T0 + 49 * HOUR)
-  ];
-  const w = freeWindow(rows, { now: T0 + 50 * HOUR });
-  assert.equal(w.start, T0 + 48 * HOUR);
-  assert.equal(w.usedTokens, 2_000_000);
-});
-
-test("no free-model traffic means no window", () => {
-  assert.equal(freeWindow([], {}), null);
-  assert.equal(freeWindow([row(T0, { model: "glm-5.3-flash" })], { now: T0 }), null);
-});
-
-test("the elapsed share is reported for the card", () => {
-  const rows = [row(T0)];
-  const w = freeWindow(rows, { now: T0 + FREE_WINDOW_SPAN / 2 });
-  assert.equal(Math.round(w.elapsedPercent), 50);
+test("the raw amount wins when a build sends both forms", () => {
+  // `amount` is the credits spent; `used` may be a percentage of the limit.
+  const a = freeAllowance(usage({ amount: 62, used: 20 }), [], { now: NOW });
+  assert.ok(Math.abs(a.used - 62) < 1e-9);
+  assert.ok(Math.abs(a.left - 248) < 1e-9);
+  const b = freeAllowance(usage({ amount: undefined, used: 50 }), [], { now: NOW });
+  assert.ok(Math.abs(b.used - 155) < 1e-9, "50% of 310");
 });

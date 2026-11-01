@@ -1,156 +1,86 @@
 /**
- * The free-model window WorkBuddy AI grants on deepseek-v4.1-flash.
+ * What remains of the international build's free-plan allowance.
  *
- * WorkBuddy gives that model a rolling 24-hour allowance: a window opens with
- * the first request answered after the previous one lapsed, and ends 24 hours
- * later (or at a refusal's named reset). Requests inside it are not billed.
- * No endpoint reports the window, so it has to be derived from the traffic —
- * which is what this module does, from Lane's own journal.
+ * A WorkBuddy AI *Free* account is granted a credits allowance that renews on
+ * a cycle, and the models it lists as `notModels` cost nothing against it —
+ * on a real account those are `hy3` and `deepseek-v4.1-flash`. The domestic
+ * build bills the same models per request, which is why a journal can show
+ * thousands of charged rows on `deepseek-v4.1-flash` and a Free account on
+ * the other site show none: what is free is the *plan*, not the model name.
  *
- * The rules mirror the plugin's (`freeWindowOf` in
- * @magpie-community/opencode-workbuddy-auth), which reads magpie's usage
- * ledger instead. Lane keeps its own journal, so the same reading runs over
- * that: a gap of 24 hours between two answered rows ends every window before
- * it, and a refusal that names a reset time ends the window it refused in.
+ * So this card is about an account, not a model. It reads the account's own
+ * usage report — the one WorkBuddy returns, `Credits` window with `used`,
+ * `limit`, `runsOutAt` and `notModels` — and adds what Lane can see that the
+ * report cannot: how many requests this machine has made on the free models,
+ * and how long the allowance has been running.
  *
- * What the derived figure is and is not: it is a lower bound on what the
- * window has used, counted from this machine's traffic. The account can be
- * spending the same allowance from another client, and nothing local can see
- * that. The page says "本机统计" for exactly that reason.
+ * Nothing here is derived from the journal's credit column. A Free account's
+ * rows carry `credits: 0` because the allowance covered them, so counting
+ * them as "saved credits" would invent a figure the vendor never quoted.
  */
 
-// The model the allowance belongs to; the -sg variant shares it.
-export const FREE_WINDOW_MODEL = "deepseek-v4.1-flash";
-export const FREE_WINDOW_MODELS = ["deepseek-v4.1-flash", "deepseek-v4.1-flash-sg"];
-export const FREE_WINDOW_SPAN = 24 * 60 * 60 * 1000;
-// The allowance, in tokens, as the plugin models it.
-export const FREE_WINDOW_CAP = 100_000_000;
-// Only this build grants it. The domestic build bills these models like any
-// other, so a window derived from its rows would be a fiction.
-const FREE_WINDOW_DOMAINS = ["www.workbuddy.ai"];
-
-/** Whether a request's model is one the free window covers. */
-export function isFreeWindowModel(model) {
-  const name = String(model || "");
-  return FREE_WINDOW_MODELS.some((id) => name === id || name.startsWith(id));
-}
-
-/** The tokens a row moved: what the vendor counts against the allowance. */
-function counted(row) {
-  const input = Number(row?.inputTokens) || 0;
-  const output = Number(row?.outputTokens) || 0;
-  // The cache-read part is server-side context the vendor does not bill
-  // again, but it does count against a token allowance; the plugin counts
-  // `in + cache_read + out`, and `inputTokens` here already includes the
-  // cached part, so the sum is input + output.
-  return input + output;
-}
-
-/** The instant a refusal names as the window's end, or NaN. */
-export function resetInstant(text) {
-  const message = String(text ?? "");
-  const at = /reset at (\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/i.exec(message);
-  if (!at) return NaN;
-  const offset = /(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?/i.exec(message);
-  // A reset that names no offset cannot be placed; guessing one would put it
-  // hours from where the vendor meant.
-  if (!offset) return NaN;
-  const minutes = Number(offset[2]) * 60 + Number(offset[3] ?? 0);
-  if (minutes > 14 * 60) return NaN;
-  const signed = offset[1] === "-" ? -minutes : minutes;
-  return Date.UTC(+at[1], +at[2] - 1, +at[3], +at[4], +at[5], +at[6]) - signed * 60_000;
-}
+/** The plan whose allowance this is. Anyone else bills per request. */
+const FREE_PLAN = /^free$/i;
 
 /**
- * The window this account is in now, or null when none is open.
+ * The free allowance of one account, or null when the account is not on a
+ * free plan, is not signed in, or reports no usable window.
  *
- * `rows` is the journal's list (newest first is fine; this sorts its own).
- * `accountId` narrows the reading to one account's traffic — a window belongs
- * to an account, and mixing two accounts' rows would merge allowances that
- * are counted separately upstream.
+ * `usage` is the provider's usage result: { plan, windows: [...] }.
+ * `rows` is the journal, used only for the request count and the span.
  */
-export function freeWindow(rows = [], { accountId = "", now = Date.now() } = {}) {
-  const mine = (Array.isArray(rows) ? rows : []).filter((row) => {
-    if (!isFreeWindowModel(row?.model)) return false;
-    if (!Number.isFinite(row?.startedAt)) return false;
-    if (accountId && row.accountId !== accountId) return false;
-    const domain = String(row.domain || "");
-    if (domain && !FREE_WINDOW_DOMAINS.includes(domain)) return false;
-    return true;
+export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
+  if (!usage || usage.error) return null;
+  if (!FREE_PLAN.test(String(usage.plan || "").trim())) return null;
+
+  const windows = Array.isArray(usage.windows) ? usage.windows : [];
+  // The credits window is the allowance; a build that names it something else
+  // still gets one card, from whatever window it did send.
+  const window = windows.find((item) => /credit/i.test(String(item?.name || ""))) || windows[0];
+  if (!window) return null;
+
+  const limit = Number(window.limit) || 0;
+  if (limit <= 0) return null;
+  // `amount` is what the vendor shows as spent; `used` is the same figure as
+  // a percentage on some builds, so the raw amount is preferred and the
+  // percentage is only a fallback.
+  const used = Number.isFinite(Number(window.amount))
+    ? Number(window.amount)
+    : (Number(window.used) || 0) / 100 * limit;
+  const left = Math.max(0, limit - used);
+  const percent = Math.min(100, (100 * used) / limit);
+
+  // The models this plan does not charge for: what makes the card worth
+  // showing at all, and what the request count below is counted over.
+  const freeModels = Array.isArray(window.notModels) ? window.notModels.map(String) : [];
+  const free = rows.filter((row) => {
+    if (row?.status === "error") return false;
+    const model = String(row?.model || "");
+    if (!model) return false;
+    return freeModels.length ? freeModels.includes(model) : true;
   });
-  if (!mine.length) return null;
 
-  // Refusals that named a reset close the window they were refused in. Lane
-  // has never recorded one of these (the upstream reports exhaustion in the
-  // stream rather than as a 429), so this mostly matters for a build that
-  // does; it costs nothing to honour.
-  const edges = [];
-  for (const row of mine) {
-    if (row.status !== "error") continue;
-    const at = resetInstant(row.error);
-    if (Number.isFinite(at)) edges.push(at);
-  }
-  edges.sort((a, b) => a - b);
-
-  const answered = mine
-    .filter((row) => row.status !== "error" && row.startedAt > 0)
-    .sort((a, b) => a.startedAt - b.startedAt);
-  if (!answered.length) return null;
-
-  // Walk forward from a row that opens a window, accumulating until the
-  // window either lapses or a named reset closes it.
-  const walk = (from) => {
-    let start = null;
-    let used = 0;
-    let edge = 0;
-    for (let i = from; i < answered.length; i += 1) {
-      const at = answered[i].startedAt;
-      while (edge < edges.length && edges[edge] <= at) {
-        start = null;
-        used = 0;
-        edge += 1;
-      }
-      if (start === null) start = at;
-      else if (at - start >= FREE_WINDOW_SPAN) {
-        start = at;
-        used = 0;
-      }
-      used += counted(answered[i]);
-    }
-    return start === null ? null : { start, used };
-  };
-
-  // The chain only begins at a row with no answered row of this account's
-  // within a day before it; reading it from anywhere else would shift every
-  // window that follows.
-  let current = null;
-  for (let i = 0; i < answered.length; i += 1) {
-    if (i && answered[i].startedAt - answered[i - 1].startedAt < FREE_WINDOW_SPAN) continue;
-    const found = walk(i);
-    if (!found) continue;
-    if (found.start + FREE_WINDOW_SPAN <= now) continue; // already lapsed
-    current = found;
-    break;
-  }
-  if (!current || !(current.start > 0)) return null;
-
-  const end = current.start + FREE_WINDOW_SPAN;
-  if (now >= end) return null; // lapsed: the next request opens a new one
+  const runsOutAt = window.runsOutAt || usage.runsOutAt || "";
+  const days = runsOutAt
+    ? Math.max(0, Math.ceil((Date.parse(runsOutAt) - now) / 86_400_000))
+    : null;
 
   return {
-    model: FREE_WINDOW_MODEL,
-    models: FREE_WINDOW_MODELS.slice(),
-    start: current.start,
-    end,
-    resetsAt: new Date(end).toISOString(),
-    spanSeconds: FREE_WINDOW_SPAN / 1000,
-    usedTokens: current.used,
-    limitTokens: FREE_WINDOW_CAP,
-    // Percent of the allowance this machine's traffic accounts for.
-    percent: Math.min(100, (100 * current.used) / FREE_WINDOW_CAP),
-    // How much of the window is gone, for the card's progress bar.
-    elapsedPercent: Math.min(100, (100 * (now - current.start)) / FREE_WINDOW_SPAN),
-    // Rows counted, so the page can say what the figure is made of.
-    requests: answered.filter((row) => row.startedAt >= current.start && row.startedAt < end).length
+    plan: usage.plan || "Free",
+    used,
+    limit,
+    left,
+    percent,
+    // Credits and yuan travel together on this page elsewhere; a Free plan's
+    // allowance is still quoted in the same credits, so the same conversion
+    // applies.
+    leftYuan: left / 20,
+    runsOutAt: runsOutAt || "",
+    daysLeft: days,
+    freeModels,
+    // This machine's traffic on the free models, so the card says what the
+    // allowance has been carrying rather than only what is left of it.
+    freeRequests: free.length,
+    lastFreeAt: free.length ? Math.max(...free.map((row) => Number(row.startedAt) || 0)) : 0
   };
 }

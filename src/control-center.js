@@ -15,7 +15,7 @@ import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
 import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
 import * as skills from "./skills.js";
-import { freeWindow } from "./free-window.js";
+import { freeAllowance } from "./free-window.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -96,10 +96,30 @@ export function createControlCenter({
   // A finished request has just spent credits upstream, so the cached figure
   // is stale the moment it lands; dropping it here makes the next status
   // poll read the balance as it is now, not up to a minute late.
+  // The international Free plan's allowance lives on that account even while
+  // another account is the route, so it is read per its own id — a network
+  // round trip — and cached longer: an allowance moves slowly.
+  const FREE_TTL_MS = 5 * 60_000;
+  let freeUsageCache = null;
+  const cachedFreeUsage = async (instance, id) => {
+    if (freeUsageCache && Date.now() - freeUsageCache.at < FREE_TTL_MS) return freeUsageCache.value;
+    let value;
+    try {
+      value = await instance.usage(id);
+    } catch (error) {
+      value = { error: error?.message || "usage is unknown" };
+    }
+    freeUsageCache = { at: Date.now(), value };
+    return value;
+  };
+
   const invalidateUsage = () => usageCache.clear();
   // Switching, switching off or removing the route invalidates every entry:
   // the figure that matters is always the current account's.
-  const forgetUsage = () => usageCache.clear();
+  const forgetUsage = () => {
+    usageCache.clear();
+    freeUsageCache = null;
+  };
 
   // Only the process that owns the gateway runs the daily check-in; a
   // second Lane window attaches to it instead of claiming twice.
@@ -496,11 +516,24 @@ export function createControlCenter({
       // The account's own credits ride along as `quota`, so the page never
       // has to merge two payloads to draw one card.
       report.quota = await cachedUsage(instance).catch(() => null);
-      // The free-model allowance is derived from the same rows, narrowed to
-      // the account now in force: a window belongs to an account, and the
-      // figure is this machine's traffic against it.
-      const activeId = await instance.activeId().catch(() => "");
-      report.freeWindow = freeWindow(rows, { accountId: activeId || "" });
+      // The Free plan's allowance belongs to the international account even
+      // while a domestic one is the route, so it is read from that account's
+      // own report and counted over that account's rows only.
+      report.freeAllowance = null;
+      try {
+        const overseas = (await instance.accounts()).find((a) =>
+          String(a.domain || "").includes("workbuddy.ai")
+        );
+        if (overseas) {
+          const freeUsage = await cachedFreeUsage(instance, overseas.id);
+          report.freeAllowance = freeAllowance(
+            freeUsage,
+            rows.filter((row) => row.accountId === overseas.id)
+          );
+        }
+      } catch {
+        report.freeAllowance = null;
+      }
       return report;
     },
 

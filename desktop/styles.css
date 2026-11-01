@@ -1418,3 +1418,8 @@ h1 {
 .skill-pip.on { border-color: #b7d3c2; background: var(--green-bg); color: var(--green); }
 .skill-pip.on:hover { border-color: #d9b6ad; background: var(--red-bg); color: var(--red); }
 .skill-pip:hover { border-color: #b9bab3; color: var(--ink); }
+
+/* The free plan's own footnote: which models it covers and what this machine
+   has run on it, smaller than the meter above because it is context, not a
+   figure to watch. */
+.free-foot { margin-top: 10px; font-size: 10.5px; line-height: 1.7; color: var(--muted); }

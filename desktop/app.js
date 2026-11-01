@@ -489,7 +489,7 @@ function renderUsage() {
 
   renderUsageChart(series);
   renderUsageQuota(quota);
-  renderFreeWindow(usage.freeWindow);
+  renderFreeAllowance(usage.freeAllowance);
   renderUsageModels(models, totals);
   renderUsageContext(context, projects);
   renderUsageRecent();
@@ -554,33 +554,41 @@ function growUsageBars(node) {
 }
 
 // WorkBuddy's own meter: the cycle's credits against what the plan grants.
-// The free-model allowance: deepseek-v4.1-flash is not billed inside a
-// rolling 24-hour window. No endpoint reports the window, so Lane derives it
-// from its own journal — the figure is this machine's traffic, labelled as
-// such, never presented as the account's whole spend.
-function renderFreeWindow(window) {
+// The international Free plan's allowance: a credits grant that renews on a
+// cycle, and the models WorkBuddy lists as not charging against it. Read from
+// that account's own report — nothing here is derived from the journal's
+// credit column, because a Free account's rows carry credits: 0 and counting
+// them as "saved" would invent a figure the vendor never quoted. The request
+// count says what the allowance has been carrying from this machine.
+function renderFreeAllowance(allowance) {
   const node = $("#usage-free");
-  if (!window) {
+  if (!allowance) {
     node.hidden = true;
     node.innerHTML = "";
     return;
   }
   node.hidden = false;
-  const used = (Number(window.usedTokens) || 0) / 1e6;
-  const cap = (Number(window.limitTokens) || 0) / 1e6;
-  const reset = window.resetsAt
-    ? new Date(window.resetsAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+  const reset = allowance.runsOutAt
+    ? new Date(allowance.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+    : "";
+  const models = (allowance.freeModels || []).map(esc).join("、");
+  const lastFree = allowance.lastFreeAt
+    ? new Date(allowance.lastFreeAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
   node.innerHTML = `
     <div class="free-head">
-      <span class="free-title">免费模型额度</span>
-      <code>${esc(window.model)}</code>
+      <span class="free-title">免费计划额度（${esc(allowance.plan)}）</span>
+      <span class="soft-label">${allowance.daysLeft != null ? `剩 ${allowance.daysLeft} 天` : ""}</span>
     </div>
-    <div class="quota-amount"><b>${used.toFixed(1)}M</b><span>已用 / 共 ${cap.toFixed(0)}M tokens</span></div>
-    <div class="quota-meter"><i style="width:${Number(window.percent || 0).toFixed(1)}%"></i></div>
+    <div class="quota-amount"><b>${creditNumber(allowance.left)}</b><span>剩余积分 / 共 ${creditNumber(allowance.limit)}（¥${rmb(allowance.leftYuan)}）</span></div>
+    <div class="quota-meter"><i style="width:${Number(allowance.percent || 0).toFixed(1)}%"></i></div>
     <div class="quota-foot">
-      <span>本机统计 · ${window.requests} 次请求</span>
+      <span>已用 ${percent((allowance.percent || 0) / 100)}</span>
       ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
+    </div>
+    <div class="free-foot">
+      <span>不计费模型：${models || "—"}</span><br>
+      <span>本机已代跑 ${allowance.freeRequests} 次免费请求${lastFree ? `，最近 ${esc(lastFree)}` : ""}</span>
     </div>`;
 }
 
