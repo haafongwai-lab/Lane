@@ -902,6 +902,10 @@ function renderUsageRecent() {
       <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" title="单次计费异常高">⚠ 异常</i>' : ""}</span>
     </div>`;
   }).join("");
+  // The re-render created fresh, unchecked boxes: the button's visibility
+  // and count must be recomputed against them, or a cleared selection left
+  // the old 删除选中 button on screen, clicking through to nothing.
+  syncRecentSelection();
 }
 
 // The picked rows drive both actions: 清除选中 appears with the count, and
