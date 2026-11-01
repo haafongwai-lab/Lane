@@ -238,6 +238,37 @@ test("Claude Desktop's User-Agent is served Anthropic-shaped ids", async () => {
   }
 });
 
+test("the embedded claude-code runtime is served as Claude Desktop too", async () => {
+  // The 3p inference this install runs goes through the desktop's embedded
+  // claude-code runtime, whose UA and x-service-name carry no "Mozilla" and
+  // no " Claude/" token. Unmatched, it was served raw OpenAI ids - the model
+  // catalog the desktop then alerts about - and its requests were journalled
+  // as ZCode's.
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  const runtimeUA = { "user-agent": "claude-code/2.1.299" };
+  const serviceName = { "x-service-name": "claude-code" };
+  try {
+    for (const headers of [runtimeUA, serviceName]) {
+      const models = await fetch(`${base}/v1/models`, { headers });
+      const body = await models.json();
+      assert.match(body.data[0].id, /^anthropic\//, JSON.stringify(headers));
+      assert.equal(body.data[0].real_id, "hy3");
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("count_tokens answers with a local estimate", async () => {
   const server = createServer();
   const base = await listen(server);

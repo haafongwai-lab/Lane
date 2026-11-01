@@ -369,10 +369,17 @@ function fitEffort(body, model) {
   body.laneEffort = fitted;
 }
 
-// Claude Desktop's requests say "Mozilla/... Claude/<version>" in their
-// User-Agent; that is the only signal a gateway gets.
+// Claude Desktop speaks through two runtimes with two different marks. The
+// Electron shell sends "Mozilla/... Claude/<version>"; the 3p inference this
+// install actually runs goes through the embedded claude-code runtime, whose
+// UA is "claude-code/<version>" with "x-service-name: claude-code" beside it
+// (read out of the shipped claude.exe after the journal started filing its
+// requests under ZCode). Matching either keeps the catalogue Anthropic-shaped
+// for whichever runtime asks.
 function isClaudeDesktop(req) {
-  const ua = req.headers["user-agent"] || "";
+  const ua = String(req.headers["user-agent"] || "");
+  if (/^claude-code\//i.test(ua)) return true;
+  if (String(req.headers["x-service-name"] || "").toLowerCase() === "claude-code") return true;
   return ua.startsWith("Mozilla/") && ua.includes(" Claude/");
 }
 
