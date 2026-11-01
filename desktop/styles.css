@@ -660,6 +660,21 @@ h1 {
 
 /* The account's own credits, kept visually apart from Lane's accounting. */
 .usage-quota { margin-top: 16px; }
+
+/* The free-model allowance sits under the cycle credits: a different meter
+   with a different reset, so it is separated rather than merged into one. */
+.usage-free {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line);
+}
+.usage-free[hidden] { display: none; }
+.free-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.free-title { font-size: 12px; font-weight: 600; color: var(--muted); }
+.free-head code { font-size: 10.5px; color: var(--faint); }
+/* The allowance is a bonus, not a shortfall: the meter reads green where the
+   credits meter is neutral. */
+.usage-free .quota-meter i { background: var(--green); }
 .quota-amount { display: flex; align-items: baseline; gap: 8px; }
 .quota-amount b { font: 600 24px/1 var(--font-display); letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
 .quota-amount span { color: var(--faint); font-size: 11px; }

@@ -15,6 +15,7 @@ import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
 import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
 import * as skills from "./skills.js";
+import { freeWindow } from "./free-window.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -495,6 +496,11 @@ export function createControlCenter({
       // The account's own credits ride along as `quota`, so the page never
       // has to merge two payloads to draw one card.
       report.quota = await cachedUsage(instance).catch(() => null);
+      // The free-model allowance is derived from the same rows, narrowed to
+      // the account now in force: a window belongs to an account, and the
+      // figure is this machine's traffic against it.
+      const activeId = await instance.activeId().catch(() => "");
+      report.freeWindow = freeWindow(rows, { accountId: activeId || "" });
       return report;
     },
 

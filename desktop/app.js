@@ -489,6 +489,7 @@ function renderUsage() {
 
   renderUsageChart(series);
   renderUsageQuota(quota);
+  renderFreeWindow(usage.freeWindow);
   renderUsageModels(models, totals);
   renderUsageContext(context, projects);
   renderUsageRecent();
@@ -553,6 +554,36 @@ function growUsageBars(node) {
 }
 
 // WorkBuddy's own meter: the cycle's credits against what the plan grants.
+// The free-model allowance: deepseek-v4.1-flash is not billed inside a
+// rolling 24-hour window. No endpoint reports the window, so Lane derives it
+// from its own journal — the figure is this machine's traffic, labelled as
+// such, never presented as the account's whole spend.
+function renderFreeWindow(window) {
+  const node = $("#usage-free");
+  if (!window) {
+    node.hidden = true;
+    node.innerHTML = "";
+    return;
+  }
+  node.hidden = false;
+  const used = (Number(window.usedTokens) || 0) / 1e6;
+  const cap = (Number(window.limitTokens) || 0) / 1e6;
+  const reset = window.resetsAt
+    ? new Date(window.resetsAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
+  node.innerHTML = `
+    <div class="free-head">
+      <span class="free-title">免费模型额度</span>
+      <code>${esc(window.model)}</code>
+    </div>
+    <div class="quota-amount"><b>${used.toFixed(1)}M</b><span>已用 / 共 ${cap.toFixed(0)}M tokens</span></div>
+    <div class="quota-meter"><i style="width:${Number(window.percent || 0).toFixed(1)}%"></i></div>
+    <div class="quota-foot">
+      <span>本机统计 · ${window.requests} 次请求</span>
+      ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
+    </div>`;
+}
+
 function renderUsageQuota(quota) {
   const node = $("#usage-quota");
   const plan = $("#usage-plan");
