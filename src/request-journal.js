@@ -37,6 +37,10 @@ const LEGACY_NAME = "activity.json";
 // line per surviving row; doing it after this many appends keeps the file
 // within roughly twice MAX_ROWS lines.
 const COMPACT_AFTER = MAX_ROWS;
+// A single request billed at or above this many credits is flagged in the
+// journal and called out in the window. The vendor's own number decides, so
+// an expensive model is visible as expensive rather than alerting per row.
+const ANOMALY_CREDITS = Number(process.env.LANE_ALERT_CREDITS) || 5;
 
 // The identity of the legacy array this log has already absorbed: its mtime
 // and size. Persisted rather than held in memory, because the conversion has
@@ -431,6 +435,9 @@ export class RequestJournal {
       credits: null,
       firstTextMs: null,
       error: "",
+      // How many upstream attempts this request has made: 1 unless the relay
+      // retried a transient failure, which lands here as 2.
+      attempt: 1,
       // Why it failed, in the vocabulary of error-kind.js: "" until the
       // request ends, and "" for one that succeeded. The text of `error` says
       // what the upstream said; this says whose problem it is.
@@ -508,6 +515,13 @@ export class RequestJournal {
     if (billed !== undefined) {
       request.credits = billed;
       request.creditsSource = "upstream";
+      // One observable anomaly: a single request the upstream charged well
+      // above the everyday scale. The journal carries a real case - a model
+      // averaging 22.8 credits a request beside another at 0.19 - and
+      // nothing surfaced it; the row just blended into the list. The bar is
+      // absolute (the vendor's own number, not a ratio that expensive-but-
+      // legitimate models would trip on every request) and overridable.
+      request.anomaly = billed >= ANOMALY_CREDITS ? true : undefined;
       this.noteBilled();
     } else {
       // No upstream number: the token formula fills in, priced at the

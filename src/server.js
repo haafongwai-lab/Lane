@@ -520,6 +520,11 @@ async function controlRoute(req, res, url, control) {
       json(res, 200, await control.mcpSetAgents(String(body?.name || ""), body?.agents || []));
       return;
     }
+    if (req.method === "POST" && url.pathname === "/lane/mcp/test") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.mcpTest(String(body?.name || "")));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/lane/skills") {
       json(res, 200, { skills: await control.skillsList() });
       return;

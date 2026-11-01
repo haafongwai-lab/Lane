@@ -16,6 +16,7 @@ import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
 import * as skills from "./skills.js";
 import { freeAllowance } from "./free-window.js";
+import { testMcpServer } from "./mcp-test.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -437,6 +438,15 @@ export function createControlCenter({
       const saved = await mcpServers.upsertServer(server, env);
       const report = await mcpDeploy.deploy(await mcpServers.readServers(env), env);
       return { server: saved, report };
+    },
+
+    // Tests the server as the registry holds it — the entry the clients were
+    // given, not a hypothetical one — so what passes here is what they run.
+    async mcpTest(name) {
+      if (journal.shared) throw new Error("只读窗口不能管理 MCP");
+      const server = (await mcpServers.readServers(env)).find((s) => s.name === name);
+      if (!server) throw Object.assign(new Error("没有这个 MCP 服务"), { status: 404 });
+      return testMcpServer(server);
     },
 
     async mcpRemove(name) {

@@ -328,6 +328,10 @@ ipcMain.handle("lane:mcp-agents", async (_event, { name, agents } = {}) => {
   await startGateway();
   return control.mcpSetAgents(String(name || ""), Array.isArray(agents) ? agents : []);
 });
+ipcMain.handle("lane:mcp-test", async (_event, { name } = {}) => {
+  await startGateway();
+  return control.mcpTest(String(name || ""));
+});
 ipcMain.handle("lane:skills", async () => {
   await startGateway();
   return control.skillsList();

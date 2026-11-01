@@ -640,3 +640,27 @@ test("a changed legacy file is converted again", async (t) => {
   const journal = new RequestJournal({ dir });
   assert.deepEqual(journal.list().map((row) => row.id).sort(), ["a", "b"]);
 });
+
+test("a single request billed well above the everyday scale is flagged", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const big = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "kimi-k3.1-pro" });
+  journal.usage(big.id, { prompt_tokens: 30_000, completion_tokens: 1_000, credit: 22.8 });
+  const small = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "deepseek-v4.1-flash" });
+  journal.usage(small.id, { prompt_tokens: 20_000, completion_tokens: 500, credit: 0.21 });
+  const bigRow = journal.list().find((r) => r.id === big.id);
+  assert.equal(bigRow.anomaly, true, "22.8 credits in one request is worth calling out");
+  const smallRow = journal.list().find((r) => r.id === small.id);
+  assert.equal(smallRow.anomaly, undefined, "everyday cost stays unflagged");
+});
+
+test("an estimated row is never flagged", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "huge-model" });
+  // No upstream credit: the token formula fills in. A fabricated number
+  // flagging itself would be the gateway alarming on its own guess.
+  journal.usage(record.id, { prompt_tokens: 900_000, completion_tokens: 50_000 });
+  const [row] = journal.list();
+  assert.equal(row.anomaly, undefined);
+});

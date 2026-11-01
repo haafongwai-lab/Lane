@@ -190,3 +190,38 @@ test("a skills remove of a traversal name answers 400 and deletes nothing", asyn
   const list = await (await fetch(`${base}/lane/skills`)).json();
   assert.equal(list.skills.length, 1, "the library listing still works");
 });
+
+test("the MCP test route performs a real stdio handshake", async (t) => {
+  const { base, env, dir } = await start(t);
+  // A minimal but real MCP server: initialize + tools/list over stdio.
+  const serverScript = path.join(dir, "mini-mcp.cjs");
+  fs.writeFileSync(serverScript, `
+    let buffer = "";
+    process.stdin.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      let i;
+      while ((i = buffer.indexOf("\\n")) >= 0) {
+        const line = buffer.slice(0, i).trim();
+        buffer = buffer.slice(i + 1);
+        if (!line) continue;
+        const message = JSON.parse(line);
+        if (message.id === 1) {
+          process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "mini", version: "0.1.0" } } }) + "\\n");
+        } else if (message.id === 2) {
+          process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "echo" }] } }) + "\\n");
+        }
+      }
+    });
+  `);
+  await post(base, "/lane/mcp", { name: "mini", transport: "stdio", command: process.execPath, args: [serverScript], agents: ["codex"] });
+
+  const res = await post(base, "/lane/mcp/test", { name: "mini" });
+  assert.equal(res.status, 200);
+  const result = await res.json();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.tools, ["echo"]);
+  assert.match(result.phases[0], /mini 0\.1\.0/);
+
+  const missing = await post(base, "/lane/mcp/test", { name: "nope" });
+  assert.equal(missing.status, 404);
+});

@@ -1521,3 +1521,90 @@ test("a client that hangs up after the completed event is a delivered answer", a
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("a transient upstream failure is retried once, and the row says so", async () => {
+  let calls = 0;
+  const sse = () => new Response([
+    'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+    "data: [DONE]\n\n"
+  ].join(""), { headers: { "content-type": "text/event-stream" } });
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("WorkBuddy did not answer within 120s"), {
+          name: "AbortError", kind: "upstream-timeout"
+        });
+      }
+      return sse();
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200, "the retry carried the request");
+    assert.equal(calls, 2, "exactly one retry");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a refused request is not retried", async () => {
+  let calls = 0;
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      calls += 1;
+      return new Response(JSON.stringify({ code: 11158, msg: "not allowed for user type" }), { status: 400 });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 400);
+    assert.equal(calls, 1, "the vendor's answer is not second-guessed");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a 5xx upstream answer is retried once", async () => {
+  let calls = 0;
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("bad gateway", { status: 502 });
+      }
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+    });
+    assert.equal(response.status, 200);
+    assert.equal(calls, 2);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

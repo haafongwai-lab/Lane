@@ -1427,3 +1427,12 @@ h1 {
 /* An exhausted daily allowance is the one state on this card worth red. */
 .free-refused { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(160, 40, 40, .08); color: var(--red); font-size: 11px; }
 .free-credits-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 10.5px; color: var(--faint); }
+
+/* The live-connection test's verdict, inline where the command line reads. */
+.mcp-test { margin-top: 7px; font-size: 10.5px; line-height: 1.6; border-radius: 7px; padding: 6px 9px; max-width: 560px; }
+.mcp-test.running { color: var(--muted); }
+.mcp-test.ok { background: rgba(31, 107, 70, .09); color: var(--green); }
+.mcp-test.bad { background: rgba(160, 40, 40, .08); color: var(--red); }
+
+/* A single request whose cost stands out: the flag rides the cost cell. */
+.cost-flag { color: #b8860b; font-style: normal; font-size: 10px; }

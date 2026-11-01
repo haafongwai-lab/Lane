@@ -85,6 +85,45 @@ export async function* upstreamEvents(upstream) {
   yield { choices: [{ index: 0, delta: {}, finish_reason: choice.finish_reason || "stop" }] };
 }
 
+/**
+ * One automatic retry for the transient upstream failures, before anything
+ * reaches the client.
+ *
+ * The outages this gateway actually sees are short: an upstream that accepts
+ * the request and never sends a response head, or a connection that dies
+ * mid-handshake, recovering seconds later. The client sees a failure either
+ * way — and for an agent a failed turn costs a manual re-send of the whole
+ * context. So the header phase gets exactly one second attempt, after a
+ * short pause, recorded as attempt 2 on the row.
+ *
+ * The scope is deliberately narrow: nothing that streamed a byte (both
+ * callers retry only the provider.chat() call, before any head), nothing the
+ * upstream refused on purpose (4xx is the vendor's answer, a retry would
+ * send the same refused request again), and nothing a retry cannot help
+ * (client-closed). A 5xx reads as transient trouble and is retried; its body
+ * is drained first because a Response's stream locks on read.
+ */
+const RETRYABLE_MESSAGE = /\b(fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EPIPE|socket hang up)\b|did not answer within/i;
+
+async function chatWithRetry(provider, body, init, { record, journal } = {}) {
+  try {
+    const upstream = await provider.chat(body, init);
+    if (!upstream?.ok && (upstream?.status || 0) >= 500) {
+      await upstream.text().catch(() => "");
+      throw Object.assign(new Error(`upstream returned ${upstream.status}`), { retryable: true });
+    }
+    return upstream;
+  } catch (error) {
+    const retryable = error?.retryable
+      || kindOf(error) === ERROR_KIND.upstreamTimeout
+      || RETRYABLE_MESSAGE.test(String(error?.message || ""));
+    if (!retryable) throw error;
+  }
+  journal?.note(record?.id, { attempt: 2 });
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  return provider.chat(body, init);
+}
+
 export async function proxyChat(res, provider, body, options = {}) {
   const record = options.control?.journal.start({
     agent: options.agent || "openai",
@@ -107,7 +146,7 @@ export async function proxyChat(res, provider, body, options = {}) {
     }
   });
   try {
-    const upstream = await provider.chat(body, { signal: abort.signal });
+    const upstream = await chatWithRetry(provider, body, { signal: abort.signal }, { record, journal: options.control?.journal });
     // The upstream status is the request's outcome: a chat WorkBuddy refuses
     // arrives here as a Response with ok === false, and recording it as
     // "complete" hid the refusal from the journal and the activity list.
@@ -346,7 +385,7 @@ export async function proxyProtocol(res, provider, chat, options) {
   });
   try {
     state = { id: options.id };
-    const upstream = await provider.chat({ ...chat, stream: true }, { signal: abort.signal });
+    const upstream = await chatWithRetry(provider, { ...chat, stream: true }, { signal: abort.signal }, { record: options.record, journal: options.control?.journal });
     if (!upstream.ok) {
       const text = await upstream.text();
       options.control?.journal.finish(options.record?.id, {

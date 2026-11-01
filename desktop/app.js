@@ -6,6 +6,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 let snapshot = null;
 let activeView = "routing";
 let refreshing = false;
+let lastAnomalyToasted = null;
 let refreshQueued = null;
 // Toggles still waiting on their command, so a status poll that lands first
 // cannot render the old state over the user's click.
@@ -174,6 +175,14 @@ function render() {
   // a tip frozen over detached content reads as a bug, so it goes first.
   tipNode.hidden = true;
   const { signedIn, account, agents, models, recent = [] } = snapshot;
+  // One callout per anomalous row: the cost is the vendor's own number, and
+  // the user should see it the moment it lands, not on the next visit to the
+  // usage page. The id guard keeps a poll from repeating it.
+  var anomalyHead = recent.find(function (r) { return r.anomaly; });
+  if (anomalyHead && anomalyHead.id !== lastAnomalyToasted && anomalyHead.credits != null) {
+    lastAnomalyToasted = anomalyHead.id;
+    toast("注意：单次请求计费 " + anomalyHead.credits + " 积分（" + (anomalyHead.model || "") + "）");
+  }
   const running = recent.filter((item) => item.status === "running");
   const last = recent[0];
   const codexOn = agents?.codex?.connected;
@@ -859,7 +868,7 @@ function renderUsageRecent() {
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
-      <span class="recent-cost">${cost}</span>
+      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" title="单次计费异常高">⚠ 异常</i>' : ""}</span>
     </div>`;
   }).join("");
 }
@@ -1227,6 +1236,9 @@ async function loadExtensions() {
     var mcp = await window.lane.mcpList();
     extData.servers = mcp.servers || [];
     extData.targets = mcp.targets || [];
+    // Test results are tied to the registry row's content; a changed command
+    // invalidates them, and a load re-render keeps whatever was already run.
+    if (!extData.mcpTest) extData.mcpTest = {};
     renderMcp();
     var skills = await window.lane.skillsList();
     renderSkills(skills.skills || []);
@@ -1269,13 +1281,28 @@ function renderMcp() {
         '" title="' + esc(tip) + '"><i></i>' + AGENT_SHORT[target.agent] + "</span>";
     }).join("");
 
+    var testState = extData.mcpTest && extData.mcpTest[server.name];
+    var testLine = "";
+    if (testState) {
+      if (testState.running) testLine = '<div class="mcp-test running">测试中…</div>';
+      else if (testState.ok) {
+        var tools = (testState.tools || []).map(esc).join("、") || "（该服务未提供工具）";
+        testLine = '<div class="mcp-test ok">✓ ' + esc(testState.phases && testState.phases[0] || "连接成功") +
+          ' — ' + (testState.tools || []).length + ' 个工具：' + tools + "</div>";
+      } else {
+        testLine = '<div class="mcp-test bad">✗ ' + esc(testState.error || "连接失败") + "</div>";
+      }
+    }
+
     return '<div class="mcp-item' + (server.off ? " paused" : "") + '" data-name="' + esc(server.name) + '">' +
       '<div class="mcp-item-main">' +
         '<div class="mcp-item-name"><b>' + esc(server.name) + "</b><code>" + transportLabel(server) + "</code></div>" +
         '<div class="mcp-item-cmd">' + esc(commandLine(server)) + "</div>" +
+        testLine +
       "</div>" +
       '<div class="mcp-lamps">' + lamps + "</div>" +
       '<div class="mcp-item-actions">' +
+        '<button class="mini quiet" data-mcp-test="' + esc(server.name) + '"' + (server.off ? " disabled" : "") + '>测试</button>' +
         '<button class="mini' + (server.off ? "" : " quiet") + '" data-mcp-toggle="' + esc(server.name) + '">' +
           (server.off ? "启用" : "停用") + "</button>" +
         '<button class="icon-mini" data-mcp-remove="' + esc(server.name) + '" title="删除" aria-label="删除 ' +
@@ -1458,6 +1485,22 @@ $("#mcp-list").addEventListener("click", async function (event) {
       await window.lane.mcpToggle(row.name, !row.off);
       await loadExtensions();
     } catch (error) { toast(error.message || "操作失败", true); }
+    return;
+  }
+
+  var test = event.target.closest("[data-mcp-test]");
+  if (test) {
+    var name = test.getAttribute("data-mcp-test");
+    extData.mcpTest = extData.mcpTest || {};
+    extData.mcpTest[name] = { running: true };
+    renderMcp();
+    try {
+      var result = await window.lane.mcpTest(name);
+      extData.mcpTest[name] = { running: false, ok: Boolean(result.ok), error: result.error, tools: result.tools, phases: result.phases };
+    } catch (error) {
+      extData.mcpTest[name] = { running: false, ok: false, error: error.message || "测试失败" };
+    }
+    renderMcp();
     return;
   }
 

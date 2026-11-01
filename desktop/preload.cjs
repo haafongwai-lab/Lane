@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("lane", {
   mcpRemove: (name) => ipcRenderer.invoke("lane:mcp-remove", { name }),
   mcpToggle: (name, off) => ipcRenderer.invoke("lane:mcp-toggle", { name, off }),
   mcpSetAgents: (name, agents) => ipcRenderer.invoke("lane:mcp-agents", { name, agents }),
+  mcpTest: (name) => ipcRenderer.invoke("lane:mcp-test", { name }),
   skillsList: () => ipcRenderer.invoke("lane:skills"),
   skillsImport: (dir) => ipcRenderer.invoke("lane:skills-import", { dir }),
   skillsPickFolder: () => ipcRenderer.invoke("lane:skills-pick-folder"),
