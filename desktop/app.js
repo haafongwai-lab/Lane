@@ -795,18 +795,30 @@ function renderUsageContext(context, projects = []) {
   if (rows.length <= 1) {
     list.innerHTML = "";
     list.hidden = true;
+    ctxSelected.clear();
+    syncContextSelection(rows);
     return;
   }
   list.hidden = false;
-  list.innerHTML = rows.map((row) => {
+  // Selections survive a re-render, but a project that left the list (range
+  // switched, records cleared) leaves the selection with it.
+  const ids = new Set(rows.map((row) => row.id));
+  for (const id of [...ctxSelected]) if (!ids.has(id)) ctxSelected.delete(id);
+  const head = `<div class="usage-table-row usage-table-head">
+    <input type="checkbox" class="ctx-pick-all" aria-label="全选">
+    <span>项目</span><span>请求</span><span>上下文</span><span>缓存</span><span></span>
+  </div>`;
+  list.innerHTML = head + rows.map((row) => {
     const ctx = row.context;
     const fillText = ctx
       ? `${compact(ctx.used)} / ${compact(ctx.window)} · ${percent(ctx.fill)}`
       : "—";
     const hit = row.cacheHit == null ? "—" : percent(row.cacheHit);
     // The ✕ deletes this project's whole record from the journal; the count
-    // rides along so the confirm dialog states what will go.
+    // rides along so the confirm dialog states what will go. The box ticks it
+    // for the batch delete beside the heading.
     return `<div class="usage-table-row">
+      <input type="checkbox" class="ctx-pick" data-pick-project="${esc(row.id)}" aria-label="选择项目 ${esc(row.name || "未归属")}">
       <div class="usage-model"><b>${esc(row.name || "未归属")}</b><code>${esc(row.id ? "" : "无目录信息")}</code></div>
       <span>${row.requests}</span>
       <span class="usage-io">${fillText}</span>
@@ -814,6 +826,25 @@ function renderUsageContext(context, projects = []) {
       <button class="icon-mini" data-project="${esc(row.id)}" data-name="${esc(row.name || "未归属")}" data-count="${row.requests || 0}" data-tip="删除该项目的全部记录" aria-label="删除项目 ${esc(row.name || "未归属")} 的记录">✕</button>
     </div>`;
   }).join("");
+  syncContextSelection(rows);
+}
+
+// The batch selection for the context table: project ids, kept across
+// re-renders, pruned to what the list still shows.
+const ctxSelected = new Set();
+
+function syncContextSelection(rows) {
+  const button = $("#clear-projects-selected");
+  if (!button) return;
+  const picked = rows.filter((row) => ctxSelected.has(row.id));
+  const total = picked.reduce((sum, row) => sum + (row.requests || 0), 0);
+  button.hidden = picked.length === 0;
+  button.textContent = picked.length ? `删除选中（${picked.length} 个项目 / ${total} 条）` : "删除选中";
+  const all = $(".ctx-pick-all");
+  if (all) {
+    all.checked = rows.length > 0 && picked.length === rows.length;
+    all.indeterminate = !all.checked && picked.length > 0;
+  }
 }
 
 // A near-empty gauge is invisible at its true width, so a non-zero share
@@ -976,6 +1007,33 @@ $("#clear-selected").addEventListener("click", async () => {
 });
 // The context card's project rows: the ✕ removes that working directory's
 // whole record from the journal.
+$("#usage-context-projects").addEventListener("change", (event) => {
+  const box = event.target.closest(".ctx-pick");
+  if (box) {
+    const id = box.getAttribute("data-pick-project");
+    if (box.checked) ctxSelected.add(id);
+    else ctxSelected.delete(id);
+  } else if (event.target.closest(".ctx-pick-all")) {
+    const all = event.target.closest(".ctx-pick-all").checked;
+    $$("#usage-context-projects .ctx-pick").forEach((pick) => {
+      pick.checked = all;
+      const id = pick.getAttribute("data-pick-project");
+      if (all) ctxSelected.add(id);
+      else ctxSelected.delete(id);
+    });
+  }
+  // Counts come from the data attributes the rows already carry.
+  const rows = $$("#usage-context-projects .usage-table-row:not(.usage-table-head)").map((rowEl) => {
+    const pick = rowEl.querySelector(".ctx-pick");
+    const x = rowEl.querySelector("[data-project]");
+    return {
+      id: pick?.getAttribute("data-pick-project") || "",
+      requests: Number(x?.dataset.count) || 0
+    };
+  });
+  syncContextSelection(rows);
+});
+
 $("#usage-context-projects").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-project]");
   if (!button || button.disabled) return;
@@ -999,6 +1057,44 @@ $("#usage-context-projects").addEventListener("click", async (event) => {
   await refresh();
   await loadUsage();
 });
+
+$("#clear-projects-selected").addEventListener("click", async () => {
+  if (!ctxSelected.size) return;
+  const button = $("#clear-projects-selected");
+  // The counts ride on the rows; read them for the confirm dialog's total.
+  const rows = $$("#usage-context-projects .usage-table-row:not(.usage-table-head)");
+  const picked = rows
+    .map((rowEl) => ({
+      id: rowEl.querySelector(".ctx-pick")?.getAttribute("data-pick-project") || "",
+      name: rowEl.querySelector("[data-project]")?.dataset.name || "未归属",
+      count: Number(rowEl.querySelector("[data-project]")?.dataset.count) || 0
+    }))
+    .filter((row) => ctxSelected.has(row.id));
+  const total = picked.reduce((sum, row) => sum + row.count, 0);
+  if (!picked.length || !total) {
+    toast("选中的项目没有可删除的记录");
+    return;
+  }
+  const names = picked.map((row) => `「${row.name}」`).join("、");
+  if (!confirm(`删除 ${names} 的全部 ${total} 条请求记录？此操作不可恢复。`)) return;
+  button.disabled = true;
+  let removed = 0;
+  try {
+    for (const row of picked) {
+      const result = await window.lane.clearProject(row.id);
+      removed += result?.removed ?? 0;
+    }
+    toast(`已删除 ${removed} 条记录`);
+    ctxSelected.clear();
+  } catch (error) {
+    toast(error.message || "删除失败", true);
+  } finally {
+    button.disabled = false;
+  }
+  await refresh();
+  await loadUsage();
+});
+
 $("#usage-range").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-range]");
   if (!button || button.dataset.range === usageRange) return;

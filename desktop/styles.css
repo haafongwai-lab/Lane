@@ -1436,3 +1436,12 @@ h1 {
 
 /* A single request whose cost stands out: the flag rides the cost cell. */
 .cost-flag { color: #b8860b; font-style: normal; font-size: 10px; }
+
+/* The context table's batch-selection column: a narrow box before the name,
+   mirroring the recent list's pick column. */
+#usage-context-projects .usage-table-row,
+#usage-context-projects .usage-table-head {
+  grid-template-columns: 18px minmax(0, 1.2fr) .5fr 1.6fr .7fr 26px;
+}
+#usage-context-projects .ctx-pick,
+#usage-context-projects .ctx-pick-all { justify-self: start; accent-color: var(--green); }
