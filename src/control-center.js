@@ -101,17 +101,31 @@ export function createControlCenter({
   // another account is the route, so it is read per its own id — a network
   // round trip — and cached longer: an allowance moves slowly.
   const FREE_TTL_MS = 5 * 60_000;
+  // Stale-while-revalidate, deliberately: the usage route must not block on
+  // a WorkBuddy round trip - the first visit would render seconds late. A
+  // cached value answers at once and the refresh runs behind; the card
+  // appears on the next poll. A never-fetched cache answers null once.
   let freeUsageCache = null;
-  const cachedFreeUsage = async (instance, id) => {
-    if (freeUsageCache && Date.now() - freeUsageCache.at < FREE_TTL_MS) return freeUsageCache.value;
-    let value;
-    try {
-      value = await instance.usage(id);
-    } catch (error) {
-      value = { error: error?.message || "usage is unknown" };
+  const cachedFreeUsage = (instance, id) => {
+    const now = Date.now();
+    if (freeUsageCache && now - freeUsageCache.at < FREE_TTL_MS) {
+      return Promise.resolve(freeUsageCache.value);
     }
-    freeUsageCache = { at: Date.now(), value };
-    return value;
+    if (!freeUsageCache?.refreshing) {
+      freeUsageCache = {
+        at: freeUsageCache?.at ?? 0,
+        value: freeUsageCache?.value ?? null,
+        refreshing: true
+      };
+      instance.usage(id)
+        .then((value) => {
+          freeUsageCache = { at: Date.now(), value };
+        })
+        .catch(() => {
+          freeUsageCache = { at: Date.now(), value: { error: "usage is unknown" } };
+        });
+    }
+    return Promise.resolve(freeUsageCache?.value ?? null);
   };
 
   const invalidateUsage = () => usageCache.clear();

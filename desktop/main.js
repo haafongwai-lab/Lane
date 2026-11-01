@@ -587,11 +587,22 @@ app.whenReady().then(async () => {
           path.join(previewDir, "desktop-preview.png"),
           image.toPNG()
         );
-        for (const view of ["agents", "accounts", "models", "settings"]) {
+        for (const view of ["agents", "accounts", "models", "settings", "activity"]) {
           await window.webContents.executeJavaScript(
             `document.querySelector('.nav[data-view="${view}"]')?.click()`
           );
           await new Promise((resolve) => setTimeout(resolve, 250));
+          // The usage view's charts need a beat more, and its 15-day range
+          // exercises the widest bar layout the page ever renders.
+          if (view === "usage") {
+            // The usage fetch and the bar grow-in both need a beat before
+            // the widest layout is on screen.
+            await new Promise((resolve) => setTimeout(resolve, 900));
+            await window.webContents.executeJavaScript(
+              `document.querySelector('#usage-range button[data-range="15d"]')?.click()`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+          }
           const viewImage = await window.webContents.capturePage();
           await fs.writeFile(
             path.join(previewDir, `desktop-${view}.png`),

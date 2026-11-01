@@ -634,7 +634,10 @@ h1 {
 }
 /* A range with a single day (or one busy day and six quiet ones) must not
    stretch its bars across the whole panel. */
-.usage-bars.single .usage-bar { flex: 0 0 72px; }
+/* 72px slots while they fit (7d); shrinkable when they do not (15d) - a
+   fixed basis at 15 slots overflows the panel and spills the row under the
+   sidebar, misaligning every bar from its date. */
+.usage-bars.single .usage-bar { flex: 0 1 72px; }
 .usage-bars.single { justify-content: center; }
 .usage-bars.single .usage-bar-track { padding: 0 22%; }
 /* A day with no traffic keeps a faint stub so the axis reads as a whole. */
