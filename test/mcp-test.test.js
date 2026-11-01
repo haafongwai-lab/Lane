@@ -105,3 +105,57 @@ test("a server that answers initialize but refuses tools/list", async () => {
   assert.equal(result.ok, false);
   assert.match(result.error, /no tools/);
 });
+
+test("on Windows an ENOENT for a .cmd shim falls back to a shell attempt", async () => {
+  // npx is a batch shim on Windows: the bare spawn emits ENOENT async, and
+  // the clients run it through cmd.exe. The test must follow.
+  const calls = [];
+  const result = await testMcpServer(OK_SERVER, {
+    timeoutMs: 5000,
+    spawnImpl: (command, args, opts) => {
+      calls.push(opts.shell === true);
+      if (opts.shell !== true) {
+        // First attempt: the ENOENT, async as Node delivers it.
+        const failing = fakeChild([]);
+        queueMicrotask(() => failing.emit("error", Object.assign(new Error("spawn npx ENOENT"), { code: "ENOENT" })));
+        return failing;
+      }
+      return fakeChild([
+        (child) => child.emit_line(JSON.stringify({
+          jsonrpc: "2.0", id: 1,
+          result: { serverInfo: { name: "shim", version: "1.0" } }
+        })),
+        (child) => child.emit_line(JSON.stringify({
+          jsonrpc: "2.0", id: 2,
+          result: { tools: [{ name: "work" }] }
+        }))
+      ]);
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [false, true], "exactly one shell fallback");
+  assert.match(result.phases[0], /shell/);
+  assert.deepEqual(result.tools, ["work"]);
+});
+
+test("a non-Windows ENOENT does not retry through a shell", async () => {
+  const calls = [];
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  try {
+    const result = await testMcpServer(OK_SERVER, {
+      timeoutMs: 5000,
+      spawnImpl: (command, args, opts) => {
+        calls.push(opts.shell === true);
+        const failing = fakeChild([]);
+        queueMicrotask(() => failing.emit("error", Object.assign(new Error("spawn npx ENOENT"), { code: "ENOENT" })));
+        return failing;
+      }
+    });
+    assert.equal(result.ok, false);
+    assert.deepEqual(calls, [false], "one attempt only");
+    assert.match(result.error, /ENOENT/);
+  } finally {
+    Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+  }
+});
