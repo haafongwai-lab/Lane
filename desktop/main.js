@@ -309,7 +309,10 @@ ipcMain.handle("lane:usage", async (_event, { range } = {}) => {
 });
 ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
-  return control.clearHistory(Array.isArray(ids) ? ids : null);
+  // { removed } rather than the bare number: the renderer reads
+  // result.removed, and a number's .removed is undefined - which turned
+  // every successful delete's toast into "0 条" while the rows went.
+  return { removed: control.clearHistory(Array.isArray(ids) ? ids : null) };
 });
 ipcMain.handle("lane:mcp", async (_event, { server } = {}) => {
   await startGateway();
@@ -362,7 +365,7 @@ ipcMain.handle("lane:skills-uninstall", async (_event, { name, agent } = {}) => 
 });
 ipcMain.handle("lane:clear-project", async (_event, { project } = {}) => {
   await startGateway();
-  return control.clearProject(project ?? "");
+  return { removed: control.clearProject(project ?? "") };
 });
 ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
