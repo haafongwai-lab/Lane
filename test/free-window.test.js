@@ -3,15 +3,14 @@ import assert from "node:assert/strict";
 import { freeAllowance } from "../src/free-window.js";
 
 /**
- * The card is about a *plan*, not a model. Measured on the real accounts:
- * the domestic plan bills deepseek-v4.1-flash on every request (899 credits
- * across two accounts), while the international Free plan charges nothing for
- * it and reports the model in `notModels`. An earlier version of this module
- * assumed the model itself was free within a rolling window; the journal
- * disproved that, and these tests pin the corrected reading.
+ * Measured on the real accounts the last version got wrong: the Free plan
+ * refuses paid models outright (11158 personal_free_user), never billed a
+ * credit across 28.6M tokens of free-model traffic, and still reports a
+ * Credits window with usage - consumed outside Lane. Credits and free models
+ * are two allowances; these tests pin them as separate.
  */
 
-const NOW = Date.parse("2026-11-01T00:00:00Z");
+const NOW = Date.parse("2026-11-01T05:00:00Z"); // 13:00 local (UTC+8)
 
 function usage(overrides = {}) {
   return {
@@ -29,72 +28,65 @@ function usage(overrides = {}) {
   };
 }
 
-function row(model, { status = "complete", credits = 0, at = NOW } = {}) {
-  return { model, status, credits, startedAt: at };
+function row(model, { status = "complete", at = NOW, tokens = 1000, error = "" } = {}) {
+  return { model, status, error, startedAt: at, inputTokens: tokens, outputTokens: 0 };
 }
 
-test("a Free plan's allowance is read from the account's own report", () => {
+test("the credits window is reported as the paid allowance, verbatim", () => {
   const a = freeAllowance(usage(), [], { now: NOW });
-  assert.ok(a);
-  assert.equal(a.plan, "Free");
-  assert.ok(Math.abs(a.used - 117.58) < 1e-9);
-  assert.equal(a.limit, 310);
-  assert.ok(Math.abs(a.left - 192.42) < 1e-9);
-  assert.equal(Math.round(a.percent), 38);
-  assert.ok(Math.abs(a.leftYuan - 192.42 / 20) < 1e-9);
-  assert.deepEqual(a.freeModels, ["hy3", "deepseek-v4.1-flash"]);
-  // 18 days 16h from now: the allowance serves today too, so the count is
-  // ceil — "含今天还可用 19 天" is the reading a user acts on.
-  assert.equal(a.daysLeft, 19);
+  assert.ok(Math.abs(a.credits.used - 117.58) < 1e-9);
+  assert.equal(a.credits.limit, 310);
+  assert.ok(Math.abs(a.credits.left - 192.42) < 1e-9);
+  assert.equal(a.credits.runsOutAt, "2026-11-19T16:14:43.000Z");
 });
 
-test("a paid plan gets no card at all", () => {
-  // The domestic accounts are the measured case: every request is billed.
+test("free-model usage is counted over the local day only", () => {
+  const rows = [
+    row("deepseek-v4.1-flash", { at: NOW - 20 * 3600 * 1000, tokens: 5000000 }),
+    row("deepseek-v4.1-flash", { at: NOW - 3600 * 1000, tokens: 2000000 }),
+    row("hy3", { at: NOW - 60 * 1000, tokens: 100000 }),
+    row("gpt-6-luna", { at: NOW - 30 * 1000, tokens: 900000 }),
+    row("deepseek-v4.1-flash", { at: NOW - 20 * 1000, status: "error" })
+  ];
+  const a = freeAllowance(usage(), rows, { now: NOW });
+  assert.equal(a.freeRequestsToday, 2);
+  assert.equal(a.freeTokensToday, 2100000);
+  assert.equal(a.freeRequestsTotal, 3, "the whole journal's free rows, not just today");
+});
+
+test("an in-force refusal is surfaced with its reset time", () => {
+  const reset = "2026-11-02T00:00:00Z";
+  const rows = [
+    row("deepseek-v4.1-flash", {
+      status: "error",
+      error: "allowance exhausted, reset at 2026-11-02 08:00:00 UTC+8"
+    })
+  ];
+  const a = freeAllowance(usage(), rows, { now: NOW });
+  assert.equal(a.refusedUntil, "2026-11-02T00:00:00.000Z", "UTC+8 08:00 = 00:00Z");
+});
+
+test("a refusal whose reset has passed is history, not a state", () => {
+  const rows = [
+    row("deepseek-v4.1-flash", {
+      status: "error",
+      error: "allowance exhausted, reset at 2026-10-31 20:00:00 UTC+8"
+    })
+  ];
+  const a = freeAllowance(usage(), rows, { now: NOW });
+  assert.equal(a.refusedUntil, "");
+});
+
+test("a paid plan gets nothing; so do failed reports", () => {
   assert.equal(freeAllowance({ plan: "Personal", windows: usage().windows }, [], { now: NOW }), null);
-  assert.equal(freeAllowance({ plan: "Pro", windows: usage().windows }, [], { now: NOW }), null);
-});
-
-test("a failed or empty usage report gets no card", () => {
   assert.equal(freeAllowance(null, [], { now: NOW }), null);
   assert.equal(freeAllowance({ error: "not signed in" }, [], { now: NOW }), null);
-  assert.equal(freeAllowance({ plan: "Free", windows: [] }, [], { now: NOW }), null);
   assert.equal(freeAllowance(usage({ limit: 0 }), [], { now: NOW }), null);
 });
 
-test("request counting follows the plan's own not-models list", () => {
-  const rows = [
-    row("deepseek-v4.1-flash"),
-    row("hy3"),
-    row("glm-5.3-flash"),          // charged on this plan: not counted
-    row("deepseek-v4.1-flash", { status: "error" })
-  ];
-  const a = freeAllowance(usage(), rows, { now: NOW });
-  assert.equal(a.freeRequests, 2, "two answered requests on free models");
-});
-
-test("a report that names no not-models counts answered traffic", () => {
-  const rows = [row("anything"), row("else"), row("x", { status: "error" })];
+test("the plan's own not-models list decides what counts as free", () => {
+  const rows = [row("anything"), row("else")];
   const a = freeAllowance(usage({ notModels: [] }), rows, { now: NOW });
-  assert.equal(a.freeRequests, 2);
-});
-
-test("an exhausted allowance reads as zero left, not as absent", () => {
-  const a = freeAllowance(usage({ amount: 310 }), [], { now: NOW });
-  assert.ok(Math.abs(a.left) < 1e-9);
-  assert.ok(Math.abs(a.percent - 100) < 1e-9);
-});
-
-test("a missing reset date leaves the days unknown rather than inventing one", () => {
-  const a = freeAllowance(usage({ runsOutAt: "" }), [], { now: NOW });
-  assert.equal(a.runsOutAt, "");
-  assert.equal(a.daysLeft, null);
-});
-
-test("the raw amount wins when a build sends both forms", () => {
-  // `amount` is the credits spent; `used` may be a percentage of the limit.
-  const a = freeAllowance(usage({ amount: 62, used: 20 }), [], { now: NOW });
-  assert.ok(Math.abs(a.used - 62) < 1e-9);
-  assert.ok(Math.abs(a.left - 248) < 1e-9);
-  const b = freeAllowance(usage({ amount: undefined, used: 50 }), [], { now: NOW });
-  assert.ok(Math.abs(b.used - 155) < 1e-9, "50% of 310");
+  assert.equal(a.freeRequestsToday, 2, "no list: every answered request counts");
+  assert.deepEqual(a.freeModels, []);
 });

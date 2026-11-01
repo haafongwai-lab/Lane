@@ -553,13 +553,13 @@ function growUsageBars(node) {
   });
 }
 
-// WorkBuddy's own meter: the cycle's credits against what the plan grants.
-// The international Free plan's allowance: a credits grant that renews on a
-// cycle, and the models WorkBuddy lists as not charging against it. Read from
-// that account's own report — nothing here is derived from the journal's
-// credit column, because a Free account's rows carry credits: 0 and counting
-// them as "saved" would invent a figure the vendor never quoted. The request
-// count says what the allowance has been carrying from this machine.
+// The international Free plan has two separate allowances, and this card
+// keeps them separate the way WorkBuddy does: the Credits window (which the
+// plan's paid models would draw on, and which free models are explicitly
+// excluded from) verbatim from the account's report, and the free models'
+// usage today from this machine's journal. No daily limit is shown for the
+// free side because nothing reports one; when the vendor exhausts it, it
+// refuses with a reset time, and that is what the card surfaces.
 function renderFreeAllowance(allowance) {
   const node = $("#usage-free");
   if (!allowance) {
@@ -568,28 +568,29 @@ function renderFreeAllowance(allowance) {
     return;
   }
   node.hidden = false;
-  const reset = allowance.runsOutAt
-    ? new Date(allowance.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+  const reset = allowance.credits.runsOutAt
+    ? new Date(allowance.credits.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
   const models = (allowance.freeModels || []).map(esc).join("、");
+  const tokens = (Number(allowance.freeTokensToday) || 0) / 1e6;
+  const refused = allowance.refusedUntil
+    ? new Date(allowance.refusedUntil).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
   const lastFree = allowance.lastFreeAt
     ? new Date(allowance.lastFreeAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
   node.innerHTML = `
     <div class="free-head">
-      <span class="free-title">免费计划额度（${esc(allowance.plan)}）</span>
-      <span class="soft-label">${allowance.daysLeft != null ? `剩 ${allowance.daysLeft} 天` : ""}</span>
+      <span class="free-title">免费模型（每日额度）</span>
+      <span class="soft-label">${refused ? "已达上限" : "额度内"}</span>
     </div>
-    <div class="quota-amount"><b>${creditNumber(allowance.left)}</b><span>剩余积分 / 共 ${creditNumber(allowance.limit)}（¥${rmb(allowance.leftYuan)}）</span></div>
-    <div class="quota-meter"><i style="width:${Number(allowance.percent || 0).toFixed(1)}%"></i></div>
+    <div class="quota-amount"><b>${allowance.freeRequestsToday}</b><span>今日请求 / ${(tokens).toFixed(1)}M tokens</span></div>
     <div class="quota-foot">
-      <span>已用 ${percent((allowance.percent || 0) / 100)}</span>
-      ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
+      <span>不计费模型：${models || "—"}</span>
+      <span>本机累计 ${allowance.freeRequestsTotal} 次${lastFree ? `，最近 ${esc(lastFree)}` : ""}</span>
     </div>
-    <div class="free-foot">
-      <span>不计费模型：${models || "—"}</span><br>
-      <span>本机已代跑 ${allowance.freeRequests} 次免费请求${lastFree ? `，最近 ${esc(lastFree)}` : ""}</span>
-    </div>`;
+    ${refused ? `<div class="free-refused">免费额度已耗尽，${esc(refused)} 重置；此前将无法使用这些模型</div>` : ""}
+    <div class="free-credits-note">积分 ${creditNumber(allowance.credits.left)} / ${creditNumber(allowance.credits.limit)} 剩余，供付费模型使用；免费模型不占积分${reset ? `，${esc(reset)} 重置` : ""}</div>`;
 }
 
 function renderUsageQuota(quota) {

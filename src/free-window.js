@@ -1,86 +1,99 @@
 /**
- * What remains of the international build's free-plan allowance.
+ * The international build's two allowances, which are not one.
  *
- * A WorkBuddy AI *Free* account is granted a credits allowance that renews on
- * a cycle, and the models it lists as `notModels` cost nothing against it —
- * on a real account those are `hy3` and `deepseek-v4.1-flash`. The domestic
- * build bills the same models per request, which is why a journal can show
- * thousands of charged rows on `deepseek-v4.1-flash` and a Free account on
- * the other site show none: what is free is the *plan*, not the model name.
+ * Measured on a real Free account: paid models are refused outright (11158,
+ * "not allowed for user type personal_free_user"), the free models
+ * (WorkBuddy's own `notModels` list) never charged a credit across 28.6M
+ * tokens, and yet the account's Credits window still reports usage — consumed
+ * outside Lane, or by the vendor's own rules for an exhausted free allowance.
+ * What is certain: the Credits window and the free models are two separate
+ * allowances, and conflating them misstates both.
  *
- * So this card is about an account, not a model. It reads the account's own
- * usage report — the one WorkBuddy returns, `Credits` window with `used`,
- * `limit`, `runsOutAt` and `notModels` — and adds what Lane can see that the
- * report cannot: how many requests this machine has made on the free models,
- * and how long the allowance has been running.
+ * So this module reports them separately, and invents nothing:
  *
- * Nothing here is derived from the journal's credit column. A Free account's
- * rows carry `credits: 0` because the allowance covered them, so counting
- * them as "saved credits" would invent a figure the vendor never quoted.
+ *   - credits: the account's `Credits` window as WorkBuddy returns it — the
+ *     paid allowance. Used, limit, reset, verbatim.
+ *   - freeUsageToday: this machine's requests on the free models, counted
+ *     over the local day from the journal. No limit is shown because no
+ *     endpoint reports one; when the vendor does exhaust it, it refuses with
+ *     a reset time, which surfaces here as `refusedUntil`.
  */
 
-/** The plan whose allowance this is. Anyone else bills per request. */
+/** The plan whose shape this module describes. Anyone else bills per request. */
 const FREE_PLAN = /^free$/i;
 
-/**
- * The free allowance of one account, or null when the account is not on a
- * free plan, is not signed in, or reports no usable window.
- *
- * `usage` is the provider's usage result: { plan, windows: [...] }.
- * `rows` is the journal, used only for the request count and the span.
- */
 export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
   if (!usage || usage.error) return null;
   if (!FREE_PLAN.test(String(usage.plan || "").trim())) return null;
 
   const windows = Array.isArray(usage.windows) ? usage.windows : [];
-  // The credits window is the allowance; a build that names it something else
-  // still gets one card, from whatever window it did send.
   const window = windows.find((item) => /credit/i.test(String(item?.name || ""))) || windows[0];
   if (!window) return null;
 
   const limit = Number(window.limit) || 0;
   if (limit <= 0) return null;
-  // `amount` is what the vendor shows as spent; `used` is the same figure as
-  // a percentage on some builds, so the raw amount is preferred and the
-  // percentage is only a fallback.
+  // `amount` is the credits spent; `used` is the same figure as a percentage
+  // on some builds, so the raw amount is preferred and the percentage only a
+  // fallback.
   const used = Number.isFinite(Number(window.amount))
     ? Number(window.amount)
     : (Number(window.used) || 0) / 100 * limit;
-  const left = Math.max(0, limit - used);
-  const percent = Math.min(100, (100 * used) / limit);
-
-  // The models this plan does not charge for: what makes the card worth
-  // showing at all, and what the request count below is counted over.
-  const freeModels = Array.isArray(window.notModels) ? window.notModels.map(String) : [];
-  const free = rows.filter((row) => {
-    if (row?.status === "error") return false;
-    const model = String(row?.model || "");
-    if (!model) return false;
-    return freeModels.length ? freeModels.includes(model) : true;
-  });
-
   const runsOutAt = window.runsOutAt || usage.runsOutAt || "";
-  const days = runsOutAt
-    ? Math.max(0, Math.ceil((Date.parse(runsOutAt) - now) / 86_400_000))
-    : null;
+
+  // The models WorkBuddy itself says are not charged. A build that names none
+  // falls back to counting every answered request as free traffic.
+  const freeModels = Array.isArray(window.notModels) ? window.notModels.map(String) : [];
+  const isFreeModel = (model) => {
+    const name = String(model || "");
+    if (!name) return false;
+    return freeModels.length ? freeModels.includes(name) : true;
+  };
+
+  // Today, local to this machine: the day a user means by "每天".
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const dayStart = day.getTime();
+
+  const freeRows = rows.filter((row) => row?.status !== "error" && isFreeModel(row?.model));
+  const todayRows = freeRows.filter((row) => row.startedAt >= dayStart);
+  const todayTokens = todayRows.reduce(
+    (sum, row) => sum + (Number(row.inputTokens) || 0) + (Number(row.outputTokens) || 0),
+    0
+  );
+
+  // A refusal naming a reset is the one observable sign the daily allowance
+  // is exhausted. The latest one still in force is shown; one whose reset has
+  // passed is history, not a state. The vendor names its own offset, and it
+  // is applied: reading "08:00 UTC+8" as 08:00Z would put the reset eight
+  // hours late.
+  let refusedUntil = "";
+  for (const row of rows) {
+    if (row?.status !== "error" || !isFreeModel(row?.model)) continue;
+    const message = String(row?.error || "");
+    const at = /reset at (\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/i.exec(message);
+    if (!at) continue;
+    const offset = /(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?/i.exec(message);
+    // A reset with no named offset cannot be placed; guessing one would put
+    // it hours from where the vendor meant, so it is not surfaced.
+    if (!offset) continue;
+    const minutes = Number(offset[2]) * 60 + Number(offset[3] ?? 0);
+    if (minutes > 14 * 60) continue;
+    const atMs = Date.UTC(+at[1], +at[2] - 1, +at[3], +at[4], +at[5], +at[6])
+      - (offset[1] === "-" ? -minutes : minutes) * 60_000;
+    if (atMs > now && atMs > (Date.parse(refusedUntil) || 0)) {
+      refusedUntil = new Date(atMs).toISOString();
+    }
+  }
 
   return {
     plan: usage.plan || "Free",
-    used,
-    limit,
-    left,
-    percent,
-    // Credits and yuan travel together on this page elsewhere; a Free plan's
-    // allowance is still quoted in the same credits, so the same conversion
-    // applies.
-    leftYuan: left / 20,
-    runsOutAt: runsOutAt || "",
-    daysLeft: days,
+    credits: { used, limit, left: Math.max(0, limit - used), percent: Math.min(100, (100 * used) / limit), runsOutAt },
     freeModels,
-    // This machine's traffic on the free models, so the card says what the
-    // allowance has been carrying rather than only what is left of it.
-    freeRequests: free.length,
-    lastFreeAt: free.length ? Math.max(...free.map((row) => Number(row.startedAt) || 0)) : 0
+    // Today's free-model traffic from this machine, local day.
+    freeRequestsToday: todayRows.length,
+    freeTokensToday: todayTokens,
+    freeRequestsTotal: freeRows.length,
+    lastFreeAt: freeRows.length ? Math.max(...freeRows.map((row) => Number(row.startedAt) || 0)) : 0,
+    refusedUntil
   };
 }
