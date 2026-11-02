@@ -30,7 +30,7 @@
           <div>
             <div class="eyebrow">本地链路</div>
             <h1>一条链路，清晰好用</h1>
-            <p class="sub">Codex、Claude Desktop 与 ZCode 共用一个 WorkBuddy 出口。</p>
+            <p class="sub">Codex、Claude Desktop、ZCode 与 DSH 共用一个 WorkBuddy 出口。</p>
           </div>
           <div class="heading-actions">
             <button class="ghost" id="test-route">测试链路</button>
@@ -73,6 +73,10 @@
                 <div class="agent-mark" id="client-zcode-mark">
                   <div class="node-logo zcode-logo" id="client-zcode-logo"><img src="assets/zcode-official-256.png" alt=""></div>
                   <span>ZCode</span>
+                </div>
+                <div class="agent-mark" id="client-dsh-mark">
+                  <div class="node-logo dsh-logo" id="client-dsh-logo"><img src="assets/dsh-official-256.png" alt=""></div>
+                  <span>DSH</span>
                 </div>
               </div>
               <strong id="client-name">Codex</strong>
@@ -156,6 +160,18 @@
             <div class="agent-detail"><span>配置</span><code>~/.zcode/v2/provider_config.json</code></div>
             <p class="agent-note">写入 lane 提供方并把它的模型清单指向网关，其余提供方与设置保持不变。</p>
             <div class="card-actions"><button class="primary" id="zcode-connect">接入 ZCode</button><button class="ghost" id="zcode-disconnect">断开</button></div>
+          </article>
+
+          <article class="agent-card">
+            <span class="connection-state" id="dsh-connect-state">未接入</span>
+            <div class="agent-title">
+              <div class="agent-icon dsh"><img src="assets/dsh-official-256.png" alt=""></div>
+              <div class="agent-name"><h2>DeepSeek Harness</h2><p>OpenAI Chat Completions</p></div>
+            </div>
+            <div class="agent-detail"><span>方式</span><b>自定义提供方</b></div>
+            <div class="agent-detail"><span>配置</span><code>~/.dsh/profiles/desktop/cordis.patch.yml</code></div>
+            <p class="agent-note">写入 lane 提供方并带上模型清单，其余提供方与设置保持不变。</p>
+            <div class="card-actions"><button class="primary" id="dsh-connect">接入 DSH</button><button class="ghost" id="dsh-disconnect">断开</button></div>
           </article>
         </div>
 
@@ -263,6 +279,7 @@
                 <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="claude-desktop" checked><b>Claude Desktop</b></label>
                 <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="codex" checked><b>Codex</b></label>
                 <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="zcode" checked><b>ZCode</b></label>
+                <label class="mcp-chip"><input type="checkbox" class="mcp-agent" value="dsh" checked><b>DSH</b></label>
               </div>
 
               <div class="mcp-json">

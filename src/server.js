@@ -164,7 +164,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         const meta = await modelMeta(provider, body.model);
         await proxyChat(res, provider, body, {
           control,
-          agent: "openai",
+          agent: isDsh(req) ? "dsh" : "openai",
           requested,
           endpoint: url.pathname,
           model: body.model,
@@ -388,7 +388,19 @@ function isClaudeDesktop(req) {
 // own client, and the Claude Desktop UA is the one reliable tell - the
 // Anthropic Messages wire otherwise looks the same from both.
 function messagesClientAgent(req) {
-  return isClaudeDesktop(req) ? "claude-desktop" : "zcode";
+  if (isClaudeDesktop(req)) return "claude-desktop";
+  if (isDsh(req)) return "dsh";
+  return "zcode";
+}
+
+// DeepSeek Harness speaks plain OpenAI chat completions, like any other
+// compatible client, and sends no User-Agent of its own - so every request it
+// makes used to be journaled as a generic "openai" one. Lane writes a marker
+// header into the provider it deploys for the harness, and reads it back
+// here. A client that never went through Lane's deploy simply keeps the
+// generic attribution.
+function isDsh(req) {
+  return String(req.headers["x-lane-client"] || "").toLowerCase().trim() === "dsh";
 }
 
 // CJK text runs close to a token per character, while Latin text runs close

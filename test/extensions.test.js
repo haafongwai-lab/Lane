@@ -24,7 +24,8 @@ function tempEnv(t) {
       LOCALAPPDATA: path.join(dir, "AppData", "Local"),
       LANE_CLAUDE_LOCALAPPDATA: path.join(dir, "AppData", "Local"),
       CODEX_HOME: path.join(dir, ".codex"),
-      ZCODE_HOME: path.join(dir, ".zcode")
+      ZCODE_HOME: path.join(dir, ".zcode"),
+      DSH_HOME: path.join(dir, ".dsh")
     }
   };
 }
@@ -305,4 +306,78 @@ test("a legacy v2/config.json entry is cleaned up on the next deploy", async (t)
   assert.deepEqual(doc.provider, { mine: true }, "ZCode's own data survives");
   const cli = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
   assert.ok(cli.mcp?.servers?.ticket, "the entry lives in the CLI config");
+});
+
+test("a server reaches DeepSeek Harness as its own Cordis entry", async (t) => {
+  const { env } = tempEnv(t);
+  assertSandboxed(env);
+  const servers = [
+    { name: "weather", transport: "stdio", command: "npx", args: ["-y", "w"], env: { KEY: "v" }, agents: ["dsh"] }
+  ];
+  const report = await deploy(servers, env);
+  const mine = report.find((r) => r.agent === "dsh");
+  assert.deepEqual(mine.written, ["weather"]);
+
+  const file = path.join(env.DSH_HOME, "profiles", "desktop", "cordis.patch.yml");
+  const text = fs.readFileSync(file, "utf8");
+  // The harness's own schema: one loader entry per server, the id prefixed so
+  // a later deploy can strip exactly Lane's entries.
+  assert.match(text, /^- id: mcp-lane-weather$/m);
+  assert.match(text, /^ {2}name: "@deepseek-ai\/dsh-mcp-client"$/m);
+  assert.match(text, /^ {4}serverName: weather$/m);
+  assert.match(text, /^ {4}transport: stdio$/m);
+  assert.match(text, /^ {4}command: "npx"$/m);
+  assert.match(text, /^ {4}args: \["-y", "w"\]$/m);
+  assert.match(text, /^ {4}env:$/m);
+  assert.match(text, /^ {6}KEY: "v"$/m);
+});
+
+test("a redeploy replaces the harness entries and keeps the user's own", async (t) => {
+  const { env } = tempEnv(t);
+  assertSandboxed(env);
+  const file = path.join(env.DSH_HOME, "profiles", "desktop", "cordis.patch.yml");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // The user's own patch layer: a theme entry and their own MCP server.
+  fs.writeFileSync(file, [
+    "# my own patch layer",
+    "- id: ui-theme",
+    '  name: "@deepseek-ai/dsh-client-ui-theme"',
+    "  config:",
+    "    preference: light",
+    "- id: mcp-mine",
+    '  name: "@deepseek-ai/dsh-mcp-client"',
+    "  config:",
+    "    serverName: mine",
+    "    transport: stdio",
+    '    command: "mine.exe"',
+    ""
+  ].join("\n"));
+
+  await deploy([{ name: "a", transport: "stdio", command: "a.exe", agents: ["dsh"] }], env);
+  await deploy([{ name: "b", transport: "stdio", command: "b.exe", agents: ["dsh"] }], env);
+
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /# my own patch layer/, "the user's comment survives");
+  assert.match(text, /- id: ui-theme/, "their own entries survive");
+  assert.match(text, /mcp-mine/, "their own MCP server survives");
+  assert.doesNotMatch(text, /mcp-lane-a\b/, "the removed server is gone");
+  assert.match(text, /mcp-lane-b\b/, "the new one is present");
+  assert.equal((text.match(/mcp-lane-/g) || []).length, 1, "no duplicate entries");
+});
+
+test("an http server reaches the harness as streamable-http", async (t) => {
+  const { env } = tempEnv(t);
+  assertSandboxed(env);
+  await deploy([{
+    name: "remote",
+    transport: "http",
+    url: "https://x.example/mcp",
+    headers: { Authorization: "Bearer t" },
+    agents: ["dsh"]
+  }], env);
+  const file = path.join(env.DSH_HOME, "profiles", "desktop", "cordis.patch.yml");
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /transport: streamable-http/);
+  assert.match(text, /url: "https:\/\/x\.example\/mcp"/);
+  assert.match(text, /Authorization: "Bearer t"/);
 });

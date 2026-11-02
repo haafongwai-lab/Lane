@@ -9,6 +9,7 @@ import {
   disconnectClaudeDesktop
 } from "./agents/claude-desktop.js";
 import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./agents/zcode.js";
+import { connectDsh, disconnectDsh, dshStatus, dshPatchPath } from "./agents/dsh.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
 import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
@@ -185,6 +186,14 @@ export function createControlCenter({
         providerModels: () => instance.listModels()
       });
     }
+    if (agent === "dsh") {
+      const instance = await getProvider();
+      return connectDsh({
+        env,
+        gateway: target,
+        providerModels: () => instance.listModels()
+      });
+    }
     throw new Error(`unknown agent: ${agent}`);
   };
 
@@ -192,6 +201,7 @@ export function createControlCenter({
     if (agent === "codex") return disconnectCodex({ env });
     if (agent === "claude-desktop") return disconnectClaudeDesktop({ env });
     if (agent === "zcode") return disconnectZcode({ env });
+    if (agent === "dsh") return disconnectDsh({ env });
     throw new Error(`unknown agent: ${agent}`);
   };
 
@@ -279,7 +289,12 @@ export function createControlCenter({
           zcode: {
             connected: Boolean(state.zcode?.connected),
             configPath: zcodePaths(env).config
-          }
+          },
+          dsh: await dshStatus({ env }).catch(() => ({
+            connected: false,
+            configPath: dshPatchPath(env),
+            installed: false
+          }))
         },
         autostart,
         signInPending: signInPending.size > 0,
@@ -351,17 +366,19 @@ export function createControlCenter({
       const instance = await getProvider();
       const account = await instance.activate(id);
       forgetUsage();
-      // The catalogue belongs to the account now in force, and ZCode keeps
-      // its copy in its own file: refresh it at the switch, not whenever the
-      // window next polls. A failure here must not fail the switch itself.
-      await instance.listModels().then(
-        (models) => models?.length
-          ? Promise.all([
+      // The catalogue belongs to the account now in force, and both clients
+      // keep a copy in files of their own: refresh them at the switch, not
+      // whenever the window next polls. allSettled rather than all - one
+      // client's write failing must not cancel the other's, and neither may
+      // fail the switch itself.
+      await instance.listModels()
+        .then((models) => (models?.length
+          ? Promise.allSettled([
             syncCodexCatalog({ env, models }),
             syncZcodeCatalog({ env, models })
-          ]).catch(() => {})
-          : null
-      ).catch(() => {});
+          ])
+          : null))
+        .catch(() => {});
       return account;
     },
 

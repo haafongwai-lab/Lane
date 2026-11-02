@@ -223,6 +223,9 @@ function showWindow() {
 
 function createWindow() {
   window = new BrowserWindow({
+    // The size it opens at before maximizing: a sensible restore size for a
+    // user who un-maximizes, and the fallback on a display too small to
+    // maximize into usefully.
     width: 1440,
     height: 920,
     minWidth: 1040,
@@ -244,8 +247,15 @@ function createWindow() {
       window.hide();
     }
   });
+  // Every window opens maximized. The four-column route canvas and the usage
+  // grids are laid out for a wide surface, and the fixed 1440x920 start
+  // stacked two of them on a normal monitor. `maximize()` rather than
+  // `fullscreen`: fullscreen drops the title bar the window controls live in.
+  // The size is not locked - restoring or resizing stays the user's call.
   window.once("ready-to-show", () => {
-    if (!startHidden) window.show();
+    if (startHidden) return;
+    window.maximize();
+    window.show();
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
     const allowed = openableUrl(url);

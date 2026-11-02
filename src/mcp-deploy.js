@@ -3,6 +3,7 @@ import path from "node:path";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
 import { zcodePaths } from "./agents/zcode.js";
+import { dshPatchPath } from "./agents/dsh.js";
 import { readState, writeState, writeTextAtomic } from "./agents/store.js";
 
 /**
@@ -87,10 +88,6 @@ function stripCodexEntry(text, name) {
 
 // ---- entries per client ----------------------------------------------------
 
-function codexEntry(server) {
-  return codexEntryText(server);
-}
-
 function claudeEntry(server) {
   const entry = { command: server.command };
   if (server.args?.length) entry.args = server.args;
@@ -112,6 +109,83 @@ function zcodeEntry(server) {
   if (server.args?.length) entry.args = server.args;
   if (server.env && Object.keys(server.env).length) entry.env = server.env;
   return entry;
+}
+
+// ---- DeepSeek Harness: one Cordis entry per server ------------------------
+//
+// The harness registers MCP servers as loader entries in the active profile's
+// patch layer, one entry per server, with the server's own name as the entry
+// id and `serverName` as its tool namespace. Its README gives the shape; the
+// transport is `stdio` or `streamable-http`, and there is no shared table to
+// write into.
+
+const DSH_ENTRY_PREFIX = "mcp-lane-";
+
+// The namespace the harness accepts for a server's tool names.
+function dshServerName(name) {
+  return String(name || "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32);
+}
+
+function dshEntryId(name) {
+  return `${DSH_ENTRY_PREFIX}${dshServerName(name)}`;
+}
+
+function dshEntryText(server) {
+  const lines = [
+    `- id: ${dshEntryId(server.name)}`,
+    `  name: "@deepseek-ai/dsh-mcp-client"`,
+    `  config:`,
+    `    serverName: ${dshServerName(server.name)}`
+  ];
+  if (server.transport === "http") {
+    lines.push(`    transport: streamable-http`);
+    lines.push(`    url: ${yamlQuoted(server.url)}`);
+    const headers = Object.entries(server.headers || {});
+    if (headers.length) {
+      lines.push(`    headers:`);
+      for (const [key, value] of headers) lines.push(`      ${key}: ${yamlQuoted(value)}`);
+    }
+    return lines.join("\n");
+  }
+  lines.push(`    transport: stdio`);
+  lines.push(`    command: ${yamlQuoted(server.command)}`);
+  if (server.args?.length) {
+    lines.push(`    args: [${server.args.map((arg) => yamlQuoted(arg)).join(", ")}]`);
+  }
+  const env = Object.entries(server.env || {});
+  if (env.length) {
+    lines.push(`    env:`);
+    for (const [key, value] of env) lines.push(`      ${key}: ${yamlQuoted(value)}`);
+  }
+  return lines.join("\n");
+}
+
+// A YAML double-quoted scalar: the harness reads these as plain strings, and
+// quoting keeps a value with a colon or a leading bracket from being reparsed.
+function yamlQuoted(value) {
+  return JSON.stringify(String(value ?? ""));
+}
+
+// Removes every lane-deployed MCP entry from a patch-layer text, leaving the
+// user's own entries and comments untouched.
+function stripDshEntries(text) {
+  const lines = String(text).split(/\r?\n/);
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const isEntry = /^-\s+id:\s*["']?/.test(line);
+    if (isEntry) {
+      skipping = new RegExp(`^-\\s+id:\\s*["']?${DSH_ENTRY_PREFIX}`).test(line);
+      if (skipping) continue;
+    }
+    if (skipping) continue;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+function dshConfigs(env) {
+  return [{ file: dshPatchPath(env) }];
 }
 
 function claudeConfigs(env) {
@@ -144,13 +218,6 @@ function codexConfigs(env) {
   return [{ file: codexConfigPath(env) }];
 }
 
-function clientConfigs(agent, env) {
-  if (agent === "claude-desktop") return claudeConfigs(env);
-  if (agent === "codex") return codexConfigs(env);
-  if (agent === "zcode") return zcodeConfigs(env);
-  return [];
-}
-
 /** Split the registry: what a client takes, and what it cannot. */
 function forClient(servers, agent, stdioOnly) {
   const mine = servers.filter((s) => s.agents.includes(agent) && !s.off);
@@ -158,14 +225,6 @@ function forClient(servers, agent, stdioOnly) {
     active: mine.filter((s) => !(stdioOnly && s.transport === "http")),
     unsupported: mine.filter((s) => stdioOnly && s.transport === "http").map((s) => s.name),
   };
-}
-
-async function writeIfChanged(file, text) {
-  const before = await readMaybe(file);
-  if (before === text) return false;
-  await ensureDir(file);
-  await writeTextAtomic(file, text);
-  return true;
 }
 
 async function writeIfChangedJSON(file, doc) {
@@ -193,6 +252,7 @@ export async function targets(env = process.env) {
   });
   out.push({ agent: "codex", stdioOnly: true, config: codexConfigPath(env) });
   out.push({ agent: "zcode", stdioOnly: false, config: zcodeCliConfigPath(env) });
+  out.push({ agent: "dsh", stdioOnly: false, config: dshPatchPath(env) });
   return out;
 }
 
@@ -291,6 +351,35 @@ export async function deploy(servers, env = process.env) {
   } else if (zExisted) {
     report.push({ agent: "zcode", error: "配置无法解析，已跳过" });
   }
+
+  // -- DeepSeek Harness: one Cordis entry per server in the patch layer ------
+  // The harness has no shared table: each server is its own loader entry, so
+  // a redeploy strips Lane's entries and writes the active set again.
+  const dsh = forClient(servers, "dsh", false);
+  const dshFile = dshPatchPath(env);
+  const dshBefore = await readMaybe(dshFile);
+  const previousText = dshBefore ?? "";
+  const stripped = stripDshEntries(previousText);
+  const blocks = dsh.active.map((s) => dshEntryText(s));
+  const trimmed = stripped.replace(/\s*$/, "");
+
+  // Keep a trailing newline only when there is content to terminate; a patch
+  // layer emptied by an undeploy leaves nothing behind the header comment.
+  const dshAfter = blocks.length
+    ? `${trimmed ? `${trimmed}\n\n` : ""}${blocks.join("\n\n")}\n`
+    : trimmed
+      ? `${trimmed}\n`
+      : "";
+
+  if (dshAfter !== previousText) {
+    if (!dshAfter) await fs.rm(dshFile, { force: true });
+    else {
+      await ensureDir(dshFile);
+      await writeTextAtomic(dshFile, dshAfter);
+    }
+  }
+  state.mcp.dsh = dsh.active.map((s) => s.name);
+  report.push({ agent: "dsh", written: dsh.active.map((s) => s.name), unsupported: [] });
 
   await writeState(state, env);
   return report;

@@ -22,11 +22,7 @@ function compact(number) {
   return String(Math.round(value));
 }
 
-function duration(ms) {
-  if (ms == null) return "—";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(ms >= 10_000 ? 1 : 2)}s`;
-}
+
 
 function creditNumber(value) {
   const number = Number(value);
@@ -188,6 +184,7 @@ function render() {
   const codexOn = agents?.codex?.connected;
   const claudeOn = agents?.claudeDesktop?.connected;
   const zcodeOn = agents?.zcode?.connected;
+  const dshOn = agents?.dsh?.connected;
 
   $("#route-live-dot").className = "dot ok";
   $("#route-live").textContent = running.length ? "处理中" : "实时";
@@ -195,7 +192,7 @@ function render() {
   // The rail only animates while a request is on the wire, so the motion
   // always means something is happening rather than looping for decoration.
   $(".route-canvas").classList.toggle("busy", running.length > 0);
-  renderRouteAgent(last, { codexOn, claudeOn, zcodeOn });
+  renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn });
   // "starting" is what the main process answers while the gateway is coming
   // up or retrying after a failed start; a fixed "运行中" would mask that.
   $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
@@ -217,6 +214,9 @@ function render() {
   $("#zcode-connect-state").textContent = zcodeOn ? "已接入" : "未接入";
   $("#zcode-connect-state").classList.toggle("on", zcodeOn);
   $("#zcode-connect").textContent = zcodeOn ? "重新接入 ZCode" : "接入 ZCode";
+  $("#dsh-connect-state").textContent = dshOn ? "已接入" : "未接入";
+  $("#dsh-connect-state").classList.toggle("on", dshOn);
+  $("#dsh-connect").textContent = dshOn ? "重新接入 DSH" : "接入 DSH";
   // The settings page owns the port field now; keep it from being cleared
   // while the user is typing, and only fill it once.
   const portField = $("#gateway-port");
@@ -370,7 +370,7 @@ async function accountAction(action, id, options = {}) {
 
 // The route's agent slot shows whichever agent sent the latest request,
 // falling back to the connected one, and the workflow lists both.
-function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn }) {
+function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn }) {
   // The AGENT node shows every client that is wired, so the route reads the
   // same whether one, two or all of them are in use. Each mark carries its
   // own name under its logo: Codex's star and Claude's asterisk read alike
@@ -378,7 +378,8 @@ function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn }) {
   const clients = [
     { on: codexOn, mark: "#client-codex-mark", full: "Codex" },
     { on: claudeOn, mark: "#client-claude-mark", full: "Claude Desktop" },
-    { on: zcodeOn, mark: "#client-zcode-mark", full: "ZCode" }
+    { on: zcodeOn, mark: "#client-zcode-mark", full: "ZCode" },
+    { on: dshOn, mark: "#client-dsh-mark", full: "DeepSeek Harness" }
   ];
   const live = clients.filter((client) => client.on);
   for (const client of clients) {
@@ -454,7 +455,7 @@ async function loadUsage() {
 
 // Short forms: the recent list's source column is one narrow grid cell, and a
 // long label there wraps the row to double height.
-const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", openai: "OpenAI" };
+const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", dsh: "DSH", openai: "OpenAI" };
 
 function agentLabel(agent) {
   return AGENT_LABELS[agent] || agent || "未知来源";
@@ -1125,7 +1126,9 @@ $("#codex-disconnect").addEventListener("click", () => command("disconnect", { a
 $("#claude-connect").addEventListener("click", () => command("connect", { agent: "claude-desktop" }, "Claude Desktop 已接入，请重启客户端"));
 $("#claude-disconnect").addEventListener("click", () => command("disconnect", { agent: "claude-desktop" }, "Claude Desktop 已断开"));
 $("#zcode-connect").addEventListener("click", () => command("connect", { agent: "zcode" }, "ZCode 已接入，请重启客户端"));
+$("#dsh-connect").addEventListener("click", () => command("connect", { agent: "dsh" }, "DeepSeek Harness 已接入，请重启客户端"));
 $("#zcode-disconnect").addEventListener("click", () => command("disconnect", { agent: "zcode" }, "ZCode 已断开"));
+$("#dsh-disconnect").addEventListener("click", () => command("disconnect", { agent: "dsh" }, "DeepSeek Harness 已断开"));
 $("#quick-signin").addEventListener("click", () => signIn());
 // Two builds, two sign-in pages: the menu picks which one this account joins.
 $("#add-account").addEventListener("click", (event) => {
@@ -1335,7 +1338,7 @@ setInterval(() => {
 // ---- extensions: MCP + skills ---------------------------------------------
 
 var extData = { servers: [], targets: [] };
-var AGENT_SHORT = { "claude-desktop": "Claude", codex: "Codex", zcode: "ZCode" };
+var AGENT_SHORT = { "claude-desktop": "Claude", codex: "Codex", zcode: "ZCode", dsh: "DSH" };
 var AGENT_INITIAL = { "claude-desktop": "C", codex: "X", zcode: "Z" };
 
 function extError(id, message) {

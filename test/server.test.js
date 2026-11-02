@@ -269,6 +269,45 @@ test("the embedded claude-code runtime is served as Claude Desktop too", async (
   }
 });
 
+test("a request carrying Lane's DSH marker is attributed to the harness", async () => {
+  // The harness sends no User-Agent of its own, so every request it made was
+  // journaled as a generic "openai" one. Lane writes the marker header into
+  // the provider it deploys for it and reads it back here.
+  const provider = {
+    async listModels() { return [{ id: "hy3", name: "Hy3" }]; },
+    async chat() {
+      return new Response([
+        'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        "data: [DONE]\n\n"
+      ].join(""), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const journal = new (await import("../src/request-journal.js")).RequestJournal({
+    dir: await fs.mkdtemp(path.join(os.tmpdir(), "lane-dsh-attr-"))
+  });
+  const server = createServer({ provider, control: { journal, invalidateUsage() {} } });
+  const base = await listen(server);
+  try {
+    for (const [headers, want] of [
+      [{ "x-lane-client": "dsh" }, "dsh"],
+      [{ "x-lane-client": "DSH" }, "dsh"],
+      [{}, "openai"],
+      [{ "x-lane-client": "something-else" }, "openai"]
+    ]) {
+      const response = await fetch(`${base}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify({ model: "hy3", messages: [{ role: "user", content: "hi" }] })
+      });
+      await response.text();
+      const row = journal.list()[0];
+      assert.equal(row.agent, want, JSON.stringify(headers));
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("count_tokens answers with a local estimate", async () => {
   const server = createServer();
   const base = await listen(server);

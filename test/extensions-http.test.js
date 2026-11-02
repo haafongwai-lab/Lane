@@ -68,7 +68,9 @@ test("MCP routes: add, list with targets, toggle, set agents, remove", async (t)
   // Empty at first, and the client list is there for the lamps.
   const empty = await (await fetch(`${base}/lane/mcp`)).json();
   assert.deepEqual(empty.servers, []);
-  assert.equal(empty.targets.length, 3);
+  // Claude Desktop, Codex, ZCode, DeepSeek Harness.
+  assert.equal(empty.targets.length, 4);
+  assert.deepEqual(empty.targets.map((t) => t.agent).sort(), ['claude-desktop', 'codex', 'dsh', 'zcode']);
 
   // Add one, deployed to two clients.
   const added = await post(base, "/lane/mcp", {
