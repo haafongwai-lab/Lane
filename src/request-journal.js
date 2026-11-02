@@ -348,7 +348,7 @@ export class RequestJournal {
     // compaction. The next write is the last word on what the file holds.
     this.appends = COMPACT_AFTER;
     this.save();
-    console.log(`lane: cleared before today - ${removed} row(s) removed, ${this.requests.length} kept`);
+    console.error(`lane: cleared before today - ${removed} row(s) removed, ${this.requests.length} kept`);
     return removed;
   }
 
@@ -378,7 +378,7 @@ export class RequestJournal {
     this.rebuildBilledRates();
     this.appends = COMPACT_AFTER;
     this.save();
-    console.log(`lane: deleted by id - ${removed} row(s) of ${drop.size} requested`);
+    console.error(`lane: deleted by id - ${removed} row(s) of ${drop.size} requested`);
     return removed;
   }
 
@@ -388,19 +388,38 @@ export class RequestJournal {
    */
   removeByProject(projectId) {
     const key = String(projectId ?? "");
-    const held = this.requests.filter((request) => (request.project || "") === key);
-    if (!held.length) {
-      console.error(`lane: project delete matched nothing - ${JSON.stringify(key)} not among the projects held (${this.requests.length} rows, ${new Set(this.requests.map((r) => r.project || "")).size} distinct)`);
+    // One pass: the membership test, the count of rows about to leave, and
+    // the distinct-project figure the diagnostic wants all come from it. Two
+    // extra full scans per call (up to MAX_ROWS each) bought nothing.
+    const kept = [];
+    let held = 0;
+    let running = 0;
+    for (const request of this.requests) {
+      const mine = (request.project || "") === key;
+      if (!mine) {
+        kept.push(request);
+        continue;
+      }
+      held += 1;
+      // A running row survives a deletion, as everywhere else.
+      if (request.status === "running") {
+        running += 1;
+        kept.push(request);
+      }
     }
-    const kept = this.requests.filter(
-      (request) => (request.project || "") !== key || request.status === "running"
-    );
+    if (!held) {
+      const distinct = new Set(this.requests.map((request) => request.project || "")).size;
+      console.error(`lane: project delete matched nothing - ${JSON.stringify(key)} not among the projects held (${this.requests.length} rows, ${distinct} distinct)`);
+    } else if (held === running) {
+      console.error(`lane: project delete skipped - all ${running} matched request(s) are still running`);
+    }
+    // Same computation as before (length - kept), now without a second filter.
     const removed = this.requests.length - kept.length;
     this.requests = kept;
     this.rebuildBilledRates();
     this.appends = COMPACT_AFTER;
     this.save();
-    console.log(`lane: deleted by project - ${removed} row(s) of project ${JSON.stringify(key)}`);
+    console.error(`lane: deleted by project - ${removed} row(s) of project ${JSON.stringify(key)}`);
     return removed;
   }
 

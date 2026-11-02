@@ -578,15 +578,22 @@ app.whenReady().then(async () => {
         await new Promise((resolve) => setTimeout(resolve, 4500));
         if (window.isMinimized() || !window.isVisible()) window.show();
         window.focus();
-        const image = await window.webContents.capturePage();
         const previewDir = app.isPackaged
           ? path.join(dataDir(), "preview")
           : path.join(DESKTOP_DIR, "..", "dist");
         await fs.mkdir(previewDir, { recursive: true });
-        await fs.writeFile(
-          path.join(previewDir, "desktop-preview.png"),
-          image.toPNG()
-        );
+        // The previews are a side effect, not the assertion: a headless or
+        // occluded desktop cannot capture a surface, and that must not take
+        // the smoke run's own result down with it.
+        const capture = async (name) => {
+          try {
+            const shot = await window.webContents.capturePage();
+            await fs.writeFile(path.join(previewDir, name), shot.toPNG());
+          } catch (error) {
+            console.error(`preview ${name} skipped: ${error.message}`);
+          }
+        };
+        await capture("desktop-preview.png");
         for (const view of ["agents", "accounts", "models", "settings", "activity"]) {
           await window.webContents.executeJavaScript(
             `document.querySelector('.nav[data-view="${view}"]')?.click()`
@@ -594,7 +601,7 @@ app.whenReady().then(async () => {
           await new Promise((resolve) => setTimeout(resolve, 250));
           // The usage view's charts need a beat more, and its 15-day range
           // exercises the widest bar layout the page ever renders.
-          if (view === "usage") {
+          if (view === "activity") {
             // The usage fetch and the bar grow-in both need a beat before
             // the widest layout is on screen.
             await new Promise((resolve) => setTimeout(resolve, 900));
@@ -603,11 +610,7 @@ app.whenReady().then(async () => {
             );
             await new Promise((resolve) => setTimeout(resolve, 1200));
           }
-          const viewImage = await window.webContents.capturePage();
-          await fs.writeFile(
-            path.join(previewDir, `desktop-${view}.png`),
-            viewImage.toPNG()
-          );
+          await capture(`desktop-${view}.png`);
         }
         const status = await control.status();
         console.log(JSON.stringify({

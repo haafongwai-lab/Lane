@@ -104,36 +104,44 @@ export function createControlCenter({
   // Stale-while-revalidate, deliberately: the usage route must not block on
   // a WorkBuddy round trip - the first visit would render seconds late. A
   // cached value answers at once and the refresh runs behind; the card
-  // appears on the next poll. A never-fetched cache answers null once.
-  let freeUsageCache = null;
+  // appears on the next poll. A never-fetched account answers null once.
+  //
+  // Keyed by account: two overseas accounts hold different allowances, and a
+  // single slot would hand the second one the first one's figures for five
+  // minutes after a switch.
+  const freeUsageCache = new Map();
   const cachedFreeUsage = (instance, id) => {
+    const key = String(id || "");
+    const entry = freeUsageCache.get(key);
     const now = Date.now();
-    if (freeUsageCache && now - freeUsageCache.at < FREE_TTL_MS) {
-      return Promise.resolve(freeUsageCache.value);
-    }
-    if (!freeUsageCache?.refreshing) {
-      freeUsageCache = {
-        at: freeUsageCache?.at ?? 0,
-        value: freeUsageCache?.value ?? null,
-        refreshing: true
-      };
+    if (entry && now - entry.at < FREE_TTL_MS) return Promise.resolve(entry.value);
+    if (!entry?.refreshing) {
+      freeUsageCache.set(key, { at: entry?.at ?? 0, value: entry?.value ?? null, refreshing: true });
       instance.usage(id)
         .then((value) => {
-          freeUsageCache = { at: Date.now(), value };
+          freeUsageCache.set(key, { at: Date.now(), value });
         })
         .catch(() => {
-          freeUsageCache = { at: Date.now(), value: { error: "usage is unknown" } };
+          freeUsageCache.set(key, { at: Date.now(), value: { error: "usage is unknown" } });
         });
     }
-    return Promise.resolve(freeUsageCache?.value ?? null);
+    return Promise.resolve(freeUsageCache.get(key)?.value ?? null);
   };
 
-  const invalidateUsage = () => usageCache.clear();
+  // A finished request spends credits upstream, so both caches are stale the
+  // moment it lands - including the free allowance's, which the card exists
+  // to keep current. Dropping the entry (rather than only expiring it) makes
+  // the next poll revalidate behind the answer instead of serving the pre-
+  // request figure for up to FREE_TTL_MS.
+  const invalidateUsage = () => {
+    usageCache.clear();
+    freeUsageCache.clear();
+  };
   // Switching, switching off or removing the route invalidates every entry:
   // the figure that matters is always the current account's.
   const forgetUsage = () => {
     usageCache.clear();
-    freeUsageCache = null;
+    freeUsageCache.clear();
   };
 
   // Only the process that owns the gateway runs the daily check-in; a
