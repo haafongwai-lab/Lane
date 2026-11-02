@@ -55,3 +55,25 @@ test("the free allowance read never blocks the usage route", () => {
   assert.match(fn, /Promise\.resolve\(freeUsageCache\.get\(key\)\?\.value \?\? null\)/);
   assert.doesNotMatch(fn, /await instance\.usage\(/);
 });
+
+test("a batch delete records each project's outcome instead of aborting", () => {
+  // One failing project used to throw out of the loop: the earlier ones were
+  // already gone, the later ones never ran, and the user saw a single error
+  // with no account of either. Every project now reports, and the summary
+  // names the ones that failed.
+  const APP = fs.readFileSync(path.join(HERE, "..", "desktop", "app.js"), "utf8");
+  const handler = APP.slice(
+    APP.indexOf('$("#clear-projects-selected").addEventListener'),
+    APP.indexOf('$("#usage-range").addEventListener')
+  );
+  assert.match(handler, /const failed = \[\]/);
+  assert.match(handler, /for \(const row of picked\)/);
+  assert.match(handler, /try \{[\s\S]*await window\.lane\.clearProject\(row\.id\)[\s\S]*\} catch \(error\) \{[\s\S]*failed\.push/,
+    "each project is wrapped in its own try");
+  assert.match(handler, /ctxSelected\.delete\(row\.id\)/,
+    "only the successful project leaves the selection");
+  assert.match(handler, /成功 \$\{ok\} 个、失败 \$\{failed\.length\} 个/,
+    "the summary states both counts");
+  assert.match(handler, /failed\.map\(\(item\) => `「\$\{item\.name\}」/,
+    "the failures are named");
+});

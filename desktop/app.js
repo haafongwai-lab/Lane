@@ -1084,23 +1084,31 @@ $("#clear-projects-selected").addEventListener("click", async () => {
   const names = picked.map((row) => `「${row.name}」`).join("、");
   if (!confirm(`删除 ${names} 的全部 ${total} 条请求记录？此操作不可恢复。`)) return;
   button.disabled = true;
+  // Each project is its own operation: one failing must not abandon the rest
+  // half-done with a single error line and no account of where it stopped.
+  // Every outcome is recorded, the successful ones are dropped from the
+  // selection, and the summary says exactly what happened to each.
+  const failed = [];
   let removed = 0;
-  try {
-    for (const row of picked) {
+  for (const row of picked) {
+    try {
       const result = await window.lane.clearProject(row.id);
       removed += result?.removed ?? 0;
+      ctxSelected.delete(row.id);
+    } catch (error) {
+      failed.push({ name: row.name, message: error?.message || "删除失败" });
     }
-    if (removed > 0) {
-      toast(`已删除 ${removed} 条记录`);
-      ctxSelected.clear();
-    } else {
-      toast("没有删除记录：所选项目在当前记录里已不存在", true);
-    }
-  } catch (error) {
-    toast(error.message || "删除失败", true);
-  } finally {
-    button.disabled = false;
   }
+  if (failed.length) {
+    const ok = picked.length - failed.length;
+    const detail = failed.map((item) => `「${item.name}」：${item.message}`).join("；");
+    toast(`成功 ${ok} 个、失败 ${failed.length} 个 — ${detail}`, true);
+  } else if (removed > 0) {
+    toast(`已删除 ${removed} 条记录（${picked.length} 个项目）`);
+  } else {
+    toast("没有删除记录：所选项目在当前记录里已不存在", true);
+  }
+  button.disabled = false;
   await refresh();
   await loadUsage();
 });
