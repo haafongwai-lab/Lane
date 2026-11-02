@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
 import { readAuth, writeAuth } from "./auth-store.js";
 import { parsePid, processAlive } from "./pid.js";
+import { writeJSON } from "./agents/store.js";
 
 /**
  * WorkBuddy keeps several accounts at once: every account that has signed in
@@ -167,10 +168,9 @@ export async function writeAccounts(state, env = process.env) {
   // mode 0o600 keeps other *POSIX* users out; on Windows Node cannot map it
   // to an ACL, so the file inherits the profile's default permissions. That
   // is the accepted threat model here — one user's own machine, no other
-  // local accounts to defend against.
-  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(temp, target);
+  // local accounts to defend against. The shared writer applies the same
+  // mode and the same temp-then-rename.
+  await writeJSON(target, state);
   return state;
 }
 

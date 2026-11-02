@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
+import { writeJSON } from "./agents/store.js";
 import { crossProcessLock } from "./accounts.js";
 
 /**
@@ -75,9 +75,7 @@ export async function readCheckin(env = process.env) {
 async function writeCheckin(state, env = process.env) {
   const target = fileOf(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(temp, target);
+  await writeJSON(target, state);
   return state;
 }
 

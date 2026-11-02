@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
+import { writeJSON } from "./agents/store.js";
 
 const authFile = (env) => path.join(dataDir(env), "workbuddy-auth.json");
 
@@ -23,10 +23,10 @@ export async function writeAuth(auth, env = process.env) {
     return;
   }
   const target = authFile(env);
+  // The directory's 0700 is set here rather than left to the shared writer:
+  // this file holds tokens.
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(temp, target);
+  await writeJSON(target, auth);
 }
 
 export async function clearAuth(env = process.env) {

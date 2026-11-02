@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { dataDir, DEFAULT_PORT } from "./config.js";
+import { writeJSON } from "./agents/store.js";
 
 // Gateway settings the desktop app can change at runtime. Only the port
 // lives here for now; the host stays loopback — exposing the gateway to
@@ -47,8 +47,6 @@ export async function writeSettings(patch, env = process.env) {
   const next = { ...stored, port };
   const target = file(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(temp, target);
+  await writeJSON(target, next);
   return next;
 }
