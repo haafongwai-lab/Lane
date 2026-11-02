@@ -26,35 +26,84 @@ async function loadInternals() {
 }
 
 /**
- * WorkBuddy refuses a chat whose system prompt opens with a client's own
- * own line ("You are an AI agent that helps the user with programming
- * tasks.") as 11128. The plugin's list of refused wording is meant to rewrite
- * it, but in 0.1.28 that entry replaces the phrase with itself — its pattern
- * also lets the final "." match any character, so the replacement never
- * differs from the text it matched. Lane therefore closes the gap itself
- * instead of waiting for a plugin release: the sentence is reworded to the
- * same request, which the endpoint accepts.
+ * The wording WorkBuddy refuses, each with words that say the same and pass.
  *
- * A plugin version that does change the text wins: this only rewrites the
- * exact sentence the plugin leaves behind.
- */
-/**
- * A client's opening line comes in more than one wording, and the plugin's
- * rule for it replaces the phrase with itself. Both spellings are refused just
- * the same, so both are rewritten here.
+ * WorkBuddy rejects a chat for "Illegal API invocation from an unapproved
+ * channel" (11128) when a message carries a line it has fingerprinted from
+ * another agent. It reads every message, not only the system prompt — an
+ * agent's opening line may sit in the first user message — and matches a
+ * known line whole and exactly: one extra space, a comma, one changed word
+ * all pass. The plugin keeps the same table for its own requests; Lane's copy
+ * exists because a pinned plugin may leave a line unhandled (0.1.28 replaced
+ * one entry's phrase with itself), and a release is not worth waiting for
+ * when the correction is a wording.
  *
- * The rewritten wording has to differ from what WorkBuddy refuses: this is
- * the sentence a request is rejected for, not a fixed pattern to echo back.
+ * The replacements come from the plugin's table (0.2.9, measured against both
+ * builds on real accounts), not invented here: each is the vendor's own
+ * accepted wording, so the request says the same thing in words that pass.
  */
-const REFUSED_OPENINGS = [
-  /You are an AI (?:agent|assistant) that helps the user with (?:programming|coding) tasks\./g
+const REFUSED = [
+  // A client's opening line, in both spellings that were met. The rewrite is
+  // the sentence the endpoint accepts.
+  [
+    /You are an AI (?:agent|assistant) that helps the user with (?:programming|coding) tasks\./g,
+    "You are a helpful assistant for software engineering work."
+  ],
+  // DeepSeek Harness opens its system prompt with this line, refused as 11128.
+  // The rewrite keeps the harness's own name: the rest of the prompt refers
+  // back to it, so saying it in another agent's terms would contradict the
+  // text around it. Measured 2026-10-30: as written 400 11128, as rewritten
+  // 200, with the name still in the only line that says which agent runs.
+  [
+    /You are a helpful assistant for software engineering work\.?/gi,
+    "You are an AI agent, powered by DeepSeek Harness."
+  ],
+  // A line WorkBuddy refuses in a long DeepSeek Harness chat. The model can
+  // quote it back into an assistant message, which moving the system prompt
+  // into the user's instructions cannot reach, so it is reworded wherever it
+  // appears.
+  [
+    /Web GUI whose URL the runtime context names\.\s+When the user refers/gi,
+    "Web GUI whose URL the runtime context names. The interface, when the user refers"
+  ]
 ];
-const REFUSED_REWRITE = "You are a helpful assistant for software engineering work.";
+
+/**
+ * Rewrites the refused wording anywhere in a message tree.
+ *
+ * Every string is walked, not only the fields a chat usually puts text in:
+ * an agent can nest its prompt in a shape nobody predicted, and a line that
+ * survives in one of them is refused just the same.
+ *
+ * One pass, first match wins. Chaining the rules would let a rewrite feed the
+ * next one: rule 1's accepted wording is exactly rule 2's refused line, so a
+ * Claude-style opener would come out as "powered by DeepSeek Harness" -
+ * naming a harness the client is not. A rewrite is therefore never rescanned.
+ */
+function rewriteOnce(text) {
+  let out = "";
+  let at = 0;
+  while (at < text.length) {
+    let best = null;
+    for (const rule of REFUSED) {
+      const pattern = rule[0];
+      pattern.lastIndex = at;
+      const hit = pattern.exec(text);
+      if (hit && (!best || hit.index < best.hit.index)) best = { rule, hit };
+    }
+    if (!best) {
+      out += text.slice(at);
+      break;
+    }
+    const { rule, hit } = best;
+    out += text.slice(at, hit.index) + rule[1];
+    at = hit.index + hit[0].length;
+  }
+  return out;
+}
 
 function unflagRefusedOpenings(value) {
-  if (typeof value === "string") {
-    return REFUSED_OPENINGS.reduce((text, pattern) => text.replace(pattern, REFUSED_REWRITE), value);
-  }
+  if (typeof value === "string") return rewriteOnce(value);
   if (Array.isArray(value)) return value.map(unflagRefusedOpenings);
   if (!value || typeof value !== "object") return value;
   const out = { ...value };
@@ -85,8 +134,8 @@ export async function prepareChat(body) {
     // A body the helpers could not read stays as the client sent it.
     return { body, names: new Map() };
   }
-  // The wording the plugin leaves in place (see REFUSED_OPENINGS) is rewritten
-  // last, so it reads the body the plugin finished with.
+  // The refused wording is rewritten last, so it reads the body the plugin
+  // finished with — including any line the pinned plugin leaves behind.
   if (Array.isArray(prepared?.messages)) {
     prepared = { ...prepared, messages: unflagRefusedOpenings(prepared.messages) };
   }

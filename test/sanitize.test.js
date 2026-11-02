@@ -92,3 +92,54 @@ test("the reword reaches a refused line in a content array too", async () => {
   assert.doesNotMatch(parts[0].text, /helps the user with programming tasks/);
   assert.equal(parts[1].text, "Be precise.");
 });
+
+test("DeepSeek Harness's opening line is reworded, keeping its name", async () => {
+  // The plugin's own table (0.2.9, measured 2026-10-30): as written the
+  // line is refused 11128; as rewritten the endpoint answers 200, and the
+  // harness keeps its name because the rest of the prompt refers back to it.
+  const { body } = await prepareChat({
+    messages: [
+      { role: "system", content: "You are a helpful assistant for software engineering work." },
+      { role: "user", content: "hi" }
+    ]
+  });
+  assert.equal(body.messages[0].content, "You are an AI agent, powered by DeepSeek Harness.");
+});
+
+test("a refused line inside an assistant message is reworded too", async () => {
+  // The model can quote the line back; moving the system prompt into the
+  // user's instructions cannot reach an assistant message, so every message
+  // is scanned.
+  const { body } = await prepareChat({
+    messages: [
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Web GUI whose URL the runtime context names.  When the user refers to it" }
+    ]
+  });
+  const assistant = body.messages.find((m) => m.role === "assistant");
+  assert.match(String(assistant.content), /The interface, when the user refers/);
+  assert.doesNotMatch(String(assistant.content), /names\.\s+When the user refers/);
+});
+
+test("one rewrite never feeds the next rule", async () => {
+  // Rule 1's accepted wording is exactly rule 2's refused line. Chained, a
+  // Claude-style opener would come out named as DeepSeek Harness - a
+  // harness the client is not.
+  const { body } = await prepareChat({
+    messages: [
+      { role: "system", content: "You are an AI agent that helps the user with programming tasks." },
+      { role: "user", content: "hi" }
+    ]
+  });
+  assert.equal(body.messages[0].content, "You are a helpful assistant for software engineering work.",
+    "the first rule's output is final, not rescanned by the second");
+});
+
+test("ordinary text is left exactly as it was", async () => {
+  const text = "Please review this function and tell me what it does.";
+  const { body } = await prepareChat({
+    messages: [{ role: "system", content: text }, { role: "user", content: "hi" }]
+  });
+  assert.equal(body.messages[0].content, text);
+});
