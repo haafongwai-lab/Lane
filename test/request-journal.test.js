@@ -410,27 +410,6 @@ test("removeByIds deletes exactly the named rows and spares running ones", async
   assert.equal(journal.list().length, 2);
 });
 
-test("removeByProject deletes one project's rows and spares running ones", async (t) => {
-  const dir = tempDir(t);
-  const journal = new RequestJournal({ dir });
-  journal.requests = [
-    { id: "lane-1", project: "C:\\work\\lane", status: "complete" },
-    { id: "lane-2", project: "C:\\work\\lane", status: "complete" },
-    { id: "lane-live", project: "C:\\work\\lane", status: "running" },
-    { id: "docs-1", project: "C:\\work\\docs", status: "complete" },
-    { id: "none-1", project: "", status: "complete" }
-  ];
-  const removed = journal.removeByProject("C:\\work\\lane");
-  assert.equal(removed, 2);
-  const ids = journal.list().map((row) => row.id).sort();
-  assert.deepEqual(ids, ["docs-1", "lane-live", "none-1"]);
-  // The unattributed bucket is a project of its own and can be cleared too.
-  assert.equal(journal.removeByProject(""), 1);
-  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["docs-1", "lane-live"]);
-  await journal.flush();
-  assert.equal(readLog(dir).length, 2);
-});
-
 test("a change appends one line instead of rewriting the journal", async (t) => {
   const dir = tempDir(t);
   const journal = new RequestJournal({ dir });
@@ -757,37 +736,4 @@ test("an estimated row is never flagged", async (t) => {
   journal.usage(record.id, { prompt_tokens: 900_000, completion_tokens: 50_000 });
   const [row] = journal.list();
   assert.equal(row.anomaly, undefined);
-});
-
-test("a project delete spares running rows and reports what it took", async (t) => {
-  const dir = tempDir(t);
-  writeLog(dir, [
-    { id: "a", startedAt: Date.now(), status: "complete", project: "p1" },
-    { id: "b", startedAt: Date.now(), status: "running", project: "p1", owner: process.pid },
-    { id: "c", startedAt: Date.now(), status: "complete", project: "p2" }
-  ]);
-  const journal = new RequestJournal({ dir });
-  assert.equal(journal.removeByProject("p1"), 1, "the finished row went, the running one stayed");
-  assert.deepEqual(journal.list().map((row) => row.id).sort(), ["b", "c"]);
-});
-
-test("a project delete that matches nothing changes nothing", async (t) => {
-  const dir = tempDir(t);
-  writeLog(dir, [
-    { id: "a", startedAt: Date.now(), status: "complete", project: "p1" }
-  ]);
-  const journal = new RequestJournal({ dir });
-  const before = journal.list();
-  assert.equal(journal.removeByProject("nope"), 0);
-  assert.deepEqual(journal.list().map((row) => row.id), before.map((row) => row.id));
-});
-
-test("a project whose rows are all running deletes nothing", async (t) => {
-  const dir = tempDir(t);
-  writeLog(dir, [
-    { id: "a", startedAt: Date.now(), status: "running", project: "p1", owner: process.pid }
-  ]);
-  const journal = new RequestJournal({ dir });
-  assert.equal(journal.removeByProject("p1"), 0);
-  assert.equal(journal.list().length, 1);
 });

@@ -3,11 +3,6 @@ import path from "node:path";
 /**
  * Which project (working directory) a request belongs to.
  *
- * The usage page answers "how much context did this conversation carry" and
- * "how much of it came from cache" — both only mean something per project:
- * one long-running repository and a one-shot question are not comparable, and
- * averaging them hides which of the two is filling the window.
- *
  * No client has a "project" field; each names its working directory
  * somewhere else in the request, so the place is read from where that client
  * actually puts it:
@@ -18,7 +13,12 @@ import path from "node:path";
  *   others         no signal — the request is grouped under its agent
  *
  * A name that cannot be read is not guessed: the row keeps an empty project
- * and the page shows it as unattributed rather than inventing a bucket.
+ * rather than inventing a bucket.
+ *
+ * The journal keeps the answer on every row. Nothing reads it today — the
+ * usage page's per-project card is gone — but it is the one field that says
+ * where a request came from, and keeping it costs one lookup per request on
+ * a value already paid for.
  */
 
 // The Environment block a Claude-shaped client prepends, when it prepends one.

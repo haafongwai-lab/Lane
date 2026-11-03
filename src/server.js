@@ -451,13 +451,11 @@ async function controlRoute(req, res, url, control) {
     }
     if (req.method === "POST" && url.pathname === "/lane/activity/clear") {
       const body = await readJSONBody(req);
-      // `ids` names specific rows; `project` names a working directory;
-      // omitting both clears everything before today's midnight.
+      // `ids` names specific rows; omitting them clears everything before
+      // today's midnight.
       const removed = Array.isArray(body?.ids)
         ? control.clearHistory(body.ids)
-        : typeof body?.project === "string"
-          ? control.clearProject(body.project)
-          : control.clearHistory();
+        : control.clearHistory();
       json(res, 200, { removed });
       return;
     }

@@ -12,11 +12,6 @@
  *     (`billedRates` below) — the catalogue's `rate` is a relative multiple
  *     (×0.08), not a credits-per-million price, and costing with it
  *     understated WorkBuddy's charge by two orders of magnitude.
- *
- * Context capacity and cache hit are computed per project (the working
- * directory a request came from): one long-running repository and a one-shot
- * question are not comparable, and averaging them hides which of the two is
- * filling the window.
  */
 
 export const RANGES = [

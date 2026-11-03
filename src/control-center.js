@@ -460,11 +460,6 @@ export function createControlCenter({
       return Array.isArray(ids) ? journal.removeByIds(ids) : journal.clearBeforeToday();
     },
 
-    clearProject(projectId) {
-      if (journal.shared) throw new Error("只读窗口不能清除历史记录");
-      return journal.removeByProject(projectId);
-    },
-
     // ---- MCP & skills -------------------------------------------------------
     // Writes reach the user's own client configurations, so a read-only
     // follower refuses them the same way it refuses journal writes.
