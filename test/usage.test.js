@@ -138,41 +138,6 @@ test("billable tokens exclude the cache-served part of the input", () => {
   assert.equal(report.totals.billableTokens, 20_000 - 19_840 + 50);
 });
 
-test("context capacity and cache hit are computed per project", () => {
-  const rows = [
-    // Newest first, as the journal keeps them.
-    request({
-      id: "a", project: "C:\\Repo\\lane", projectName: "lane",
-      model: "hy3", inputTokens: 50_000, totalTokens: 60_000, cachedTokens: 45_000,
-      contextWindow: 192_000
-    }),
-    request({
-      id: "b", project: "C:\\Repo\\other", projectName: "other",
-      model: "hy3", inputTokens: 300_000, totalTokens: 300_000, cachedTokens: 10_000,
-      contextWindow: 192_000
-    })
-  ];
-  const report = summary(rows, { range: "today", now: NOW });
-  assert.equal(report.projects.length, 2);
-  const lane = report.projects.find((row) => row.name === "lane");
-  const other = report.projects.find((row) => row.name === "other");
-  assert.equal(lane.context.used, 50_000);
-  assert.equal(lane.context.fill, 50_000 / 192_000);
-  assert.equal(lane.cacheHit, 45_000 / 50_000);
-  assert.equal(other.context.used, 300_000);
-  assert.equal(other.cacheHit, 10_000 / 300_000);
-  // The headline gauge carries the newest attributed project, not a blend.
-  assert.equal(report.context.used, 50_000);
-});
-
-test("requests that name no project stay unattributed", () => {
-  const rows = [request({ id: "a" }), request({ id: "b", project: "", projectName: "" })];
-  const report = summary(rows, { range: "today", now: NOW });
-  assert.equal(report.projects.length, 1);
-  assert.equal(report.projects[0].id, "");
-  assert.equal(report.projects[0].name, "");
-});
-
 test("the previous period is the same length immediately before", () => {
   const rows = [
     request({ id: "now", startedAt: at("2026-10-22T12:00:00"), credits: 0.03, totalTokens: 1000 }),

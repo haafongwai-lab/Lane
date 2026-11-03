@@ -646,10 +646,9 @@ h1 {
   gap: 14px;
   margin-top: 14px;
 }
-/* The two tables stack full width, like the context panel below them: the
-   request list's eight columns and the model table's five each need the
-   whole row — side by side, whichever side got the narrow column went
-   cramped. */
+/* The two tables stack full width: the request list's eight columns and the
+   model table's five each need the whole row — side by side, whichever side
+   got the narrow column went cramped. */
 .usage-grid.tables { grid-template-columns: 1fr; }
 .usage-chart-panel, .usage-quota-panel, .usage-table-panel { min-width: 0; }
 /* The headline figures that used to be four separate cards, kept as one
@@ -775,25 +774,6 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-/* Context capacity and the range's cache hit share one card, each with its
-   own meter; the meters themselves reuse .quota-meter. The capacity is read
-   from the newest request, the hit averaged over the whole range. */
-.usage-context-panel { grid-column: 1 / -1; }
-.context-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  gap: 14px 28px;
-  margin-top: 4px;
-}
-.context-col { min-width: 0; }
-.context-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.context-line span { color: var(--muted); font-size: 11.5px; }
-.context-line b { font: 600 13px/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
-.context-note { margin-top: 8px; color: var(--faint); font-size: 11px; }
-@media (max-width: 930px) {
-  .context-columns { grid-template-columns: 1fr; }
-}
-
 .usage-table { margin-top: 12px; }
 .usage-table-head, .usage-table-row, .usage-table-foot {
   display: grid;
@@ -804,13 +784,6 @@ h1 {
   border-bottom: 1px solid var(--line-soft);
   font-size: 11.5px;
 }
-/* The per-project rows inside the context card reuse the same grid minus the
-   share column their model table carries; the last track holds the row's
-   delete button. */
-#usage-context-projects .usage-table-row {
-  grid-template-columns: minmax(0, 1.2fr) .5fr 1.6fr .7fr 26px;
-}
-#usage-context-projects .icon-mini { justify-self: end; }
 .usage-table-head {
   padding-top: 0;
   border-bottom-color: var(--line);
@@ -1508,12 +1481,3 @@ h1 {
 
 /* A single request whose cost stands out: the flag rides the cost cell. */
 .cost-flag { color: #b8860b; font-style: normal; font-size: 10px; }
-
-/* The context table's batch-selection column: a narrow box before the name,
-   mirroring the recent list's pick column. */
-#usage-context-projects .usage-table-row,
-#usage-context-projects .usage-table-head {
-  grid-template-columns: 18px minmax(0, 1.2fr) .5fr 1.6fr .7fr 26px;
-}
-#usage-context-projects .ctx-pick,
-#usage-context-projects .ctx-pick-all { justify-self: start; accent-color: var(--green); }

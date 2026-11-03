@@ -373,10 +373,6 @@ ipcMain.handle("lane:skills-uninstall", async (_event, { name, agent } = {}) => 
   await startGateway();
   return control.skillsUninstall(String(name || ""), String(agent || ""));
 });
-ipcMain.handle("lane:clear-project", async (_event, { project } = {}) => {
-  await startGateway();
-  return { removed: control.clearProject(project ?? "") };
-});
 ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
   const targetControl = control;

@@ -35,6 +35,7 @@
     "asar": true,
     "files": [
       "desktop/**/*",
+      "!desktop/**/.mimosa/**",
       "src/**/*",
       "node_modules/@magpie-community/opencode-workbuddy-auth/**/*",
       "package.json"

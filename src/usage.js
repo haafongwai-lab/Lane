@@ -153,12 +153,6 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
   const byDay = new Map(keys.map((key) => [key, { date: key, ...newCounter() }]));
   const byModel = new Map();
   const byAgent = new Map();
-  const byProject = new Map();
-  // Per project, the newest request whose input landed in a window the
-  // catalogue named — a chat request resends the whole conversation, so that
-  // input is the conversation's context size. The journal is newest first,
-  // so the first request that qualifies wins for its project.
-  const projectContext = new Map();
 
   for (const request of requests) {
     if (!Number.isFinite(request?.startedAt) || request.startedAt < startAt) continue;
@@ -198,25 +192,6 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     const agentRow = byAgent.get(agent) || { agent, ...newCounter() };
     accumulate(agentRow, piece);
     byAgent.set(agent, agentRow);
-
-    // The project the request came from; an unreadable one stays
-    // unattributed rather than being bucketed under a made-up name.
-    const projectId = request.project || "";
-    const projectRow = byProject.get(projectId) || {
-      id: projectId,
-      name: request.projectName || (projectId ? projectId : ""),
-      ...newCounter()
-    };
-    accumulate(projectRow, piece);
-    byProject.set(projectId, projectRow);
-    if (input > 0 && request.contextWindow > 0 && !projectContext.has(projectId)) {
-      projectContext.set(projectId, {
-        used: input,
-        window: request.contextWindow,
-        model: request.model || "",
-        fill: input / request.contextWindow
-      });
-    }
   }
 
   const order = (a, b) =>
@@ -228,14 +203,6 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     row.share = billedTotal > 0 ? row.credits / billedTotal : 0;
   });
 
-  const projects = [...byProject.values()].map((row) => ({
-    ...row,
-    // Cache hit is weighted by input tokens, not averaged per request: a
-    // tiny request's 100% says less than a large one's 90%.
-    cacheHit: row.inputTokens > 0 ? row.cachedTokens / row.inputTokens : null,
-    context: projectContext.get(row.id) || null
-  })).sort(order);
-
   const previous = previousTotals(requests, { keys, startAt, rateFor });
 
   return {
@@ -246,11 +213,7 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     totals: round(totals),
     series: [...byDay.values()].map(round),
     models,
-    projects,
     agents: [...byAgent.values()].sort(order),
-    // The newest request overall that named a window, for clients that have
-    // not caught up with the per-project view.
-    context: projectContext.get("") || [...projectContext.values()][0] || null,
     // The same length of time immediately before this range, for the
     // "vs 上一周期" line. Undefined when the journal does not reach back.
     previous
