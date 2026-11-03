@@ -173,11 +173,14 @@ function render() {
   const { signedIn, account, agents, models, recent = [] } = snapshot;
   // One callout per anomalous row: the cost is the vendor's own number, and
   // the user should see it the moment it lands, not on the next visit to the
-  // usage page. The id guard keeps a poll from repeating it.
+  // usage page. The wording says what was actually detected - a charge well
+  // above comparable requests - because "expensive" alone is not a fault and
+  // a big prompt at full price is a normal bill. The id guard keeps a poll
+  // from repeating it.
   var anomalyHead = recent.find(function (r) { return r.anomaly; });
   if (anomalyHead && anomalyHead.id !== lastAnomalyToasted && anomalyHead.credits != null) {
     lastAnomalyToasted = anomalyHead.id;
-    toast("注意：单次请求计费 " + anomalyHead.credits + " 积分（" + (anomalyHead.model || "") + "）");
+    toast("计费异常：" + (anomalyHead.model || "") + " 单次扣 " + anomalyHead.credits + " 积分，远高于同尺寸请求");
   }
   const running = recent.filter((item) => item.status === "running");
   const last = recent[0];
@@ -900,7 +903,7 @@ function renderUsageRecent() {
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
-      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" title="单次计费异常高">⚠ 异常</i>' : ""}</span>
+      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" title="同样大小、同样缓存命中率的请求通常远低于此">⚠ 异常</i>' : ""}</span>
     </div>`;
   }).join("");
   // The re-render created fresh, unchecked boxes: the button's visibility
@@ -1338,7 +1341,10 @@ setInterval(() => {
 // ---- extensions: MCP + skills ---------------------------------------------
 
 var extData = { servers: [], targets: [] };
-var AGENT_SHORT = { "claude-desktop": "Claude", codex: "Codex", zcode: "ZCode", dsh: "DSH" };
+// The short names the MCP lamps and skill pips draw. DeepSeek Harness is
+// absent on purpose: it has no entry in either list, because it manages its
+// own MCP servers and its own skills.
+var AGENT_SHORT = { "claude-desktop": "Claude", codex: "Codex", zcode: "ZCode" };
 var AGENT_INITIAL = { "claude-desktop": "C", codex: "X", zcode: "Z" };
 
 function extError(id, message) {

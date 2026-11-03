@@ -17,7 +17,9 @@ import { writeJSON } from "./agents/store.js";
 const file = (env) => path.join(dataDir(env), "mcp.json");
 
 export const TRANSPORTS = ["stdio", "http"];
-export const AGENTS = ["claude-desktop", "codex", "zcode", "dsh"];
+// DeepSeek Harness is deliberately absent: it manages its own MCP servers
+// through its MCP plugin, so Lane has nothing to write into it.
+export const AGENTS = ["claude-desktop", "codex", "zcode"];
 
 export function normalizeServer(raw = {}) {
   const name = String(raw.name || "").trim();
@@ -58,7 +60,15 @@ export function normalizeServer(raw = {}) {
 export async function readServers(env = process.env) {
   try {
     const rows = JSON.parse(await fs.readFile(file(env), "utf8"));
-    return Array.isArray(rows) ? rows : [];
+    if (!Array.isArray(rows)) return [];
+    // A row written while DeepSeek Harness was still a target still names it.
+    // It is dropped on the way in rather than persisted on sight: nothing can
+    // act on that name any more, and the next save writes the array back
+    // without it.
+    return rows.map((row) => ({
+      ...row,
+      agents: (Array.isArray(row?.agents) ? row.agents : []).filter((agent) => AGENTS.includes(agent))
+    }));
   } catch (error) {
     if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
     return [];

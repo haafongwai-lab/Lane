@@ -111,60 +111,19 @@ function zcodeEntry(server) {
   return entry;
 }
 
-// ---- DeepSeek Harness: one Cordis entry per server ------------------------
+// ---- DeepSeek Harness: no longer a deploy target --------------------------
 //
-// The harness registers MCP servers as loader entries in the active profile's
-// patch layer, one entry per server, with the server's own name as the entry
-// id and `serverName` as its tool namespace. Its README gives the shape; the
-// transport is `stdio` or `streamable-http`, and there is no shared table to
-// write into.
+// The harness manages its own MCP servers through its MCP plugin, so Lane
+// does not write them. Older builds did: they appended `mcp-lane-<name>`
+// loader entries to the profile's patch layer. Those entries are Lane's own
+// and would otherwise sit there forever, pointing at servers the user now
+// manages by hand, so every deploy strips them out.
 
 const DSH_ENTRY_PREFIX = "mcp-lane-";
 
-// The namespace the harness accepts for a server's tool names.
-function dshServerName(name) {
-  return String(name || "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32);
-}
-
-function dshEntryId(name) {
-  return `${DSH_ENTRY_PREFIX}${dshServerName(name)}`;
-}
-
-function dshEntryText(server) {
-  const lines = [
-    `- id: ${dshEntryId(server.name)}`,
-    `  name: "@deepseek-ai/dsh-mcp-client"`,
-    `  config:`,
-    `    serverName: ${dshServerName(server.name)}`
-  ];
-  if (server.transport === "http") {
-    lines.push(`    transport: streamable-http`);
-    lines.push(`    url: ${yamlQuoted(server.url)}`);
-    const headers = Object.entries(server.headers || {});
-    if (headers.length) {
-      lines.push(`    headers:`);
-      for (const [key, value] of headers) lines.push(`      ${key}: ${yamlQuoted(value)}`);
-    }
-    return lines.join("\n");
-  }
-  lines.push(`    transport: stdio`);
-  lines.push(`    command: ${yamlQuoted(server.command)}`);
-  if (server.args?.length) {
-    lines.push(`    args: [${server.args.map((arg) => yamlQuoted(arg)).join(", ")}]`);
-  }
-  const env = Object.entries(server.env || {});
-  if (env.length) {
-    lines.push(`    env:`);
-    for (const [key, value] of env) lines.push(`      ${key}: ${yamlQuoted(value)}`);
-  }
-  return lines.join("\n");
-}
-
-// A YAML double-quoted scalar: the harness reads these as plain strings, and
-// quoting keeps a value with a colon or a leading bracket from being reparsed.
-function yamlQuoted(value) {
-  return JSON.stringify(String(value ?? ""));
-}
+// The marker a patch-layer entry Lane wrote starts with. Used both to strip
+// such an entry and to decide whether there is anything to strip at all.
+const DSH_LANE_ENTRY = new RegExp(`^-\\s+id:\\s*["']?${DSH_ENTRY_PREFIX}`);
 
 // Removes every lane-deployed MCP entry from a patch-layer text, leaving the
 // user's own entries and comments untouched.
@@ -175,7 +134,7 @@ function stripDshEntries(text) {
   for (const line of lines) {
     const isEntry = /^-\s+id:\s*["']?/.test(line);
     if (isEntry) {
-      skipping = new RegExp(`^-\\s+id:\\s*["']?${DSH_ENTRY_PREFIX}`).test(line);
+      skipping = DSH_LANE_ENTRY.test(line);
       if (skipping) continue;
     }
     if (skipping) continue;
@@ -184,8 +143,9 @@ function stripDshEntries(text) {
   return out.join("\n");
 }
 
-function dshConfigs(env) {
-  return [{ file: dshPatchPath(env) }];
+/** Whether a patch layer still holds an entry an older Lane wrote. */
+function hasDshEntries(text) {
+  return String(text).split(/\r?\n/).some((line) => DSH_LANE_ENTRY.test(line));
 }
 
 function claudeConfigs(env) {
@@ -252,7 +212,6 @@ export async function targets(env = process.env) {
   });
   out.push({ agent: "codex", stdioOnly: true, config: codexConfigPath(env) });
   out.push({ agent: "zcode", stdioOnly: false, config: zcodeCliConfigPath(env) });
-  out.push({ agent: "dsh", stdioOnly: false, config: dshPatchPath(env) });
   return out;
 }
 
@@ -352,34 +311,22 @@ export async function deploy(servers, env = process.env) {
     report.push({ agent: "zcode", error: "配置无法解析，已跳过" });
   }
 
-  // -- DeepSeek Harness: one Cordis entry per server in the patch layer ------
-  // The harness has no shared table: each server is its own loader entry, so
-  // a redeploy strips Lane's entries and writes the active set again.
-  const dsh = forClient(servers, "dsh", false);
+  // -- DeepSeek Harness: remove what an older build wrote, write nothing ----
+  // The harness's MCP servers are managed through its own MCP plugin now, so
+  // Lane no longer deploys into it. Entries a previous build left in the
+  // patch layer are still Lane's, and stripping them here means the first
+  // deploy after the upgrade cleans them up instead of leaving them to point
+  // at servers the user has since changed by hand.
   const dshFile = dshPatchPath(env);
   const dshBefore = await readMaybe(dshFile);
-  const previousText = dshBefore ?? "";
-  const stripped = stripDshEntries(previousText);
-  const blocks = dsh.active.map((s) => dshEntryText(s));
-  const trimmed = stripped.replace(/\s*$/, "");
-
-  // Keep a trailing newline only when there is content to terminate; a patch
-  // layer emptied by an undeploy leaves nothing behind the header comment.
-  const dshAfter = blocks.length
-    ? `${trimmed ? `${trimmed}\n\n` : ""}${blocks.join("\n\n")}\n`
-    : trimmed
-      ? `${trimmed}\n`
-      : "";
-
-  if (dshAfter !== previousText) {
-    if (!dshAfter) await fs.rm(dshFile, { force: true });
-    else {
-      await ensureDir(dshFile);
-      await writeTextAtomic(dshFile, dshAfter);
-    }
+  if (dshBefore != null && hasDshEntries(dshBefore)) {
+    const stripped = stripDshEntries(dshBefore).replace(/\s+$/, "");
+    // Nothing but Lane's entries means this file was Lane's to begin with, so
+    // it goes; anything the user wrote stays behind.
+    if (!stripped) await fs.rm(dshFile, { force: true });
+    else await writeTextAtomic(dshFile, `${stripped}\n`);
   }
-  state.mcp.dsh = dsh.active.map((s) => s.name);
-  report.push({ agent: "dsh", written: dsh.active.map((s) => s.name), unsupported: [] });
+  delete state.mcp.dsh;
 
   await writeState(state, env);
   return report;

@@ -37,10 +37,46 @@ const LEGACY_NAME = "activity.json";
 // line per surviving row; doing it after this many appends keeps the file
 // within roughly twice MAX_ROWS lines.
 const COMPACT_AFTER = MAX_ROWS;
-// A single request billed at or above this many credits is flagged in the
-// journal and called out in the window. The vendor's own number decides, so
-// an expensive model is visible as expensive rather than alerting per row.
+// The floor a charge has to clear before it is examined at all. This is the
+// vendor's own number, so a cheap request is never even compared: below it,
+// being a few times the usual is noise, not money.
 const ANOMALY_CREDITS = Number(process.env.LANE_ALERT_CREDITS) || 5;
+
+// Cost alone is not the signal, and the measured data says so plainly: of the
+// 39 requests billed at five credits or more on this machine, all but two were
+// a cold read of a 300k-800k-token prompt. Sending a whole conversation with
+// no cached prefix is the model's own tariff - a 300k prompt costs an order of
+// magnitude more than the same prompt served from cache - and flagging it told
+// the user nothing they could act on.
+//
+// What does deserve a callout is a request billed like an expensive one while
+// the cache was doing its job: a large prefix was reused and the charge still
+// ran away. That is the shape a lost cache discount or a duplicated prompt
+// takes, and it is the only shape the journal actually contains an outlier
+// for.
+//
+// The comparison is against comparable requests, not against the model's
+// overall median. A model's median is dragged down by small traffic: an
+// 861k-token request sat 10.7x above its model's median while being billed
+// correctly, because most of that model's requests are tiny. Comparing only
+// with rows of a similar prompt size and a similar cache share removes that
+// size effect, and the measured spread among those peers is 0.95x-1.03x.
+// The ratio below is twice the worst legitimate case seen, which leaves room
+// for a busy user while still catching the thing that actually goes wrong:
+// losing the cache discount multiplies a charge by 10x to 100x.
+const ANOMALY_CACHE_MIN_REUSE = 0.5;
+// How far above its comparable requests a charge must land before it is worth
+// interrupting the user about.
+const ANOMALY_RATIO = Number(process.env.LANE_ALERT_RATIO) || 2;
+// How many comparable requests must already be in the journal before the
+// comparison means anything. A model seen a handful of times has no "usual".
+const ANOMALY_PEERS = 3;
+// Two requests count as comparable when their prompt sizes are within this
+// factor of each other — a 300k prompt is not comparable to a 30k one — and
+// their cache reuse is within this much of each other, since an uncached
+// prefix and a cached one are billed at different rates.
+const ANOMALY_SIZE_SPAN = 3;
+const ANOMALY_REUSE_SPAN = 0.25;
 
 // The identity of the legacy array this log has already absorbed: its mtime
 // and size. Persisted rather than held in memory, because the conversion has
@@ -195,8 +231,10 @@ export class RequestJournal {
       }
     }
     this.readOnly = false;
+    // prune() drops rows outside the window, re-derives the calibrated prices
+    // from what is left, and re-judges every surviving flag — including the
+    // ones a previous build wrote, under whatever rule it had.
     this.prune();
-    this.rebuildBilledRates();
     this.cleanupTmp();
     this.markRead();
   }
@@ -305,6 +343,90 @@ export class RequestJournal {
     this.billedRates = billedRates(this.requests);
   }
 
+  /**
+   * The charge a request is judged against: the median of comparable
+   * requests made before it.
+   *
+   * Comparable means the same model, a prompt of a similar size, and a
+   * similar cache share — those are the two things that move a charge by
+   * orders of magnitude, and holding them fixed leaves only the price. A
+   * median rather than a mean, so one runaway request does not raise the bar
+   * that decides whether the next one is a runaway.
+   *
+   * Returns null until enough comparable rows exist to call anything usual:
+   * a model seen a handful of times has no baseline, and saying nothing is
+   * the honest answer.
+   */
+  typicalCharge(request, pool) {
+    const size = request.inputTokens || 0;
+    const reuse = size ? (request.cachedTokens || 0) / size : 0;
+    const seen = [];
+    for (const row of pool) {
+      if (row.id === request.id) continue;
+      // Only what had already happened: a later request must not rewrite the
+      // judgement of an earlier one, or a reload would not reproduce what the
+      // live run showed.
+      if (row.startedAt > request.startedAt) continue;
+      if (row.creditsSource !== "upstream") continue;
+      if (!Number.isFinite(row.credits) || row.credits <= 0) continue;
+      const rowSize = row.inputTokens || 0;
+      if (!rowSize) continue;
+      if (rowSize * ANOMALY_SIZE_SPAN < size || size * ANOMALY_SIZE_SPAN < rowSize) continue;
+      if (Math.abs((row.cachedTokens || 0) / rowSize - reuse) > ANOMALY_REUSE_SPAN) continue;
+      seen.push(row.credits);
+    }
+    if (seen.length < ANOMALY_PEERS) return null;
+    seen.sort((a, b) => a - b);
+    return seen[Math.floor(seen.length / 2)];
+  }
+
+  /**
+   * Sets or clears a row's anomaly flag from the current rule.
+   *
+   * Only an upstream-billed charge can be anomalous: a row whose cost came
+   * from the token formula must never have the gateway alarming about its own
+   * guess.
+   */
+  judge(request, pool = this.requests) {
+    request.anomaly = undefined;
+    if (request.creditsSource !== "upstream") return;
+    const billed = request.credits;
+    // The two cheap tests come first and decide most rows. That is what keeps
+    // a full re-judge affordable: only a row billed high with a working cache
+    // ever scans for peers, and on a busy journal that is a few dozen rows
+    // out of thousands.
+    if (!(billed >= ANOMALY_CREDITS)) return;
+    const reuse = request.inputTokens
+      ? (request.cachedTokens || 0) / request.inputTokens
+      : 0;
+    if (reuse < ANOMALY_CACHE_MIN_REUSE) return;
+    const typical = this.typicalCharge(request, pool);
+    if (typical === null) return;
+    if (billed >= typical * ANOMALY_RATIO) request.anomaly = true;
+  }
+
+  /**
+   * Re-judges every stored row.
+   *
+   * The flag is a judgement about a charge, not something the vendor
+   * reported, so the file's copy is not trusted: a row written by an older
+   * rule would otherwise keep claiming an anomaly under a rule that no
+   * longer says so. Grouping by model first means a row only ever scans its
+   * own model's rows; at the journal's cap that is one linear pass per model.
+   */
+  judgeAll() {
+    const pools = new Map();
+    for (const request of this.requests) {
+      const model = request.model || "";
+      const pool = pools.get(model);
+      if (pool) pool.push(request);
+      else pools.set(model, [request]);
+    }
+    for (const request of this.requests) {
+      this.judge(request, pools.get(request.model || "") || []);
+    }
+  }
+
   calibratedPrice(model) {
     return this.billedRates?.get(model) ?? null;
   }
@@ -327,6 +449,11 @@ export class RequestJournal {
       .filter((request) => request.startedAt >= cutoff)
       .slice(0, MAX_ROWS);
     this.rebuildBilledRates();
+    // A row that just left may have been another row's baseline, so the
+    // surviving flags are re-derived from what is left. Judging only matters
+    // for rows billed high with a working cache, so this is cheap; skipping
+    // it would let a flag outlive the evidence that produced it.
+    this.judgeAll();
   }
 
   /**
@@ -552,13 +679,13 @@ export class RequestJournal {
     if (billed !== undefined) {
       request.credits = billed;
       request.creditsSource = "upstream";
-      // One observable anomaly: a single request the upstream charged well
-      // above the everyday scale. The journal carries a real case - a model
-      // averaging 22.8 credits a request beside another at 0.19 - and
-      // nothing surfaced it; the row just blended into the list. The bar is
-      // absolute (the vendor's own number, not a ratio that expensive-but-
-      // legitimate models would trip on every request) and overridable.
-      request.anomaly = billed >= ANOMALY_CREDITS ? true : undefined;
+      // A request is worth calling out only when all three hold: it was billed
+      // at an absolute high, the cache was doing its job, and it stood far
+      // above requests of the same size with the same cache share. A cold read
+      // of a huge prompt satisfies the first and is the model's own tariff; a
+      // big prompt satisfies nothing on its own, because its peers are big
+      // too. `judge` owns the comparison.
+      this.judge(request);
       this.noteBilled();
     } else {
       // No upstream number: the token formula fills in, priced at the

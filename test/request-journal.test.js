@@ -641,17 +641,111 @@ test("a changed legacy file is converted again", async (t) => {
   assert.deepEqual(journal.list().map((row) => row.id).sort(), ["a", "b"]);
 });
 
-test("a single request billed well above the everyday scale is flagged", async (t) => {
+// Three comparable rows, so the journal has a baseline to judge against.
+// They are what a cache-assisted request of this size actually costs.
+function seedPeers(journal, { model = "deepseek-v4.1-flash", size = 300_000, reuse = 299_000, credit = 0.2 } = {}) {
+  for (let i = 0; i < 3; i += 1) {
+    const peer = journal.start({ agent: "codex", endpoint: "/v1/responses", model });
+    journal.usage(peer.id, {
+      prompt_tokens: size,
+      prompt_tokens_details: { cached_tokens: reuse },
+      completion_tokens: 300,
+      credit
+    });
+  }
+}
+
+test("a charge far above its comparable requests is flagged", async (t) => {
   const dir = tempDir(t);
   const journal = new RequestJournal({ dir });
-  const big = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "kimi-k3.1-pro" });
-  journal.usage(big.id, { prompt_tokens: 30_000, completion_tokens: 1_000, credit: 22.8 });
-  const small = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "deepseek-v4.1-flash" });
-  journal.usage(small.id, { prompt_tokens: 20_000, completion_tokens: 500, credit: 0.21 });
-  const bigRow = journal.list().find((r) => r.id === big.id);
-  assert.equal(bigRow.anomaly, true, "22.8 credits in one request is worth calling out");
-  const smallRow = journal.list().find((r) => r.id === small.id);
-  assert.equal(smallRow.anomaly, undefined, "everyday cost stays unflagged");
+  seedPeers(journal);
+  // Same size, same cache share, but billed as if the cache had not been
+  // there: the shape a lost cache discount takes.
+  const runaway = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "deepseek-v4.1-flash" });
+  journal.usage(runaway.id, {
+    prompt_tokens: 300_000,
+    prompt_tokens_details: { cached_tokens: 299_000 },
+    completion_tokens: 300,
+    credit: 9
+  });
+  const row = journal.list().find((r) => r.id === runaway.id);
+  assert.equal(row.anomaly, true);
+});
+
+test("an expensive cold-cache read is the model's own tariff, not an anomaly", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // A whole conversation resent with no cached prefix. It is genuinely
+  // expensive, and it is exactly what the request should cost.
+  for (let i = 0; i < 3; i += 1) {
+    const peer = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "glm-5.3-flash" });
+    journal.usage(peer.id, { prompt_tokens: 500_000, completion_tokens: 200, credit: 8 });
+  }
+  const cold = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "glm-5.3-flash" });
+  journal.usage(cold.id, { prompt_tokens: 500_000, completion_tokens: 200, credit: 8.2 });
+  const row = journal.list().find((r) => r.id === cold.id);
+  assert.equal(row.anomaly, undefined, "a cold 500k-token prompt at full price is normal");
+});
+
+test("a big prompt is not compared against the model's small traffic", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // The bulk of traffic is tiny; the request under test is 180x its size and
+  // costs 10x a small row while being billed correctly for its size.
+  for (let i = 0; i < 6; i += 1) {
+    const small = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "deepseek-v4.1-flash" });
+    journal.usage(small.id, {
+      prompt_tokens: 4_800,
+      prompt_tokens_details: { cached_tokens: 4_700 },
+      completion_tokens: 50,
+      credit: 1.4
+    });
+  }
+  // Big enough to clear the absolute gate, so only the size comparison can
+  // keep it unflagged: 9 credits is 6x the model's small-traffic median of
+  // 1.4 but the right price for an 860k-token prompt.
+  const large = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "deepseek-v4.1-flash" });
+  journal.usage(large.id, {
+    prompt_tokens: 860_000,
+    prompt_tokens_details: { cached_tokens: 859_000 },
+    completion_tokens: 300,
+    credit: 9
+  });
+  const row = journal.list().find((r) => r.id === large.id);
+  assert.equal(row.anomaly, undefined, "a different prompt size is not comparable");
+});
+
+test("a model with no baseline yet claims nothing", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  // kimi costs 14 credits a request; the first three of the day are not
+  // anomalies, they are simply kimi.
+  for (let i = 0; i < 3; i += 1) {
+    const first = journal.start({ agent: "claude-desktop", endpoint: "/v1/messages", model: "kimi-k3.1-pro" });
+    journal.usage(first.id, {
+      input_tokens: 420_000,
+      cache_read_input_tokens: 419_000,
+      output_tokens: 200,
+      credit: 14 + i / 10
+    });
+    const row = journal.list().find((r) => r.id === first.id);
+    assert.notEqual(row.anomaly, true, "nothing is anomalous until there is something to compare against");
+  }
+});
+
+test("a flag written by an older rule is recomputed on load", async (t) => {
+  const dir = tempDir(t);
+  const stamp = Date.now() - 60_000;
+  // A row the previous rule flagged only because it was expensive, with no
+  // cache reuse at all - impossible under the current rule.
+  writeLog(dir, [
+    { id: "cold", startedAt: stamp, status: "complete", model: "deepseek-v4.1-flash",
+      agent: "dsh", inputTokens: 297_462, cachedTokens: 0, outputTokens: 608,
+      credits: 8.57, creditsSource: "upstream", anomaly: true }
+  ]);
+  const journal = new RequestJournal({ dir });
+  const [row] = journal.list();
+  assert.equal(row.anomaly, undefined, "the stored judgement is not trusted");
 });
 
 test("an estimated row is never flagged", async (t) => {
