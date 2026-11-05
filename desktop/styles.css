@@ -404,11 +404,10 @@ h1 {
 /* In the route node the whale stands bare, as Claude's asterisk and Codex's
    star do: no tile, no ring. The asset's ink is only 63% of the image tall
    (a wide mark against square glyphs), and percentage sizing compounded
-   oddly inside this grid, so the image is sized in pixels: 55px puts the
-   whale's ink level with the codex cloud and the Z plate (Claude's glyph
-   fills its box and stands a touch taller, as it always has), centred on
-   the row's line, clear of the name below. The narrow breakpoint's 36px
-   boxes get the matching 47px. */
+   oddly inside this grid, so the image is sized in pixels: 47px puts the
+   whale's ink level with the codex cloud and the Z plate and rides it up
+   the row (Claude's glyph fills its box and stands a touch taller, as it
+   always has). The narrow breakpoint's 36px boxes get the matching 40px. */
 .dsh-logo {
   background: transparent;
   overflow: visible;
@@ -418,11 +417,13 @@ h1 {
   place-items: center;
 }
 .dsh-logo img {
-  width: 55px;
-  height: 55px;
+  width: 47px;
+  height: 47px;
+  margin-bottom: 10px; /* rides the mark up the row, tops level with the rest */
   display: block;
   object-fit: contain;
 }
+.route-canvas .dsh-logo img { width: 40px; height: 40px; margin-bottom: 4px; }
 .codex-logo { overflow: hidden; background: #fff; }
 .codex-logo img, .agent-icon.codex img {
   width: 100%;
@@ -1024,8 +1025,8 @@ h1 {
      room to wrap keep the trio inside equal-width tracks. */
   .route-canvas .node-logo { width: 36px; height: 36px; }
   /* The whale keeps its ink level with the shrunk glyphs: 36px boxes want a
-     47px image (ink 63% of the image). */
-  .route-canvas .dsh-logo img { width: 47px; height: 47px; }
+     40px image (ink 63% of the image). */
+  .route-canvas .dsh-logo img { width: 40px; height: 40px; margin-bottom: 4px; }
   .agent-logos { flex-wrap: wrap; row-gap: 6px; }
   .flow-rail, .flow-stream { right: 24%; left: 22%; }
 }
@@ -1209,21 +1210,19 @@ h1 {
 .switch.small span:after { top: 3px; left: 3px; width: 11px; height: 11px; }
 .switch.small input:checked + span:after { left: 15px; }
 
-.checkin-card .setting-copy { margin: 14px 0 0; }
 .checkin-time {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 12px 0;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 0;
   border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
 }
 .checkin-time > span { flex: 0 0 auto; color: var(--faint); font-size: 11px; }
-.time-field { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+.time-field { display: flex; align-items: center; gap: 3px; }
 .time-field input {
-  width: 40px;
-  padding: 5px 4px;
+  width: 38px;
+  padding: 4px 3px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-raised);
@@ -1239,13 +1238,13 @@ h1 {
 .checkin-hero {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 12px;
 }
 .checkin-hero[hidden] { display: none; }
-.checkin-ring-wrap { position: relative; width: 46px; height: 46px; flex: 0 0 auto; }
+.checkin-ring-wrap { position: relative; width: 44px; height: 44px; flex: 0 0 auto; }
 .checkin-ring-wrap[hidden] { display: none; }
-.checkin-ring { display: block; width: 46px; height: 46px; transform: rotate(-90deg); }
+.checkin-ring { display: block; width: 44px; height: 44px; transform: rotate(-90deg); }
 .checkin-ring circle { fill: none; stroke-width: 3.5; }
 .checkin-ring .ring-track { stroke: var(--line-soft); }
 .checkin-ring .ring-fill {
@@ -1264,11 +1263,11 @@ h1 {
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
 }
-.checkin-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.checkin-hero-text b { font: 600 13.5px/1.25 var(--font-display); color: var(--ink); }
+.checkin-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.checkin-hero-text b { font: 600 13px/1.25 var(--font-display); color: var(--ink); }
 .checkin-hero-text span { color: var(--faint); font-size: 11px; }
 
-.checkin-list { margin-top: 13px; }
+.checkin-list { margin-top: 10px; }
 .checkin-list[hidden] { display: none; }
 .checkin-item {
   display: flex;
@@ -1283,9 +1282,9 @@ h1 {
 .checkin-item b { font-weight: 600; text-align: right; }
 .checkin-item b.err { color: var(--red); }
 
-.checkin-card .wide { margin-top: 16px; }
-/* Same shape as the health panel's sign-in action: a button, not a bar. */
-.checkin-now { display: block; width: max-content; min-width: 132px; margin: 16px auto 0; padding: 9px 22px; }
+/* The run-now action lives in the schedule row, pushed to its right end;
+   its old centered block shape made the card read sparse. */
+.checkin-now { margin-left: auto; padding: 6px 12px; }
 
 /* The star line: the one outward-facing thing on the card, kept as quiet as
    the rest of it. The wording leans on the card's own theme - starring the
@@ -1294,8 +1293,8 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
-  padding: 9px 12px;
+  margin-top: 12px;
+  padding: 8px 11px;
   border: 1px solid var(--line-soft);
   border-radius: 9px;
   color: var(--muted);
