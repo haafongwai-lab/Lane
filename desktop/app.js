@@ -352,6 +352,30 @@ function creditsChip(account) {
   return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${creditNumber(view.left)}</span>`;
 }
 
+// The check-in ring's circumference (r = 19 in the SVG).
+const CHECKIN_RING_C = 2 * Math.PI * 19;
+
+// The next time the scheduler will fire, as "今天 09:00" / "明天 21:30".
+function nextCheckinText(settings) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(settings.hour, settings.minute, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const hm = `${String(settings.hour).padStart(2, "0")}:${String(settings.minute).padStart(2, "0")}`;
+  return `${next.getDate() === now.getDate() ? "今天" : "明天"} ${hm}`;
+}
+
+// The 保存 button exists only while the typed time differs from the saved
+// one — a resting card reads as "already saved", not as a form.
+function syncCheckinSave(settings) {
+  const hour = Number($("#checkin-hour").value);
+  const minute = Number($("#checkin-minute").value);
+  const dirty = hour !== Number(settings.hour) || minute !== Number(settings.minute)
+    || !Number.isInteger(hour) || hour < 0 || hour > 23
+    || !Number.isInteger(minute) || minute < 0 || minute > 59;
+  $("#checkin-save").hidden = !dirty;
+}
+
 function renderCheckin() {
   const checkin = snapshot.checkin || {};
   const settings = checkin.settings || { enabled: true, hour: 9, minute: 0 };
@@ -361,15 +385,56 @@ function renderCheckin() {
   const minute = $("#checkin-minute");
   if (document.activeElement !== hour) hour.value = String(settings.hour).padStart(2, "0");
   if (document.activeElement !== minute) minute.value = String(settings.minute).padStart(2, "0");
+  syncCheckinSave(settings);
 
   // Accounts that never have a claim are not part of "日签到" accounting;
-  // counting them leaves the meter permanently short of its total.
-  const items = (checkin.accounts || []).filter((item) => item.enabled && item.status !== "unavailable");
+  // counting them leaves the ring permanently short of its total.
+  const accounts = checkin.accounts || [];
+  const items = accounts.filter((item) => item.enabled && item.status !== "unavailable");
   const done = items.filter((item) => item.status === "done").length;
-  $("#checkin-progress").hidden = items.length === 0;
-  $("#checkin-ratio").textContent = items.length ? `${done} / ${items.length}` : "—";
+  const failed = items.filter((item) => item.status === "failed").length;
+  const total = items.length;
+  const reward = items.reduce((sum, item) => {
+    const n = Number(item.reward);
+    return Number.isFinite(n) ? sum + n : sum;
+  }, 0);
 
-  // Only what needs attention stays below the meter.
+  // One ring and one sentence answer "how is today going"; everything else
+  // on the card is schedule or failure detail.
+  const hero = $("#checkin-hero");
+  const ring = $("#checkin-ring");
+  // The state sentence stays even with no accounts (it says why the card is
+  // quiet); only the ring disappears — an empty circle reads as broken.
+  hero.hidden = false;
+  $("#checkin-ring-wrap").hidden = accounts.length === 0;
+  ring.style.strokeDasharray = CHECKIN_RING_C.toFixed(1);
+  ring.style.strokeDashoffset = (total ? CHECKIN_RING_C * (1 - done / total) : CHECKIN_RING_C).toFixed(1);
+  hero.classList.toggle("off", settings.enabled === false);
+  hero.classList.toggle("has-failed", failed > 0);
+  $("#checkin-ring-num").textContent = total ? String(done) : "—";
+
+  const state = $("#checkin-state");
+  const sub = $("#checkin-state-sub");
+  const hhmm = `${String(settings.hour).padStart(2, "0")}:${String(settings.minute).padStart(2, "0")}`;
+  const retryNote = failed ? `${failed} 个失败，稍后自动重试` : "";
+  if (!total) {
+    state.textContent = accounts.length ? "暂无可签到的账号" : "还没有账号";
+    sub.textContent = accounts.length ? "开启的账号到点自动签到" : "登录 WorkBuddy 后每天自动领取积分";
+  } else if (settings.enabled === false) {
+    state.textContent = "自动签到已关闭";
+    sub.textContent = `打开开关后每天 ${hhmm} 定时领取`;
+  } else if (done === total) {
+    state.textContent = "今日已全部签到";
+    sub.textContent = `${reward > 0 ? `共领 ${creditNumber(reward)} 积分 · ` : ""}明天 ${hhmm} 再来`;
+  } else if (done === 0) {
+    state.textContent = "今日还未签到";
+    sub.textContent = retryNote || `自动签到 ${nextCheckinText(settings)}`;
+  } else {
+    state.textContent = `今日已签 ${done} / ${total}`;
+    sub.textContent = retryNote || `下次自动签到 ${nextCheckinText(settings)}`;
+  }
+
+  // Only what needs attention stays below the ring.
   const issues = items.filter((item) => item.status === "failed");
   const list = $("#checkin-list");
   list.hidden = issues.length === 0;
@@ -994,6 +1059,12 @@ $("#account-list").addEventListener("change", (event) => {
 $("#checkin-enabled").addEventListener("change", (event) => {
   saveCheckinSettings({ enabled: event.target.checked },
     event.target.checked ? "已开启每日签到" : "已关闭每日签到");
+});
+// Typing reveals 保存; leaving the saved value hides it again.
+["checkin-hour", "checkin-minute"].forEach((id) => {
+  $("#" + id).addEventListener("input", () => {
+    syncCheckinSave((snapshot && snapshot.checkin && snapshot.checkin.settings) || { hour: 9, minute: 0 });
+  });
 });
 $("#checkin-save").addEventListener("click", () => {
   const hour = Number($("#checkin-hour").value);

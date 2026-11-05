@@ -205,20 +205,29 @@
               <div><span class="overline">每日签到</span><h3>自动领取积分</h3></div>
               <label class="switch"><input type="checkbox" id="checkin-enabled"><span></span></label>
             </div>
-            <p class="setting-copy">到点为每个开启的账号签到一次；当天已签到会跳过，失败半小时后重试。</p>
+
+            <div class="checkin-hero" id="checkin-hero">
+              <div class="checkin-ring-wrap" id="checkin-ring-wrap">
+                <svg class="checkin-ring" viewBox="0 0 44 44" aria-hidden="true">
+                  <circle class="ring-track" cx="22" cy="22" r="19"></circle>
+                  <circle class="ring-fill" id="checkin-ring" cx="22" cy="22" r="19"></circle>
+                </svg>
+                <b class="checkin-ring-num" id="checkin-ring-num">—</b>
+              </div>
+              <div class="checkin-hero-text">
+                <b id="checkin-state">—</b>
+                <span id="checkin-state-sub"></span>
+              </div>
+            </div>
 
             <div class="checkin-time">
-              <span>签到时间</span>
+              <span>每天</span>
               <div class="time-field">
                 <input type="number" id="checkin-hour" min="0" max="23" step="1" inputmode="numeric">
                 <b>:</b>
                 <input type="number" id="checkin-minute" min="0" max="59" step="1" inputmode="numeric">
               </div>
-              <button class="text-button" id="checkin-save">保存</button>
-            </div>
-
-            <div class="checkin-progress" id="checkin-progress">
-              <div class="checkin-progress-head"><span>今日进度</span><b id="checkin-ratio">—</b></div>
+              <button class="text-button" id="checkin-save" hidden>保存</button>
             </div>
 
             <div class="checkin-list" id="checkin-list" hidden></div>

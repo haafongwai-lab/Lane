@@ -593,6 +593,13 @@ app.whenReady().then(async () => {
         // the smoke run's own result down with it.
         const capture = async (name) => {
           try {
+            // An occluded window or a sleeping display leaves the compositor
+            // without a frame and capturePage answers "display surface not
+            // available". Forcing a repaint with throttling off makes the
+            // preview work in exactly those runs it exists for.
+            window.webContents.setBackgroundThrottling(false);
+            window.webContents.invalidate();
+            await new Promise((resolve) => setTimeout(resolve, 150));
             const shot = await window.webContents.capturePage();
             await fs.writeFile(path.join(previewDir, name), shot.toPNG());
           } catch (error) {
