@@ -95,23 +95,26 @@ export function createControlCenter({
     });
     return value;
   };
-  // A finished request has just spent credits upstream, so the cached figure
+  // A finished request spends credits upstream, so the cached figure
   // is stale the moment it lands; dropping it here makes the next status
   // poll read the balance as it is now, not up to a minute late.
-  // The international Free plan's allowance lives on that account even while
-  // another account is the route, so it is read per its own id — a network
-  // round trip — and cached longer: an allowance moves slowly.
+  // The per-account read also feeds the accounts list's credits chip and
+  // the international Free plan's allowance, which lives on that account
+  // even while another account is the route. It is read per its own id —
+  // a network round trip — and cached longer: a balance moves slowly, and
+  // the list holds several accounts.
   const FREE_TTL_MS = 5 * 60_000;
-  // Stale-while-revalidate, deliberately: the usage route must not block on
-  // a WorkBuddy round trip - the first visit would render seconds late. A
-  // cached value answers at once and the refresh runs behind; the card
-  // appears on the next poll. A never-fetched account answers null once.
+  // Stale-while-revalidate, deliberately: neither the usage route nor the
+  // status poll may block on a WorkBuddy round trip - the first visit would
+  // render seconds late. A cached value answers at once and the refresh runs
+  // behind; the card appears on the next poll. A never-fetched account
+  // answers null once.
   //
-  // Keyed by account: two overseas accounts hold different allowances, and a
-  // single slot would hand the second one the first one's figures for five
-  // minutes after a switch.
+  // Keyed by account: two accounts hold different balances, and a single
+  // slot would hand the second one the first one's figures for five minutes
+  // after a switch.
   const freeUsageCache = new Map();
-  const cachedFreeUsage = (instance, id) => {
+  const cachedAccountUsage = (instance, id) => {
     const key = String(id || "");
     const entry = freeUsageCache.get(key);
     const now = Date.now();
@@ -129,14 +132,29 @@ export function createControlCenter({
     return Promise.resolve(freeUsageCache.get(key)?.value ?? null);
   };
 
-  // A finished request spends credits upstream, so both caches are stale the
-  // moment it lands - including the free allowance's, which the card exists
-  // to keep current. Dropping the entry (rather than only expiring it) makes
-  // the next poll revalidate behind the answer instead of serving the pre-
-  // request figure for up to FREE_TTL_MS.
-  const invalidateUsage = () => {
+  // Every account row in the status snapshot carries its own credits, read
+  // through the same stale-while-revalidate cache the usage route's free
+  // allowance uses: the accounts list answers from cache at once, a
+  // never-fetched account shows nothing once, and the figures fill in on
+  // the next poll without anyone waiting on a billing round trip.
+  const withCredits = async (instance, accounts) => {
+    return Promise.all(accounts.map(async (account) => ({
+      ...account,
+      credits: await cachedAccountUsage(instance, account.id)
+    })));
+  };
+
+  // A finished request spends credits upstream, so the caches are stale the
+  // moment it lands. The active account's quota card revalidates behind the
+  // next poll, and so does that account's row in the accounts list — but
+  // only that account: the others' balances have not moved, and dropping
+  // every entry here would put a billing read per account on the wire after
+  // each request, since the status poll now consults this cache. A request
+  // names the account it billed; the caller passes it.
+  const invalidateUsage = (accountId = "") => {
     usageCache.clear();
-    freeUsageCache.clear();
+    if (accountId) freeUsageCache.delete(String(accountId));
+    else freeUsageCache.clear();
   };
   // Switching, switching off or removing the route invalidates every entry:
   // the figure that matters is always the current account's.
@@ -272,7 +290,7 @@ export function createControlCenter({
         accountId: account?.id || "",
         domain: account?.domain || "",
         expiresAt: account?.expiresAt || null,
-        accounts: await instance.accounts(),
+        accounts: await withCredits(instance, await instance.accounts()),
         activeId: await instance.activeId(),
         checkin: await checkinOverview(instance, env).catch(() => null),
         usage,
@@ -415,7 +433,9 @@ export function createControlCenter({
         only: id ? [id] : null
       });
       // A check-in tops the balance up, so the old figure must not linger.
-      invalidateUsage();
+      // A single account's run invalidates just that account; a run over
+      // every account (no id) drops all of them.
+      invalidateUsage(id);
       return { ...run, overview: await checkinOverview(instance, env) };
     },
 
@@ -569,7 +589,7 @@ export function createControlCenter({
           String(a.domain || "").includes("workbuddy.ai")
         );
         if (overseas) {
-          const freeUsage = await cachedFreeUsage(instance, overseas.id);
+          const freeUsage = await cachedAccountUsage(instance, overseas.id);
           report.freeAllowance = freeAllowance(
             freeUsage,
             rows.filter((row) => row.accountId === overseas.id)

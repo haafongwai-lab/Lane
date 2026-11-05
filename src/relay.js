@@ -364,7 +364,7 @@ export async function relayChat(res, upstream, body, options = {}) {
   journal?.finish(record?.id, streamError
     ? { status: "error", error: streamError }
     : { status: "complete" });
-  options.control?.invalidateUsage?.();
+  options.control?.invalidateUsage?.(options.accountId);
 }
 
 /**
@@ -428,7 +428,7 @@ export async function proxyProtocol(res, provider, chat, options) {
       }
       options.control?.journal.usage(options.record?.id, state.usage);
       options.control?.journal.finish(options.record?.id, { status: "complete" });
-      options.control?.invalidateUsage?.();
+      options.control?.invalidateUsage?.(options.accountId);
       res.end();
       return;
     }
@@ -484,7 +484,7 @@ export async function proxyProtocol(res, provider, chat, options) {
     // to the converted shape's numbers only when no raw report landed.
     options.control?.journal.usage(options.record?.id, state.usage || output.usage);
     options.control?.journal.finish(options.record?.id, { status: "complete" });
-    options.control?.invalidateUsage?.();
+    options.control?.invalidateUsage?.(options.accountId);
     json(res, 200, output);
   } catch (error) {
     // The client can close the connection the moment it has the whole answer
@@ -496,7 +496,7 @@ export async function proxyProtocol(res, provider, chat, options) {
     if (state && state.started && state.finished) {
       options.control?.journal.usage(options.record?.id, state.usage);
       options.control?.journal.finish(options.record?.id, { status: "complete" });
-      options.control?.invalidateUsage?.();
+      options.control?.invalidateUsage?.(options.accountId);
       if (!res.writableEnded) res.end();
       return;
     }

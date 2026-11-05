@@ -301,6 +301,7 @@ function renderAccounts() {
           <i>·</i>
           <code>${esc(account.id.slice(0, 8))}</code>
           ${checkinChip(checkin.get(account.id), { ...account, enabled })}
+          ${creditsChip(account)}
         </div>
       </div>
       <div class="account-actions">
@@ -327,6 +328,28 @@ function checkinChip(item, account) {
   // No claim exists on this build, so "未签到" would read as a missed task.
   if (item.status === "unavailable") return '<span class="account-chip idle">积分自动发放</span>';
   return '<span class="account-chip idle">今日未签到</span>';
+}
+
+// The account's own balance, read behind the status poll: the first snapshot
+// after a start answers null (the read runs behind it), and the figure fills
+// in on the next tick. A failing read says so rather than showing a number
+// the upstream did not report.
+function creditsChip(account) {
+  const view = creditView(account.credits);
+  if (!view) {
+    if (account.credits?.error) {
+      return `<span class="account-chip idle" data-tip="${esc(account.credits.error)}">积分不可用</span>`;
+    }
+    return '<span class="account-chip idle">积分 …</span>';
+  }
+  // Ninety percent gone is the point where the next long task may not fit;
+  // below that the plain chip keeps the list calm.
+  const tone = view.percent >= 90 ? " warn" : "";
+  const tip = [`本周期已用 ${creditNumber(view.used)} / ${creditNumber(view.limit)}（${Math.round(view.percent)}%）`];
+  if (view.runsOutAt) {
+    tip.push(`${new Date(view.runsOutAt).toLocaleDateString("zh-CN")} 重置`);
+  }
+  return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${creditNumber(view.left)}</span>`;
 }
 
 function renderCheckin() {
