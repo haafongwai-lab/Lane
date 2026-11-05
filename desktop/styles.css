@@ -402,12 +402,13 @@ h1 {
   object-fit: contain;
 }
 /* In the route node the whale stands bare, as Claude's asterisk and Codex's
-   star do: no tile, no ring. The four assets carry different transparent
-   margins, so at box size their inks landed at three different heights -
-   the whale shortest of all. Each image now scales so its ink fills the
-   logo box: the whale at 150% (its ink is 63% of the image), the codex
-   cloud and the Z plate at 120%. The overflow stays visible; the inks all
-   end at the box edge, clear of the names below. */
+   star do: no tile, no ring. The asset's ink is only 63% of the image tall
+   (a wide mark against square glyphs), and percentage sizing compounded
+   oddly inside this grid, so the image is sized in pixels: 55px puts the
+   whale's ink level with the codex cloud and the Z plate (Claude's glyph
+   fills its box and stands a touch taller, as it always has), centred on
+   the row's line, clear of the name below. The narrow breakpoint's 36px
+   boxes get the matching 47px. */
 .dsh-logo {
   background: transparent;
   overflow: visible;
@@ -417,15 +418,10 @@ h1 {
   place-items: center;
 }
 .dsh-logo img {
-  width: 150%;
-  height: 150%;
+  width: 55px;
+  height: 55px;
   display: block;
   object-fit: contain;
-}
-.route-canvas .codex-logo img,
-.route-canvas .zcode-logo img {
-  width: 120%;
-  height: 120%;
 }
 .codex-logo { overflow: hidden; background: #fff; }
 .codex-logo img, .agent-icon.codex img {
@@ -1027,6 +1023,9 @@ h1 {
   /* Tight columns cannot seat three 42px logos in a row; smaller marks with
      room to wrap keep the trio inside equal-width tracks. */
   .route-canvas .node-logo { width: 36px; height: 36px; }
+  /* The whale keeps its ink level with the shrunk glyphs: 36px boxes want a
+     47px image (ink 63% of the image). */
+  .route-canvas .dsh-logo img { width: 47px; height: 47px; }
   .agent-logos { flex-wrap: wrap; row-gap: 6px; }
   .flow-rail, .flow-stream { right: 24%; left: 22%; }
 }
