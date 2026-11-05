@@ -5,7 +5,7 @@ import { openableUrl, openableHosts } from "../desktop/openable.js";
 /**
  * The shell's one security decision, held by a test.
  *
- * The three hosts below are measured, not guessed: the plugin's
+ * The hosts below are measured, not guessed: the plugin's
  * authorize() returns `https://www.workbuddy.cn/login?...` for the domestic
  * build and `https://www.workbuddy.ai/login?...` for the international one,
  * and API traffic goes to copilot.tencent.com. A host added here without a
@@ -22,6 +22,13 @@ test("the sign-in pages the plugin actually returns are openable", () => {
   ]) {
     assert.equal(openableUrl(url), new URL(url).href, url);
   }
+});
+
+test("the check-in card's repository link is openable", () => {
+  assert.equal(
+    openableUrl("https://github.com/haafongwai-lab/Lane"),
+    "https://github.com/haafongwai-lab/Lane"
+  );
 });
 
 test("any other host is refused", () => {
@@ -60,9 +67,9 @@ test("junk input is refused rather than thrown on", () => {
   }
 });
 
-test("the allowlist is exactly the three hosts", () => {
+test("the allowlist is exactly the four hosts", () => {
   assert.deepEqual(
     [...openableHosts].sort(),
-    ["copilot.tencent.com", "www.workbuddy.ai", "www.workbuddy.cn"]
+    ["copilot.tencent.com", "github.com", "www.workbuddy.ai", "www.workbuddy.cn"]
   );
 });

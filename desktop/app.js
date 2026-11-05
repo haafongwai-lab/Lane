@@ -1077,6 +1077,14 @@ $("#checkin-save").addEventListener("click", () => {
 });
 $("#checkin-now").addEventListener("click", () => runCheckin(""));
 
+// The star line opens the repository in the user's browser: the renderer
+// never navigates itself, and the main process allowlist decides whether
+// the URL may open at all.
+$("#checkin-star").addEventListener("click", (event) => {
+  event.preventDefault();
+  window.lane.openURL("https://github.com/haafongwai-lab/Lane");
+});
+
 async function saveCheckinSettings(patch, message) {
   try {
     await window.lane.checkinSettings(patch);

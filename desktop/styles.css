@@ -402,12 +402,12 @@ h1 {
   object-fit: contain;
 }
 /* In the route node the whale stands bare, as Claude's asterisk and Codex's
-   star do: no tile, no ring. The asset keeps a 7% margin on each side of the
-   whale, so a box-sized image reads a size smaller than the square glyphs
-   beside it — the image runs at 117% of the logo box, which puts the visible
-   whale on the same width as them, and scales with the box at the narrow
-   breakpoint too. The overflow stays visible: the ink is shorter than the
-   box, so nothing clips and nothing collides with the name below. */
+   star do: no tile, no ring. The four assets carry different transparent
+   margins, so at box size their inks landed at three different heights -
+   the whale shortest of all. Each image now scales so its ink fills the
+   logo box: the whale at 150% (its ink is 63% of the image), the codex
+   cloud and the Z plate at 120%. The overflow stays visible; the inks all
+   end at the box edge, clear of the names below. */
 .dsh-logo {
   background: transparent;
   overflow: visible;
@@ -417,10 +417,15 @@ h1 {
   place-items: center;
 }
 .dsh-logo img {
-  width: 117%;
-  height: 117%;
+  width: 150%;
+  height: 150%;
   display: block;
   object-fit: contain;
+}
+.route-canvas .codex-logo img,
+.route-canvas .zcode-logo img {
+  width: 120%;
+  height: 120%;
 }
 .codex-logo { overflow: hidden; background: #fff; }
 .codex-logo img, .agent-icon.codex img {
@@ -1282,6 +1287,37 @@ h1 {
 .checkin-card .wide { margin-top: 16px; }
 /* Same shape as the health panel's sign-in action: a button, not a bar. */
 .checkin-now { display: block; width: max-content; min-width: 132px; margin: 16px auto 0; padding: 9px 22px; }
+
+/* The star line: the one outward-facing thing on the card, kept as quiet as
+   the rest of it. The wording leans on the card's own theme - starring the
+   repository framed as signing Lane in - and hovering fills the star. */
+.checkin-star {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-decoration: none;
+  transition: color .2s ease, border-color .2s ease, background .2s ease;
+}
+.checkin-star .gh-mark { width: 15px; height: 15px; flex: 0 0 auto; fill: currentColor; }
+.checkin-star span { flex: 1 1 auto; }
+.checkin-star .star {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  transition: fill .2s ease, stroke .2s ease;
+}
+.checkin-star:hover { color: var(--ink-soft); border-color: var(--line); background: #faf9f4; }
+.checkin-star:hover .star { fill: #e2a63b; stroke: #e2a63b; }
 
 @media (max-width: 1200px) {
   .accounts-grid { grid-template-columns: 1fr; }
