@@ -1232,37 +1232,12 @@ h1 {
 }
 .time-field b { color: var(--faint); font-weight: 500; }
 
-/* The status hero: one ring, one sentence. The ring fills with the day's
-   share of signed-in accounts; the sentence names the state and the next
-   run, so the card reads without a single label. */
+/* The status line: one sentence answers "how is today going", with the
+   next run or the failure count underneath. */
 .checkin-hero {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-top: 12px;
 }
 .checkin-hero[hidden] { display: none; }
-.checkin-ring-wrap { position: relative; width: 44px; height: 44px; flex: 0 0 auto; }
-.checkin-ring-wrap[hidden] { display: none; }
-.checkin-ring { display: block; width: 44px; height: 44px; transform: rotate(-90deg); }
-.checkin-ring circle { fill: none; stroke-width: 3.5; }
-.checkin-ring .ring-track { stroke: var(--line-soft); }
-.checkin-ring .ring-fill {
-  stroke: var(--green);
-  stroke-linecap: round;
-  transition: stroke-dashoffset .5s ease, stroke .3s ease;
-}
-.checkin-hero.has-failed .ring-fill { stroke: var(--red); }
-.checkin-hero.off .ring-fill { stroke: var(--line); }
-.checkin-ring-num {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font: 600 13px/1 var(--font-display);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-soft);
-}
 .checkin-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .checkin-hero-text b { font: 600 13px/1.25 var(--font-display); color: var(--ink); }
 .checkin-hero-text span { color: var(--faint); font-size: 11px; }

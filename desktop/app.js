@@ -352,9 +352,6 @@ function creditsChip(account) {
   return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${creditNumber(view.left)}</span>`;
 }
 
-// The check-in ring's circumference (r = 19 in the SVG).
-const CHECKIN_RING_C = 2 * Math.PI * 19;
-
 // The next time the scheduler will fire, as "今天 09:00" / "明天 21:30".
 function nextCheckinText(settings) {
   const now = new Date();
@@ -388,7 +385,7 @@ function renderCheckin() {
   syncCheckinSave(settings);
 
   // Accounts that never have a claim are not part of "日签到" accounting;
-  // counting them leaves the ring permanently short of its total.
+  // counting them leaves the day's count permanently short of its total.
   const accounts = checkin.accounts || [];
   const items = accounts.filter((item) => item.enabled && item.status !== "unavailable");
   const done = items.filter((item) => item.status === "done").length;
@@ -399,20 +396,8 @@ function renderCheckin() {
     return Number.isFinite(n) ? sum + n : sum;
   }, 0);
 
-  // One ring and one sentence answer "how is today going"; everything else
-  // on the card is schedule or failure detail.
-  const hero = $("#checkin-hero");
-  const ring = $("#checkin-ring");
-  // The state sentence stays even with no accounts (it says why the card is
-  // quiet); only the ring disappears — an empty circle reads as broken.
-  hero.hidden = false;
-  $("#checkin-ring-wrap").hidden = accounts.length === 0;
-  ring.style.strokeDasharray = CHECKIN_RING_C.toFixed(1);
-  ring.style.strokeDashoffset = (total ? CHECKIN_RING_C * (1 - done / total) : CHECKIN_RING_C).toFixed(1);
-  hero.classList.toggle("off", settings.enabled === false);
-  hero.classList.toggle("has-failed", failed > 0);
-  $("#checkin-ring-num").textContent = total ? String(done) : "—";
-
+  // One sentence answers "how is today going"; everything else on the card
+  // is schedule or failure detail.
   const state = $("#checkin-state");
   const sub = $("#checkin-state-sub");
   const hhmm = `${String(settings.hour).padStart(2, "0")}:${String(settings.minute).padStart(2, "0")}`;
@@ -424,7 +409,7 @@ function renderCheckin() {
     state.textContent = "自动签到已关闭";
     sub.textContent = `打开开关后每天 ${hhmm} 定时领取`;
   } else if (done === total) {
-    state.textContent = "今日已全部签到";
+    state.textContent = `今日已全部签到（${done}/${total}）`;
     sub.textContent = `${reward > 0 ? `共领 ${creditNumber(reward)} 积分 · ` : ""}明天 ${hhmm} 再来`;
   } else if (done === 0) {
     state.textContent = "今日还未签到";
@@ -434,7 +419,7 @@ function renderCheckin() {
     sub.textContent = retryNote || `下次自动签到 ${nextCheckinText(settings)}`;
   }
 
-  // Only what needs attention stays below the ring.
+  // Only what needs attention stays below the state line.
   const issues = items.filter((item) => item.status === "failed");
   const list = $("#checkin-list");
   list.hidden = issues.length === 0;
