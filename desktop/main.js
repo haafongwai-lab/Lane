@@ -8,7 +8,7 @@ import { createServer } from "../src/server.js";
 import { WorkBuddyProvider } from "../src/workbuddy.js";
 import { dataDir } from "../src/config.js";
 import { claimOwnership, releaseOwnership } from "../src/owner.js";
-import { readSettings, writeSettings } from "../src/settings.js";
+import { readSettings, writeSettings, writeSetting } from "../src/settings.js";
 import { readState } from "../src/agents/store.js";
 import { openableUrl } from "./openable.js";
 
@@ -428,6 +428,14 @@ async function autostartOn() {
     return false;
   }
 }
+
+// The privacy switch is its own call: flipping it must not go through the
+// port validation, and it takes effect on the next request without a restart.
+ipcMain.handle("lane:hide-dsh", async (_event, { hideDsh } = {}) => {
+  await startGateway();
+  const next = await writeSetting({ hideDsh: Boolean(hideDsh) });
+  return { hideDsh: next.hideDsh !== false };
+});
 
 ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
   await startGateway();

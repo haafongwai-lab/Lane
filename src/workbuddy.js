@@ -13,6 +13,7 @@ import {
   normalizeSite
 } from "./accounts.js";
 import { prepareChat, restoreToolNames } from "./sanitize.js";
+import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
 
 const require = createRequire(import.meta.url);
@@ -336,7 +337,10 @@ export class WorkBuddyProvider {
     // WorkBuddy refuses a chat whose prompt carries another client's words,
     // and refuses tool shapes its models cannot take. The plugin knows both
     // lists; this is the same preparation it applies to its own requests.
-    const prepared = await prepareChat({ ...body, stream: true });
+    // DSH's name is hidden here too unless the user turned that off: a name
+    // WorkBuddy can read back is what got an account banned.
+    const { hideDsh } = await readSettings(this.env).catch(() => ({ hideDsh: true }));
+    const prepared = await prepareChat({ ...body, stream: true }, { hideDsh });
     const gate = new AbortController();
     // The reason names its own kind: the relay's catch sees only the
     // rejection, and an AbortError by itself cannot be told apart from the

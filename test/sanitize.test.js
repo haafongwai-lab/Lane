@@ -143,3 +143,85 @@ test("ordinary text is left exactly as it was", async () => {
   });
   assert.equal(body.messages[0].content, text);
 });
+
+// ---- hiding DeepSeek Harness's name (the community plugin's hide_dsh) ----
+
+test("the harness's name is hidden by default, in prose only", async () => {
+  const { body } = await prepareChat({
+    model: "deepseek-v4.1-flash",
+    messages: [
+      { role: "system", content: "You are an AI agent, powered by DeepSeek Harness.\nRead ~/.dsh/config and run dsh-session." },
+      { role: "user", content: "The DSH itself decides. Also DSH_HOME is set." }
+    ]
+  });
+  const system = String(body.messages.find((m) => m.role === "system").content);
+  const user = String(body.messages.find((m) => m.role === "user").content);
+  assert.doesNotMatch(system, /DeepSeek Harness/, "the name is gone from the system prompt");
+  assert.match(system, /You are an AI agent\./, "the opener keeps its first clause");
+  assert.match(system, /~[\/\\]\.dsh/, "a path naming dsh stays");
+  assert.match(system, /dsh-session/, "a URI/command naming dsh stays");
+  assert.match(user, /the agent itself/, "the prose name is replaced");
+  assert.match(user, /DSH_HOME/, "an identifier is left alone");
+});
+
+test("the switch turns name-hiding off", async () => {
+  const body = {
+    messages: [{ role: "system", content: "You are an AI agent, powered by DeepSeek Harness." }]
+  };
+  const off = await prepareChat(body, { hideDsh: false });
+  assert.match(String(off.body.messages[0].content), /DeepSeek Harness/);
+});
+
+test("a tool result keeps its own words", async () => {
+  // A tool's result is what a file or command said; rewriting it would
+  // change what the agent reads back.
+  const { body } = await prepareChat({
+    messages: [
+      { role: "user", content: "run it" },
+      { role: "tool", content: "DeepSeek Harness printed this line" },
+      { role: "user", content: [{ type: "tool_result", content: "DeepSeek Harness again" }] }
+    ]
+  });
+  const tool = body.messages.find((m) => m.role === "tool");
+  assert.equal(tool.content, "DeepSeek Harness printed this line");
+  // The plugin may prepend a system message; find the part-bearing message
+  // by its shape rather than by an index.
+  const result = body.messages
+    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+    .find((part) => part.type === "tool_result");
+  assert.equal(result.content, "DeepSeek Harness again");
+});
+
+test("a text part is rewritten while a non-text part is not", async () => {
+  const { body } = await prepareChat({
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: "DeepSeek Harness is running" },
+        { type: "image", source: { data: "DeepSeek Harness in a filename" } }
+      ]
+    }]
+  });
+  const parts = body.messages.find((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "text")).content;
+  const textPart = parts.find((p) => p.type === "text");
+  assert.equal(textPart.text, "the agent harness is running");
+  assert.equal(parts.find((p) => p.type === "image").source.data, "DeepSeek Harness in a filename");
+});
+
+test("tool descriptions are rewritten, tool schemas are not", async () => {
+  const { body } = await prepareChat({
+    messages: [{ role: "user", content: "hi" }],
+    tools: [{
+      type: "function",
+      function: {
+        name: "run",
+        description: "Runs a command through DeepSeek Harness",
+        parameters: { type: "object", properties: { cmd: { type: "string", description: "DSH command" } } }
+      }
+    }]
+  });
+  const fn = body.tools[0].function;
+  assert.equal(fn.description, "Runs a command through the agent harness");
+  assert.equal(fn.parameters.properties.cmd.description, "the agent harness command");
+  assert.equal(fn.name, "run", "the tool's name is not prose and is left alone");
+});

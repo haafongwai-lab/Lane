@@ -114,25 +114,105 @@ function unflagRefusedOpenings(value) {
 }
 
 /**
- * A chat body ready for WorkBuddy: flagged words replaced, roles and token
- * limits spelled the way the endpoint takes them, tool schemas the models can
- * actually accept. `names` maps any tool Lane had to rename back to the name
- * the client gave it, so the answer can be renamed on the way out.
+ * DeepSeek Harness names itself in its own system prompt and runtime context,
+ * and a name that reaches WorkBuddy can be recognised afterwards — an account
+ * used through DSH was banned for exactly that. The community plugin hides the
+ * name behind a switch (`hide_dsh`, on by default); Lane's pinned plugin
+ * predates it, so the table lives here.
+ *
+ * Only the name in prose goes. Lower-case `dsh` names paths (~/.dsh), commands
+ * and URIs, and a tool's result is whatever a file or command said — those
+ * stay. Case counts, so `DSH_HOME` is an identifier and is left alone.
  */
-export async function prepareChat(body) {
-  const api = await loadInternals();
-  if (typeof api.withSystem !== "function") return { body, names: new Map() };
+const DSH_NAMED = [
+  [/You are an AI agent,? powered by DeepSeek Harness\.?/g, "You are an AI agent."],
+  [/DeepSeek Harness (Web GUI)/g, "$1"],
+  [/DeepSeek Harness (implementation checkout)/g, "agent $1"],
+  [/\bDSH itself\b/g, "the agent itself"],
+  [/\b([Tt]he )?DeepSeek Harness\b/g, (_, the) => (the ?? "the ") + "agent harness"],
+  [/\bDSH\b(?!_)/g, "the agent harness"]
+];
 
-  let text = api.withSystem(JSON.stringify(body));
+function hideDshName(text) {
+  for (const [pattern, replacement] of DSH_NAMED) text = text.replace(pattern, replacement);
+  return text;
+}
+
+/**
+ * Applies `hideDshName` to the text of a chat body: message text and
+ * Messages' `system`, plus tool descriptions. A tool's result (role `tool`,
+ * or a non-text part such as `tool_result`) is left as it came — that is the
+ * client's own data, and rewriting it would change what the agent reads back.
+ */
+function concealDshName(body) {
+  let changed = false;
+  const parts = (content) => {
+    if (typeof content === "string") {
+      const next = hideDshName(content);
+      if (next !== content) changed = true;
+      return next;
+    }
+    if (!Array.isArray(content)) return content;
+    return content.map((part) => {
+      if (!part || typeof part.text !== "string" || (part.type !== undefined && part.type !== "text")) return part;
+      const next = hideDshName(part.text);
+      if (next === part.text) return part;
+      changed = true;
+      return { ...part, text: next };
+    });
+  };
+  const out = { ...body };
+  if (Array.isArray(out.messages)) {
+    out.messages = out.messages.map((message) => {
+      if (!message || typeof message !== "object" || message.role === "tool") return message;
+      return { ...message, content: parts(message.content) };
+    });
+  }
+  if (out.system !== undefined) out.system = parts(out.system);
+  const described = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(described);
+      return;
+    }
+    for (const key of Object.keys(value)) {
+      if (key === "description" && typeof value[key] === "string") {
+        const next = hideDshName(value[key]);
+        if (next !== value[key]) {
+          value[key] = next;
+          changed = true;
+        }
+      } else {
+        described(value[key]);
+      }
+    }
+  };
+  if (Array.isArray(out.tools)) described(out.tools);
+  return { body: out, changed };
+}
+
+/**
+ * A chat body ready for WorkBuddy: DSH's name hidden unless the user turned
+ * that off, flagged words replaced, roles and token limits spelled the way the
+ * endpoint takes them, tool schemas the models can actually accept. `names`
+ * maps any tool Lane had to rename back to the name the client gave it, so the
+ * answer can be renamed on the way out.
+ */
+export async function prepareChat(body, { hideDsh = true } = {}) {
+  const api = await loadInternals();
+  const source = hideDsh ? concealDshName(body).body : body;
+  if (typeof api.withSystem !== "function") return { body: source, names: new Map() };
+
+  let text = api.withSystem(JSON.stringify(source));
   const fit = typeof api.fitted === "function" ? api.fitted(text) : { body: text, names: new Map() };
   text = typeof api.normalizeToolChoice === "function" ? api.normalizeToolChoice(fit.body) : fit.body;
 
-  let prepared = body;
+  let prepared = source;
   try {
     prepared = JSON.parse(text);
   } catch {
     // A body the helpers could not read stays as the client sent it.
-    return { body, names: new Map() };
+    return { body: source, names: new Map() };
   }
   // The refused wording is rewritten last, so it reads the body the plugin
   // finished with — including any line the pinned plugin leaves behind.

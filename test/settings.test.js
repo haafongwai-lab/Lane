@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { readSettings, writeSettings, normalizePort } from "../src/settings.js";
+import { readSettings, writeSettings, writeSetting, normalizePort } from "../src/settings.js";
 
 async function envFor() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lane-settings-"));
@@ -43,6 +43,35 @@ test("out-of-range ports are rejected and never stored", async () => {
     // The rejection must not have written a file with the bad value.
     const settings = await readSettings(env);
     assert.equal(settings.port, 3426);
+  } finally {
+    await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
+  }
+});
+
+// ---- the DSH name-hiding switch ------------------------------------------
+
+test("hiding DSH's name is on unless it was explicitly turned off", async () => {
+  const env = await envFor();
+  try {
+    assert.equal((await readSettings(env)).hideDsh, true, "a missing file reads as on");
+    await writeSettings({ port: 4800 }, env);
+    assert.equal((await readSettings(env)).hideDsh, true, "saving a port does not turn it off");
+    await writeSetting({ hideDsh: false }, env);
+    assert.equal((await readSettings(env)).hideDsh, false);
+    assert.equal((await readSettings(env)).port, 4800, "the port survives the switch");
+  } finally {
+    await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
+  }
+});
+
+test("the switch reads any non-false value as on", async () => {
+  const env = await envFor();
+  try {
+    await fs.mkdir(env.LANE_DATA_DIR, { recursive: true });
+    for (const stored of [{ port: 4000 }, { port: 4000, hideDsh: true }, { port: 4000, hideDsh: "no" }]) {
+      await fs.writeFile(path.join(env.LANE_DATA_DIR, "settings.json"), JSON.stringify(stored));
+      assert.equal((await readSettings(env)).hideDsh, true, JSON.stringify(stored));
+    }
   } finally {
     await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
   }

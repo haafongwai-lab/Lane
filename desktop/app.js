@@ -226,6 +226,17 @@ function render() {
   if (portField && document.activeElement !== portField && !portField.value) {
     portField.value = snapshot.gateway ? String(new URL(snapshot.gateway).port) : "";
   }
+  // The privacy switch is a setting, not a per-account state: read it once,
+  // and never while the user is flipping it.
+  const hideDshBox = $("#hide-dsh");
+  if (hideDshBox && !hideDshPending) {
+    if (!hideDshLoaded) {
+      hideDshLoaded = true;
+      window.lane.gatewaySettings()
+        .then((settings) => { if (!hideDshPending) hideDshBox.checked = settings.hideDsh !== false; })
+        .catch(() => { hideDshLoaded = false; });
+    }
+  }
   // Every address shown in the UI derives from the snapshot, so a saved
   // port change is reflected everywhere once the gateway restarts on it.
   // (The sidebar shows none of them: that corner is blank by design.)
@@ -1062,6 +1073,25 @@ $("#checkin-save").addEventListener("click", () => {
 });
 $("#checkin-now").addEventListener("click", () => runCheckin(""));
 
+// The DSH privacy switch: takes effect on the next request, no restart.
+$("#hide-dsh").addEventListener("change", async (event) => {
+  const box = event.target;
+  const wanted = box.checked;
+  hideDshPending = true;
+  box.disabled = true;
+  try {
+    const result = await window.lane.hideDsh(wanted);
+    box.checked = result.hideDsh !== false;
+    toast(result.hideDsh !== false ? "已隐去 DSH 的名字" : "已恢复发送 DSH 的名字");
+  } catch (error) {
+    box.checked = !wanted;
+    toast(error.message || "设置失败", true);
+  } finally {
+    box.disabled = false;
+    hideDshPending = false;
+  }
+});
+
 // The star line opens the repository in the user's browser: the renderer
 // never navigates itself, and the main process allowlist decides whether
 // the URL may open at all.
@@ -1222,6 +1252,11 @@ setInterval(() => {
 // ---- extensions: MCP + skills ---------------------------------------------
 
 var extData = { servers: [], targets: [] };
+// The DSH privacy switch: loaded once from settings.json, and held steady
+// while a save is in flight so a poll cannot flip the box back under the
+// user's finger.
+var hideDshLoaded = false;
+var hideDshPending = false;
 // The short names the MCP lamps and skill pips draw. DeepSeek Harness is
 // absent on purpose: it has no entry in either list, because it manages its
 // own MCP servers and its own skills.

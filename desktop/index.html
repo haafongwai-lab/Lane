@@ -388,6 +388,12 @@
           </article>
 
           <article class="panel">
+            <div class="panel-head"><div><span class="overline">隐私</span><h3>隐去 DSH 的名字</h3></div><label class="switch"><input type="checkbox" id="hide-dsh"><span></span></label></div>
+            <p class="setting-copy">把 DeepSeek Harness 的名字从它发出的内容里去掉：开头那句，以及说明它源码目录和 Web GUI 的几行。路径、命令和工具结果保持不变。默认开启——名字被上游读出来是封号的原因。</p>
+            <p class="setting-copy" id="hide-dsh-note" hidden></p>
+          </article>
+
+          <article class="panel">
             <div class="panel-head"><div><span class="overline">数据</span><h3>本机存放</h3></div></div>
             <p class="setting-copy">账号、签到记录与请求日志只保存在本机，不上传。</p>
             <div class="setting-row"><span>数据目录</span><code id="data-path">%LOCALAPPDATA%\lane</code><button class="text-button" id="open-data">打开</button></div>
