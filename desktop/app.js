@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, creditView, creditWindowOf } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -34,35 +34,20 @@ function creditNumber(value) {
 
 // The plugin's usage hook reports the cycle's credits used against what it
 // grants, as a percent plus the two counts, and when the credits run out.
-function creditView(usage) {
-  if (!usage || usage.error) return null;
-  const window = (usage.windows || []).find((item) => item.name === "Credits")
-    || (usage.windows || [])[0];
-  if (!window) return null;
-  const used = Number(window.amount);
-  const limit = Number(window.limit);
-  if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) return null;
-  const percent = Number.isFinite(Number(window.used))
-    ? Math.max(0, Math.min(100, Number(window.used)))
-    : (used / limit) * 100;
-  return {
-    plan: usage.plan || "",
-    used,
-    limit,
-    left: Math.max(0, limit - used),
-    percent,
-    runsOutAt: window.runsOutAt || "",
-    runsOut: Number(window.runsOut) || 0
-  };
-}
-
+// `creditView` in format.js picks the window and reads it.
 function renderCredits(usage) {
   const credits = creditView(usage);
   // The meter reports what the cycle has spent; the card answers the question
   // the account page does — how much is left — so it shows the remainder.
+  // A prepaid balance has no cycle total: it is all left, and saying "42.5 /
+  // 42.5" would claim a ceiling the account never had.
   $("#account-credits").textContent = credits
-    ? `剩余积分 ${creditNumber(credits.left)} / ${creditNumber(credits.limit)}`
-    : usage?.error ? "积分不可用" : "积分 —";
+    ? credits.prepaid
+      ? `剩余积分 ${creditNumber(credits.left)}`
+      : `剩余积分 ${creditNumber(credits.left)} / ${creditNumber(credits.limit)}`
+    : usage?.error
+      ? usage.signIn === "expired" ? "需重新登录" : "积分不可用"
+      : "积分 —";
 }
 
 function creditRate(model) {
@@ -349,17 +334,23 @@ function creditsChip(account) {
   const view = creditView(account.credits);
   if (!view) {
     if (account.credits?.error) {
-      return `<span class="account-chip idle" data-tip="${esc(account.credits.error)}">积分不可用</span>`;
+      // A sign-in WorkBuddy refused is not a billing glitch: the chip says
+      // which it is, because this row is where the account is managed.
+      const expired = account.credits?.signIn === "expired";
+      return `<span class="account-chip ${expired ? "warn" : "idle"}" data-tip="${esc(account.credits.error)}">${expired ? "需重新登录" : "积分不可用"}</span>`;
     }
     return '<span class="account-chip idle">积分 …</span>';
+  }
+  // A prepaid balance only falls: there is no cycle percent to warn about.
+  if (view.prepaid) {
+    return `<span class="account-chip" data-tip="${esc("预付积分余额")}">剩余 ${creditNumber(view.left)}</span>`;
   }
   // Ninety percent gone is the point where the next long task may not fit;
   // below that the plain chip keeps the list calm.
   const tone = view.percent >= 90 ? " warn" : "";
   const tip = [`本周期已用 ${creditNumber(view.used)} / ${creditNumber(view.limit)}（${Math.round(view.percent)}%）`];
-  if (view.runsOutAt) {
-    tip.push(`${new Date(view.runsOutAt).toLocaleDateString("zh-CN")} 重置`);
-  }
+  if (view.resetsAt) tip.push(`${new Date(view.resetsAt).toLocaleDateString("zh-CN")} 重置`);
+  if (view.runsOutAt) tip.push(`${new Date(view.runsOutAt).toLocaleDateString("zh-CN")} 未用额度过期`);
   return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${creditNumber(view.left)}</span>`;
 }
 
@@ -650,7 +641,7 @@ function growUsageBars(node) {
 }
 
 // The international Free plan has two separate allowances, and this card
-// keeps them separate the way WorkBuddy does: the Credits window (which the
+// keeps them separate the way WorkBuddy does: the credit window (which the
 // plan's paid models would draw on, and which free models are explicitly
 // excluded from) verbatim from the account's report, and the free models'
 // usage today from this machine's journal. No daily limit is shown for the
@@ -664,8 +655,10 @@ function renderFreeAllowance(allowance) {
     return;
   }
   node.hidden = false;
-  const reset = allowance.credits.runsOutAt
-    ? new Date(allowance.credits.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+  // The credits side is the plan window's cycle: the reset (resetsAt) is
+  // when the allowance starts over, not when unused credits lapse.
+  const reset = allowance.credits?.resetsAt
+    ? new Date(allowance.credits.resetsAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
   const models = (allowance.freeModels || []).map(esc).join("、");
   const tokens = (Number(allowance.freeTokensToday) || 0) / 1e6;
@@ -694,13 +687,24 @@ function renderUsageQuota(quota) {
   const plan = $("#usage-plan");
   if (!quota || quota.error) {
     plan.textContent = "—";
-    node.innerHTML = `<div class="empty">${esc(quota?.error && quota.error !== "not signed in" ? quota.error : "登录后显示账户额度。")}</div>`;
+    node.innerHTML = quota?.signIn === "expired"
+      ? '<div class="empty">WorkBuddy 已拒绝这个账号的登录，请在「账号」页重新登录。</div>'
+      : `<div class="empty">${esc(quota?.error && quota.error !== "not signed in" ? quota.error : "登录后显示账户额度。")}</div>`;
     return;
   }
   plan.textContent = quota.plan || "账户";
-  const view = (quota.windows || []).find((item) => item.name === "Credits") || (quota.windows || [])[0];
+  const view = creditWindowOf(quota);
   if (!view) {
     node.innerHTML = '<div class="empty">该账户没有可读的积分额度。</div>';
+    return;
+  }
+  // A prepaid balance is not a cycle: it has no total to fill, nothing spent
+  // this cycle, and no reset. Drawing "0%" beside it would say the account has
+  // its full allowance, which is the opposite of what a falling balance means.
+  if (view.balance != null && !(Number(view.limit) > 0)) {
+    node.innerHTML = `
+      <div class="quota-amount"><b>${creditNumber(view.balance)}</b><span>预付积分余额</span></div>
+      <div class="quota-foot"><span>按次扣减，用完为止</span></div>`;
     return;
   }
   const used = Number(view.amount) || 0;
@@ -709,11 +713,15 @@ function renderUsageQuota(quota) {
     ? Math.max(0, Math.min(100, Number(view.used)))
     : limit ? (used / limit) * 100 : 0;
   const left = Math.max(0, limit - used);
-  // The reset date lives on the credits window for an enterprise account;
-  // a personal account's summary does not carry one at all.
+  // The cycle's reset date (an enterprise account carries one; a personal
+  // account's summary carries none) is separate from the day credits left
+  // would lapse (`runsOutAt`), and the card says which is which.
   const resetAt = view.resetsAt || quota.resetsAt;
   const reset = resetAt
     ? new Date(resetAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+    : "";
+  const lapsesAt = view.runsOutAt
+    ? new Date(view.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
   node.innerHTML = `
     <div class="quota-amount"><b>${creditNumber(left)}</b><span>剩余积分 / 共 ${creditNumber(limit)}</span></div>
@@ -721,6 +729,7 @@ function renderUsageQuota(quota) {
     <div class="quota-foot">
       <span>已用 ${percent(share / 100)}</span>
       ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
+      ${lapsesAt ? `<span>${esc(lapsesAt)} 未用额度过期</span>` : ""}
     </div>`;
 }
 
@@ -1195,11 +1204,22 @@ $("#gateway-port-save").addEventListener("click", async () => {
       gatewayNote(`当前就是端口 ${port}，无需保存`);
       return;
     }
-    const agents = result.rewritten?.length
-      ? `已同步更新接入配置：${result.rewritten.join("、")}`
-      : "当前没有已接入的 Agent，无需改写";
-    gatewayNote(`已保存。重启 Lane 后生效，新地址 127.0.0.1:${result.port}。${agents}。`);
-    toast(`网关端口已保存为 ${result.port}`, false);
+    const failures = result.failures || [];
+    const agents = failures.length
+      ? `${failures.length} 个客户端配置未能更新（${failures.map((f) => `${AGENT_SHORT[f.agent] || f.agent}：${f.message}`).join("；")}），重启后它们仍会连旧端口`
+      : result.rewritten?.length
+        ? `已同步更新接入配置：${result.rewritten.join("、")}`
+        : "当前没有已接入的 Agent，无需改写";
+    const autostart = result.autostartError
+      ? ` 登录时启动项也未能更新：${result.autostartError}。`
+      : "";
+    gatewayNote(`已保存。重启 Lane 后生效，新地址 127.0.0.1:${result.port}。${agents}。${autostart}`, failures.length > 0 || result.autostartError);
+    toast(
+      failures.length || result.autostartError
+        ? `端口已保存为 ${result.port}，但有配置未同步，请查看下方说明`
+        : `网关端口已保存为 ${result.port}`,
+      failures.length > 0 || Boolean(result.autostartError)
+    );
   } catch (error) {
     gatewayNote(error.message || "保存失败", true);
   } finally {
@@ -1271,6 +1291,9 @@ function extError(id, message) {
 }
 
 async function loadExtensions() {
+  // Two panels, two reads: a failure in one must not blank the other, and
+  // its error belongs in its own panel. The old single try put a skills
+  // failure in the MCP card's error line and left this one silently empty.
   try {
     var mcp = await window.lane.mcpList();
     extData.servers = mcp.servers || [];
@@ -1279,12 +1302,20 @@ async function loadExtensions() {
     // invalidates them, and a load re-render keeps whatever was already run.
     if (!extData.mcpTest) extData.mcpTest = {};
     renderMcp();
-    var skills = await window.lane.skillsList();
-    renderSkills(skills.skills || []);
     extError("mcp-error", "");
-    extError("skill-error", "");
   } catch (error) {
     extError("mcp-error", error.message || "读取失败");
+  }
+  try {
+    var skills = await window.lane.skillsList();
+    // The HTTP route wraps the list as { skills }, and so does the desktop
+    // IPC handler now. Accept either shape so a bare array can never blank
+    // the whole library again.
+    var list = Array.isArray(skills) ? skills : skills.skills || [];
+    renderSkills(list);
+    extError("skill-error", "");
+  } catch (error) {
+    extError("skill-error", error.message || "读取失败");
   }
 }
 
@@ -1333,11 +1364,15 @@ function renderMcp() {
       }
     }
 
+    // The verdict goes after the row's own three columns, not inside
+    // .mcp-item-main: a long tool list wraps to several lines, and an inline
+    // verdict would make the flex row's centred lamps and buttons drop to the
+    // middle of that taller block. As a wrapped 100%-wide row it sits below
+    // the row it belongs to, leaving the first line exactly as it was.
     return '<div class="mcp-item' + (server.off ? " paused" : "") + '" data-name="' + esc(server.name) + '">' +
       '<div class="mcp-item-main">' +
         '<div class="mcp-item-name"><b>' + esc(server.name) + "</b><code>" + transportLabel(server) + "</code></div>" +
         '<div class="mcp-item-cmd">' + esc(commandLine(server)) + "</div>" +
-        testLine +
       "</div>" +
       '<div class="mcp-lamps">' + lamps + "</div>" +
       '<div class="mcp-item-actions">' +
@@ -1347,6 +1382,7 @@ function renderMcp() {
         '<button class="icon-mini" data-mcp-remove="' + esc(server.name) + '" title="删除" aria-label="删除 ' +
           esc(server.name) + '">✕</button>' +
       "</div>" +
+      testLine +
     "</div>";
   }).join("");
 }
@@ -1359,7 +1395,11 @@ function renderSkills(list) {
   }
   node.innerHTML = list.map(function (skill) {
     var installed = {};
-    (skill.installs || []).forEach(function (item) { installed[item.agent] = item.linked; });
+    // OR, not assignment: a client may have more than one skill folder, and
+    // one live junction is enough for the pip to read as installed.
+    (skill.installs || []).forEach(function (item) {
+      installed[item.agent] = installed[item.agent] || Boolean(item.linked);
+    });
     // A pip per client; filled means installed, clicking toggles it.
     var pips = ["codex", "zcode", "claude-desktop"].map(function (agent) {
       var on = Boolean(installed[agent]);
@@ -1409,6 +1449,29 @@ function parsePairs(text) {
   String(text || "").split(",").forEach(function (pair) {
     var i = pair.indexOf("=");
     if (i > 0) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  });
+  return out;
+}
+
+// HTTP headers are written the way the placeholder and "paste JSON" show
+// them: `Authorization: Bearer …`, not `KEY=value`. The shared parsePairs()
+// only split on "=", so a header typed exactly as prompted was silently
+// dropped — and a remote server that needs a token (GitHub's, for one) was
+// deployed with no Authorization at all. A comma inside a value, as in
+// `X-MCP-Toolsets: repos,issues`, belongs to that value, not a new header.
+function parseHeaders(text) {
+  var out = {};
+  var last = null;
+  String(text || "").split(/[\r\n,]+/).forEach(function (piece) {
+    var part = piece.trim();
+    if (!part) return;
+    var match = /^([A-Za-z0-9_-]+)\s*[:=]\s*([\s\S]*)$/.exec(part);
+    if (match) {
+      last = match[1];
+      out[last] = match[2].trim();
+    } else if (last) {
+      out[last] += "," + part;
+    }
   });
   return out;
 }
@@ -1477,7 +1540,7 @@ $("#mcp-save").addEventListener("click", async function () {
     };
     if (transport === "http") {
       server.url = document.getElementById("mcp-url").value.trim();
-      server.headers = parsePairs(document.getElementById("mcp-headers").value);
+      server.headers = parseHeaders(document.getElementById("mcp-headers").value);
     } else {
       server.command = document.getElementById("mcp-command").value.trim();
       server.args = document.getElementById("mcp-args").value.trim().split(/\s+/).filter(Boolean);
@@ -1567,9 +1630,15 @@ $("#skill-import").addEventListener("click", async function () {
   }
 });
 
+var skillsBusy = false;
+
 $("#skills-list").addEventListener("click", async function (event) {
   var pip = event.target.closest("[data-pip]");
   if (pip) {
+    // The list is re-rendered by loadExtensions(), so a pip left enabled can
+    // be clicked twice against the same stale state before it is replaced.
+    if (skillsBusy) return;
+    skillsBusy = true;
     var name = pip.getAttribute("data-pip");
     var agent = pip.getAttribute("data-agent");
     var on = pip.classList.contains("on");
@@ -1578,11 +1647,19 @@ $("#skills-list").addEventListener("click", async function (event) {
         await window.lane.skillsUninstall(name, agent);
         toast("已从 " + AGENT_SHORT[agent] + " 卸载");
       } else {
-        await window.lane.skillsInstall(name, agent);
-        toast("已安装到 " + AGENT_SHORT[agent]);
+        var result = await window.lane.skillsInstall(name, agent);
+        var occupied = (result && result.occupied) || [];
+        if (result && result.linked === false) {
+          toast("未安装：" + AGENT_SHORT[agent] + " 的目标位置已有同名目录，Lane 不会覆盖", true);
+        } else if (occupied.length) {
+          toast("已安装到 " + AGENT_SHORT[agent] + "；" + occupied.length + " 处已有同名目录，未覆盖");
+        } else {
+          toast("已安装到 " + AGENT_SHORT[agent]);
+        }
       }
       await loadExtensions();
     } catch (error) { toast(error.message || "操作失败", true); }
+    finally { skillsBusy = false; }
     return;
   }
 

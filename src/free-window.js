@@ -11,25 +11,33 @@
  *
  * So this module reports them separately, and invents nothing:
  *
- *   - credits: the account's `Credits` window as WorkBuddy returns it — the
- *     paid allowance. Used, limit, reset, verbatim.
+ *   - credits: the account's credit window as WorkBuddy returns it — the
+ *     paid allowance. Used, limit, reset, verbatim, from the same window
+ *     rule the desktop card uses (`creditWindowOf`): 0.2.11 splits the plan's
+ *     and the extra credits, 0.2.24 adds their total, and the token window
+ *     is not credits.
  *   - freeUsageToday: this machine's requests on the free models, counted
  *     over the local day from the journal. No limit is shown because no
  *     endpoint reports one; when the vendor does exhaust it, it refuses with
  *     a reset time, which surfaces here as `refusedUntil`.
  */
 
+import { creditWindowOf } from "./credit-window.js";
+
 /** The plan whose shape this module describes. Anyone else bills per request. */
-const FREE_PLAN = /^free$/i;
+// The plugin said this plan "Free" until 0.1.34 and "Free plan" from then on
+// (#337: the bare word beside the account read as the model being free).
+const FREE_PLAN = /^free(?:\s+plan)?$/i;
 
 export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
   if (!usage || usage.error) return null;
   if (!FREE_PLAN.test(String(usage.plan || "").trim())) return null;
 
   const windows = Array.isArray(usage.windows) ? usage.windows : [];
-  const window = windows.find((item) => /credit/i.test(String(item?.name || ""))) || windows[0];
+  const window = creditWindowOf(usage);
   if (!window) return null;
-
+  // A prepaid balance has no cycle allowance to describe; it is already shown
+  // on the account card, and the free-model side below does not depend on it.
   const limit = Number(window.limit) || 0;
   if (limit <= 0) return null;
   // `amount` is the credits spent; `used` is the same figure as a percentage
@@ -41,8 +49,12 @@ export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
   const runsOutAt = window.runsOutAt || usage.runsOutAt || "";
 
   // The models WorkBuddy itself says are not charged. A build that names none
-  // falls back to counting every answered request as free traffic.
-  const freeModels = Array.isArray(window.notModels) ? window.notModels.map(String) : [];
+  // falls back to counting every answered request as free traffic. The list
+  // rides on the "Credits" window in 0.2.17 and on both split windows, never
+  // on the synthesized "Total credits", so it is read from whichever window
+  // carries one.
+  const notModelsWindow = windows.find((item) => Array.isArray(item?.notModels));
+  const freeModels = Array.isArray(notModelsWindow?.notModels) ? notModelsWindow.notModels.map(String) : [];
   const isFreeModel = (model) => {
     const name = String(model || "");
     if (!name) return false;
@@ -87,7 +99,17 @@ export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
 
   return {
     plan: usage.plan || "Free",
-    credits: { used, limit, left: Math.max(0, limit - used), percent: Math.min(100, (100 * used) / limit), runsOutAt },
+    credits: {
+      used,
+      limit,
+      left: Math.max(0, limit - used),
+      percent: Math.min(100, (100 * used) / limit),
+      // The cycle starting over, not the day unused credits lapse: the card
+      // used to label the latter "重置" and told users their credits return
+      // on the day they expire.
+      resetsAt: window.resetsAt || usage.resetsAt || "",
+      runsOutAt
+    },
     freeModels,
     // Today's free-model traffic from this machine, local day.
     freeRequestsToday: todayRows.length,

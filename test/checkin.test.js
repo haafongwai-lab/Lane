@@ -26,7 +26,8 @@ function fakeProvider(accounts = [ACCOUNT]) {
       ? { id, auth: AUTH, hooks: {} }
       : null),
     refreshIfNeeded: async () => AUTH,
-    baseURL: async () => "https://example.test/v2"
+    baseURL: async () => "https://example.test/v2",
+    siteOf: async () => "workbuddy"
   };
 }
 
@@ -62,7 +63,7 @@ test("each enabled account claims its daily check-in once", async () => {
   assert.equal(run.results[0].status, "done");
   assert.equal(run.results[0].reward, "5");
   assert.deepEqual(calls.map((url) => new URL(url).pathname), [
-    "/v2/billing/meter/checkin-status",
+    "/v2/billing/meter/checkin-activity-status",
     "/v2/billing/meter/daily-checkin"
   ]);
 
@@ -287,4 +288,55 @@ test("a build with no check-in activity is unavailable, not a failure", async ()
   assert.equal(second.results[0].status, "unavailable");
   assert.equal(second.results[0].skipped, true);
   assert.equal(calls.length, before, "no request is made once it is known unavailable");
+});
+
+test("the plugin's own checkin hook is used when it has one", async () => {
+  // 0.2.0 moved the claim into auth.checkin, which knows the activity
+  // endpoint and the outcome words. Lane asks it instead of copying them.
+  const { env } = await tempEnv();
+  const seen = [];
+  const hooks = {
+    auth: {
+      checkin: async (getAuth) => {
+        seen.push(await getAuth());
+        return { outcome: "claimed", credit: 5, streak: 2 };
+      }
+    }
+  };
+  const provider = fakeProvider();
+  const inner = provider.session;
+  provider.session = async (id) => ({ ...(await inner(id)), hooks });
+  const { calls, fetchImpl } = responder();
+  const run = await runCheckins({ provider, env, now: at("2026-10-22T10:00:00"), fetchImpl });
+
+  assert.equal(run.results[0].status, "done");
+  assert.equal(run.results[0].reward, "5");
+  assert.equal(seen.length, 1, "the hook was asked once");
+  assert.equal(calls.length, 0, "Lane made no meter call of its own");
+});
+
+test("an inactive check-in from the hook is unavailable, not a failure", async () => {
+  const { env } = await tempEnv();
+  const hooks = { auth: { checkin: async () => ({ outcome: "inactive" }) } };
+  const provider = fakeProvider();
+  const inner = provider.session;
+  provider.session = async (id) => ({ ...(await inner(id)), hooks });
+  const run = await runCheckins({ provider, env, now: at("2026-10-22T10:00:00") });
+
+  assert.equal(run.results[0].status, "unavailable");
+  assert.equal(run.results[0].error, "");
+});
+
+test("the international build is never asked for a check-in", async () => {
+  // Its plugin leaves auth.checkin off and its meter has no activity; an
+  // ask would be a 404 retried every half hour.
+  const { env } = await tempEnv();
+  const provider = fakeProvider();
+  provider.siteOf = async () => "workbuddy-ai";
+  const { calls, fetchImpl } = responder();
+  const run = await runCheckins({ provider, env, now: at("2026-10-22T10:00:00"), fetchImpl });
+
+  assert.equal(run.results[0].status, "unavailable");
+  assert.match(run.results[0].message, /自动发放/);
+  assert.equal(calls.length, 0);
 });

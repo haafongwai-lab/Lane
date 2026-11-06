@@ -263,6 +263,49 @@ test("a relative plugin baseURL is resolved against the account's site", async (
   assert.equal(await provider.baseURL("u1"), "https://copilot.tencent.com/v2");
 });
 
+test("an empty plugin baseURL means the account's own /v2", async () => {
+  // From 0.1.33 the plugin reports baseURL "" and leaves the URL to each
+  // model's api.url (/v2 for a chat, /v1 for a Messages model). Lane relays
+  // chat completions, so the account's own /v2 is the base.
+  const hooks = {
+    auth: { loader: async () => ({ baseURL: "", apiKey: "" }) }
+  };
+  const provider = providerWith(hooks);
+  assert.equal(await provider.baseURL("u1"), "https://copilot.tencent.com/v2");
+
+  provider.state.accounts[0].site = "workbuddy-ai";
+  assert.equal(await provider.baseURL("u1"), "https://www.workbuddy.ai/v2");
+});
+
+test("chat asks the absolute /v2 URL even when the plugin's baseURL is empty", async () => {
+  // The regression the empty base caused: `${loader.baseURL}/chat/completions`
+  // is a relative URL, which fetch refuses before any request is made.
+  const calls = [];
+  const hooks = {};
+  const provider = new WorkBuddyProvider({ hooks });
+  provider.ready = true;
+  provider.state = {
+    version: 1,
+    activeId: "u1",
+    accounts: [{ id: "u1", label: "one", enabled: true, auth: { access: "tok" } }]
+  };
+  provider.sessions.set("u1", {
+    id: "u1",
+    auth: { access: "tok" },
+    hooks,
+    loader: {
+      baseURL: "",
+      fetch: async (url) => {
+        calls.push(String(url));
+        return new Response("ok");
+      }
+    }
+  });
+
+  await provider.chat({ model: "hy3", messages: [] });
+  assert.deepEqual(calls, ["https://copilot.tencent.com/v2/chat/completions"]);
+});
+
 test("an international account's catalogue is read under its own provider key", async () => {
   // The workbuddy-ai plugin declares provider."workbuddy-ai", not
   // provider."workbuddy"; asking for the domestic key made the overseas
@@ -282,4 +325,23 @@ test("an international account's catalogue is read under its own provider key", 
   const list = await provider.listModels("u1");
   assert.equal(list.length, 1);
   assert.equal(list[0].id, "fast-model");
+});
+
+test("a sign-in that ends needs the user told, in this app's words", async () => {
+  // 0.2.x says "Sign in to it again in magpie: Providers → …". Lane is the
+  // host here, not magpie, and has its own sign-in button; passing that line
+  // to the quota card would tell the user to open a program they do not have.
+  const hooks = {
+    auth: {
+      usage: async () => ({
+        error: "WorkBuddy refused this account's sign-in (401); there is no refresh token to renew it with. Sign in to it again in magpie: Providers → WorkBuddy → this account's Sign in again.",
+        signIn: "expired"
+      })
+    }
+  };
+  const provider = providerWith(hooks);
+  const usage = await provider.usage();
+  assert.doesNotMatch(String(usage.error), /magpie/i, "no other app's name reaches the card");
+  assert.match(String(usage.error), /登录/, "it says what to do here");
+  assert.equal(usage.signIn, "expired", "the alert survives the rewrite");
 });

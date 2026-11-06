@@ -93,17 +93,33 @@ test("the reword reaches a refused line in a content array too", async () => {
   assert.equal(parts[1].text, "Be precise.");
 });
 
-test("DeepSeek Harness's opening line is reworded, keeping its name", async () => {
+test("DeepSeek Harness's opening line keeps its name when hiding is off", async () => {
   // The plugin's own table (0.2.9, measured 2026-10-30): as written the
   // line is refused 11128; as rewritten the endpoint answers 200, and the
   // harness keeps its name because the rest of the prompt refers back to it.
+  // Hiding is off here on purpose: with it on the name is taken out below.
+  const { body } = await prepareChat({
+    messages: [
+      { role: "system", content: "You are an AI agent, powered by DeepSeek Harness." },
+      { role: "user", content: "hi" }
+    ]
+  }, { hideDsh: false });
+  assert.equal(body.messages[0].content, "You are an AI agent, powered by DeepSeek Harness.");
+});
+
+test("a rewrite cannot put the harness's name back after it was hidden", async () => {
+  // The rewrite's accepted wording is the harness's own line. Hiding first
+  // would leave the name in the text the rewrite writes, so the order is
+  // rewrite then conceal; nothing the endpoint receives says the name.
   const { body } = await prepareChat({
     messages: [
       { role: "system", content: "You are a helpful assistant for software engineering work." },
       { role: "user", content: "hi" }
     ]
   });
-  assert.equal(body.messages[0].content, "You are an AI agent, powered by DeepSeek Harness.");
+  const system = String(body.messages[0].content);
+  assert.doesNotMatch(system, /DeepSeek Harness/);
+  assert.equal(system, "You are an AI agent.");
 });
 
 test("a refused line inside an assistant message is reworded too", async () => {
@@ -125,14 +141,15 @@ test("a refused line inside an assistant message is reworded too", async () => {
 test("one rewrite never feeds the next rule", async () => {
   // Rule 1's accepted wording is exactly rule 2's refused line. Chained, a
   // Claude-style opener would come out named as DeepSeek Harness - a
-  // harness the client is not.
+  // harness the client is not. Hiding is off so the rewrite itself is what
+  // is checked; the next test pins that hiding then takes the name away.
   const { body } = await prepareChat({
     messages: [
-      { role: "system", content: "You are an AI agent that helps the user with programming tasks." },
+      { role: "system", content: "You are a helpful assistant for software engineering work." },
       { role: "user", content: "hi" }
     ]
-  });
-  assert.equal(body.messages[0].content, "You are a helpful assistant for software engineering work.",
+  }, { hideDsh: false });
+  assert.equal(body.messages[0].content, "You are an AI agent, powered by DeepSeek Harness.",
     "the first rule's output is final, not rescanned by the second");
 });
 

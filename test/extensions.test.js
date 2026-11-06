@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { upsertServer, readServers, removeServer, setServerEnabled, normalizeServer } from "../src/mcp-servers.js";
 import { deploy, undeployAll } from "../src/mcp-deploy.js";
-import { importFrom, installTo, uninstallFrom, removeFromLibrary, listLibrary } from "../src/skills.js";
+import { importFrom, installTo, uninstallFrom, removeFromLibrary, listLibrary, installTargets } from "../src/skills.js";
 import { readState, writeState } from "../src/agents/store.js";
 import { claudePaths } from "../src/agents/paths.js";
 
@@ -393,4 +393,63 @@ test("a patch layer with no Lane entries is not rewritten", async (t) => {
   await deploy([{ name: "w", transport: "stdio", command: "w.exe", agents: ["zcode"] }], env);
 
   assert.equal(fs.readFileSync(file, "utf8"), original, "the user's file is untouched");
+});
+
+test("skills: claude-desktop's two folders collapse into one install state", async (t) => {
+  const { env } = tempEnv(t);
+  const source = path.join(env.LANE_DATA_DIR, "twin");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# twin\ndescription: two targets\n");
+  await importFrom(source, env);
+  const installed = await installTo("twin", "claude-desktop", env);
+  assert.equal(installed.linked, true, "both folders were linked");
+  assert.equal(installed.results.length, 2, "Claude has two skill folders");
+
+  let row = (await listLibrary(env))[0];
+  const claude = row.installs.filter((i) => i.agent === "claude-desktop");
+  assert.equal(claude.length, 1, "one row per agent, not per folder");
+  assert.equal(claude[0].linked, true);
+
+  // A real folder of the user's in the SECOND path must not make the pip
+  // read as uninstalled while Lane's junction still lives in the first.
+  const targets = installTargets("claude-desktop", env);
+  fs.unlinkSync(path.join(targets[1], "twin"));
+  fs.mkdirSync(path.join(targets[1], "twin"), { recursive: true });
+  row = (await listLibrary(env))[0];
+  assert.deepEqual(
+    row.installs.filter((i) => i.agent === "claude-desktop"),
+    [{ agent: "claude-desktop", linked: true }],
+    "one live junction is still installed"
+  );
+});
+
+test("skills: install says so when every target is already occupied", async (t) => {
+  const { env } = tempEnv(t);
+  const source = path.join(env.LANE_DATA_DIR, "taken");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "SKILL.md"), "# taken\n");
+  await importFrom(source, env);
+
+  // A folder of the user's own in every Codex target: Lane must not
+  // overwrite it, and must not claim the install succeeded.
+  const codex = installTargets("codex", env)[0];
+  fs.mkdirSync(path.join(codex, "taken"), { recursive: true });
+  fs.writeFileSync(path.join(codex, "taken", "SKILL.md"), "# mine\n");
+  const result = await installTo("taken", "codex", env);
+  assert.equal(result.linked, false);
+  assert.equal(result.occupied.length, 1);
+  assert.equal(fs.readFileSync(path.join(codex, "taken", "SKILL.md"), "utf8"), "# mine\n",
+    "the user's folder is untouched");
+
+  // A dangling junction still owns the name: lstat sees it, so installing
+  // again reports 'occupied' instead of throwing EEXIST from symlink().
+  const zcode = installTargets("zcode", env)[0];
+  await installTo("taken", "zcode", env);
+  const zlink = path.join(zcode, "taken");
+  fs.unlinkSync(zlink);
+  fs.symlinkSync(path.join(env.LANE_DATA_DIR, "gone-away"), zlink, "junction");
+  const again = await installTo("taken", "zcode", env).catch((e) => ({ threw: e.message }));
+  assert.ok(!again.threw, "a dangling junction must not throw: " + again.threw);
+  assert.equal(again.linked, false);
+  assert.equal(again.occupied.length, 1);
 });

@@ -1466,6 +1466,10 @@ h1 {
 
 /* Client picks read as chips that light up, not as a row of checkboxes. */
 .mcp-pick { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 14px 0 4px; }
+/* The remote form's one line of help: header syntax and which clients can
+   actually take a streamable-HTTP server. */
+.mcp-hint { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.mcp-hint code { padding: 1px 4px; border-radius: 4px; background: #f0efeb; font: 10.5px var(--font-mono); }
 .mcp-pick > span { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 2px; }
 .mcp-chip { position: relative; }
 .mcp-chip input { position: absolute; opacity: 0; pointer-events: none; }
@@ -1496,7 +1500,7 @@ h1 {
 
 /* -- server rows ---------------------------------------------------------- */
 .mcp-item {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
   padding: 13px 2px;
   border-bottom: 1px solid var(--line-soft);
 }
@@ -1584,8 +1588,17 @@ h1 {
 .free-refused { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(160, 40, 40, .08); color: var(--red); font-size: 11px; }
 .free-credits-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 10.5px; color: var(--faint); }
 
-/* The live-connection test's verdict, inline where the command line reads. */
-.mcp-test { margin-top: 7px; font-size: 10.5px; line-height: 1.6; border-radius: 7px; padding: 6px 9px; max-width: 560px; }
+/* The live-connection test's verdict. It is a wrapped row of its own, not a
+   child of .mcp-item-main: a long tool list wraps to several lines, and an
+   inline verdict made the centred lamps and buttons fall to the middle of
+   that taller block. flex-basis:100% keeps the first line's layout exactly
+   as it was with no verdict, whatever the result says. */
+.mcp-test {
+  flex: 0 0 100%; max-width: 560px;
+  font-size: 10.5px; line-height: 1.6;
+  border-radius: 7px; padding: 6px 9px;
+  overflow-wrap: anywhere;
+}
 .mcp-test.running { color: var(--muted); }
 .mcp-test.ok { background: rgba(31, 107, 70, .09); color: var(--green); }
 .mcp-test.bad { background: rgba(160, 40, 40, .08); color: var(--red); }

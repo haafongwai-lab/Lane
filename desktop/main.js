@@ -32,6 +32,13 @@ let control;
 let quitting = false;
 let starting;
 let ownsGateway = false;
+// Set once this window has attached itself to an external `lane serve`
+// gateway. startGateway() runs for every IPC handler; without this the
+// follower branch (which never assigns `server`) rebuilt `control` on each
+// call, discarding sign-in dedup and usage caches without stopping the old
+// instance. The port is kept so a settings change re-attaches, and the flag
+// clears when the external gateway disappears so this window can take over.
+let attached = null;
 let logStream;
 let consolePatched = false;
 let lastStartError = "";
@@ -65,6 +72,10 @@ async function startGateway() {
     if (alreadyRunning) {
       // Another Lane owns the gateway, so it also owns the daily check-in and
       // the journal; this window follows the journal's file as it changes.
+      // Reuse the follower control across IPC calls: rebuilding it drops the
+      // per-site sign-in dedup and every cached usage read.
+      if (attached?.port === PORT && control) return;
+      if (control && !ownsGateway) await control.stop?.().catch(() => {});
       control = createControlCenter({
         port: PORT,
         host: HOST,
@@ -79,8 +90,13 @@ async function startGateway() {
           });
         }
       });
+      attached = { port: PORT };
+      ownsGateway = false;
       return;
     }
+    // The external gateway is gone (or moved): drop the attachment so this
+    // window can claim the seat and serve again instead of following a ghost.
+    attached = null;
     // The health probe only sees a gateway on this address; a `lane serve`
     // on another port would be invisible to it and race this window for the
     // journal. The pid seat refuses that before anything is built.
@@ -118,7 +134,9 @@ async function startGateway() {
     control = createControlCenter({
       port: PORT,
       host: HOST,
-      checkins: true,
+      // A smoke run must stay read-only against the live account: the check-in
+      // scheduler's first tick lands at 8s, inside the ~11s smoke window.
+      checkins: !isSmokeTest,
       onSignIn: (result, error) => {
         window?.webContents.send("lane:signin", {
           result: result ? { url: result.url || "" } : null,
@@ -169,6 +187,7 @@ async function stopGateway() {
   server = null;
   control = null;
   ownsGateway = false;
+  attached = null;
   if (!gateway) return;
   await new Promise((resolve) => {
     // In-flight SSE streams would otherwise hold close() open until each
@@ -214,6 +233,36 @@ async function fetchExternalStatus() {
   return { ...await control.status(), ownsGateway: false };
 }
 
+/**
+ * A follower window owns no journal: control-center refuses every write with
+ * "只读窗口不能…" so a second Lane cannot rewrite the owner's data behind its
+ * back. The owner exposes those same operations over loopback, so writes go
+ * there instead of being rejected. Reads stay local — the shared journal
+ * follows the owner's file. The comment in control-center.js has always said
+ * this is how a follower's clear request works; the forwarding was missing.
+ */
+async function ownerWrite(pathname, body, { timeoutMs = 15_000 } = {}) {
+  const response = await fetch(`${GATEWAY}${pathname}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body || {}),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const text = await response.text();
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch {}
+  if (!response.ok) {
+    const detail = payload?.error?.message || payload?.error || text || `HTTP ${response.status}`;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return payload;
+}
+
+/** Owned windows act locally; followers forward to the gateway they follow. */
+function controlWrite(pathname, body, local, timeoutMs) {
+  return ownsGateway ? local() : ownerWrite(pathname, body, { timeoutMs });
+}
+
 function showWindow() {
   if (!window) return;
   if (window.isMinimized()) window.restore();
@@ -243,6 +292,14 @@ function createWindow() {
   window.loadFile(path.join(DESKTOP_DIR, "index.html"));
   window.on("close", (event) => {
     if (!quitting) {
+      // Hiding is only safe when a tray can bring the window back. A failed
+      // tray creation used to leave a hidden, unreachable process with no
+      // 退出 menu and no double-click handler.
+      if (!tray) {
+        quitting = true;
+        app.quit();
+        return;
+      }
       event.preventDefault();
       window.hide();
     }
@@ -281,7 +338,13 @@ function createTray() {
       }
     ]));
     tray.on("double-click", showWindow);
-  } catch {}
+  } catch (error) {
+    // A missing/corrupt icon or a session without a tray must not silently
+    // remove the only way to reopen or quit a hidden window. createWindow's
+    // close handler sees tray === null and quits instead of hiding.
+    tray = null;
+    console.error(`lane: could not create the tray: ${error?.message || error}`);
+  }
 }
 
 ipcMain.handle("lane:status", async () => {
@@ -319,39 +382,54 @@ ipcMain.handle("lane:usage", async (_event, { range } = {}) => {
 });
 ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
+  const wanted = Array.isArray(ids) ? ids : null;
   // { removed } rather than the bare number: the renderer reads
   // result.removed, and a number's .removed is undefined - which turned
   // every successful delete's toast into "0 条" while the rows went.
-  return { removed: control.clearHistory(Array.isArray(ids) ? ids : null) };
+  return controlWrite("/lane/activity/clear", { ids: wanted }, () => ({
+    removed: control.clearHistory(wanted)
+  }));
 });
 ipcMain.handle("lane:mcp", async (_event, { server } = {}) => {
   await startGateway();
-  if (server) return control.mcpUpsert(server);
+  if (server) return controlWrite("/lane/mcp", server, () => control.mcpUpsert(server));
   return { servers: await control.mcpServers(), targets: await control.mcpTargets() };
 });
 ipcMain.handle("lane:mcp-remove", async (_event, { name } = {}) => {
   await startGateway();
-  return control.mcpRemove(String(name || ""));
+  const wanted = String(name || "");
+  return controlWrite("/lane/mcp/remove", { name: wanted }, () => control.mcpRemove(wanted));
 });
 ipcMain.handle("lane:mcp-toggle", async (_event, { name, off } = {}) => {
   await startGateway();
-  return control.mcpToggle(String(name || ""), Boolean(off));
+  const wanted = String(name || "");
+  const state = Boolean(off);
+  return controlWrite("/lane/mcp/toggle", { name: wanted, off: state }, () => control.mcpToggle(wanted, state));
 });
 ipcMain.handle("lane:mcp-agents", async (_event, { name, agents } = {}) => {
   await startGateway();
-  return control.mcpSetAgents(String(name || ""), Array.isArray(agents) ? agents : []);
+  const wanted = String(name || "");
+  const list = Array.isArray(agents) ? agents : [];
+  return controlWrite("/lane/mcp/agents", { name: wanted, agents: list }, () => control.mcpSetAgents(wanted, list));
 });
 ipcMain.handle("lane:mcp-test", async (_event, { name } = {}) => {
   await startGateway();
-  return control.mcpTest(String(name || ""));
+  const wanted = String(name || "");
+  // A live spawn/HTTP handshake can take 30s; the local path has its own
+  // timeout, so the forwarded one must not cut it short.
+  return controlWrite("/lane/mcp/test", { name: wanted }, () => control.mcpTest(wanted), 40_000);
 });
 ipcMain.handle("lane:skills", async () => {
   await startGateway();
-  return control.skillsList();
+  // The renderer reads result.skills, and the HTTP route /lane/skills wraps
+  // the same list the same way. Returning the bare array here made a skill
+  // that imported successfully still render as an empty library.
+  return { skills: await control.skillsList() };
 });
 ipcMain.handle("lane:skills-import", async (_event, { dir } = {}) => {
   await startGateway();
-  return control.skillsImport(String(dir || ""));
+  const wanted = String(dir || "");
+  return controlWrite("/lane/skills/import", { dir: wanted }, () => control.skillsImport(wanted));
 });
 ipcMain.handle("lane:skills-pick-folder", async () => {
   const result = await dialog.showOpenDialog(window, {
@@ -363,15 +441,20 @@ ipcMain.handle("lane:skills-pick-folder", async () => {
 });
 ipcMain.handle("lane:skills-remove", async (_event, { name } = {}) => {
   await startGateway();
-  return control.skillsRemove(String(name || ""));
+  const wanted = String(name || "");
+  return controlWrite("/lane/skills/remove", { name: wanted }, () => control.skillsRemove(wanted));
 });
 ipcMain.handle("lane:skills-install", async (_event, { name, agent } = {}) => {
   await startGateway();
-  return control.skillsInstall(String(name || ""), String(agent || ""));
+  const wanted = String(name || "");
+  const target = String(agent || "");
+  return controlWrite("/lane/skills/install", { name: wanted, agent: target }, () => control.skillsInstall(wanted, target));
 });
 ipcMain.handle("lane:skills-uninstall", async (_event, { name, agent } = {}) => {
   await startGateway();
-  return control.skillsUninstall(String(name || ""), String(agent || ""));
+  const wanted = String(name || "");
+  const target = String(agent || "");
+  return controlWrite("/lane/skills/uninstall", { name: wanted, agent: target }, () => control.skillsUninstall(wanted, target));
 });
 ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
@@ -473,6 +556,7 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
   const state = await readState().catch(() => ({}));
   const stateKey = { codex: "lane", "claude-desktop": "claude-desktop", zcode: "zcode" };
   const rewritten = [];
+  const failures = [];
   for (const agent of ["codex", "claude-desktop", "zcode"]) {
     try {
       // Only rewrite wirings that are on: an agent the user disconnected
@@ -480,12 +564,19 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
       if (!state[stateKey[agent]]?.connected) continue;
       const result = await control.connect(agent, { gateway: nextGateway });
       if (result?.connected !== false) rewritten.push(agent);
-    } catch {}
+      else failures.push({ agent, message: "客户端拒绝了新的接入地址" });
+    } catch (error) {
+      // The port is already saved above. Silently dropping a failed rewrite
+      // left the client pointing at the old dead port while the UI reported
+      // success; carry the failure back so the page can say so.
+      failures.push({ agent, message: error?.message || String(error) });
+    }
   }
   // The autostart runner carries the old port in the node branch's --addr;
   // an installed autostart is rewritten with the new one so the next logon
   // starts the gateway where the settings say it will be.
   let autostartUpdated = false;
+  let autostartError = "";
   if (await autostartOn().catch(() => false)) {
     try {
       await control.autostart(true, {
@@ -493,14 +584,18 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
         port: effectivePort
       });
       autostartUpdated = true;
-    } catch {}
+    } catch (error) {
+      autostartError = error?.message || String(error);
+    }
   }
   return {
     changed: true,
     port: effectivePort,
     host: HOST,
     rewritten,
+    failures,
     autostartUpdated,
+    autostartError,
     restartNeeded: ownsGateway
   };
 });
@@ -525,6 +620,12 @@ ipcMain.handle("lane:open-url", async (_event, url) => {
 });
 ipcMain.handle("lane:test", async () => {
   await startGateway();
+  // The smoke run clicks #test-route to exercise the renderer, not to spend a
+  // live request on the user's account. A real /v1/responses here bills the
+  // signed-in account every time CI opens the window.
+  if (isSmokeTest) {
+    return { ok: true, status: 200, elapsed: 0, text: "smoke test (upstream skipped)" };
+  }
   // Ask the live catalogue which model to try: a fixed name would report a
   // broken link whenever the account's catalogue does not carry it.
   const model = await control.status()

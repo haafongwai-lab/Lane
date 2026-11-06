@@ -8,8 +8,12 @@ import { crossProcessLock } from "./accounts.js";
  * WorkBuddy hands out a daily check-in reward per account. Its own client
  * claims it with two calls:
  *
- *   POST /v2/billing/meter/checkin-status   what today's check-in looks like
- *   POST /v2/billing/meter/daily-checkin    claim it
+ *   POST /v2/billing/meter/checkin-activity-status   what today's check-in looks like
+ *   POST /v2/billing/meter/daily-checkin             claim it
+ *
+ * The plugin has carried the same two calls as `auth.checkin` since 0.2.0
+ * (which also knows the China build is the only one with a check-in). Lane
+ * prefers that hook and keeps this fallback for a plugin without it.
  *
  * The paths are relative to the `/v2` base the plugin already resolved for
  * the account, so a China and an international account both work without
@@ -17,12 +21,13 @@ import { crossProcessLock } from "./accounts.js";
  */
 
 const FILE = "checkin.json";
-const STATUS_PATH = "/billing/meter/checkin-status";
+const STATUS_PATH = "/billing/meter/checkin-activity-status";
 const CLAIM_PATH = "/billing/meter/daily-checkin";
 const RETRY_MS = 30 * 60 * 1000;
-// WorkBuddy/<version> is the User-Agent its API accepts; the plugin uses the
-// same one. Overridable so a version bump never needs a code change here.
-const UA_VERSION = process.env.LANE_WB_UA || "5.5.6";
+// WorkBuddy/<version> is the User-Agent its API accepts; the plugin sends the
+// desktop client's (5.9.3 since 0.1.40) and this fallback follows it.
+// Overridable so a version bump never needs a code change here.
+const UA_VERSION = process.env.LANE_WB_UA || "5.9.3";
 
 const DEFAULT_SETTINGS = { enabled: true, hour: 9, minute: 0 };
 
@@ -333,7 +338,25 @@ async function claimFor(provider, account, { env, fetchImpl }) {
   }
   if (!session?.auth) return { ok: false, message: "not signed in" };
   try {
+    // The international build has no check-in activity at all (the plugin
+    // leaves the hook off its site for that reason). Asking its meter would
+    // be a 404 to retry forever, so the answer is the same one the old
+    // 10001 path reached: credits come with the plan, nothing to claim.
+    const site = typeof provider.siteOf === "function"
+      ? await provider.siteOf(account.id).catch(() => "")
+      : "";
+    if (site === "workbuddy-ai") {
+      return { ok: false, skip: true, message: "海外版积分随账户自动发放，无需签到" };
+    }
     await provider.refreshIfNeeded(session);
+    // The plugin's own claim (0.2.0+) knows the activity endpoint, the
+    // outcome words and that only the China build has a check-in. Prefer it:
+    // a copy here would drift from the vendor the way checkin-status did.
+    const hook = session.hooks?.auth?.checkin;
+    if (typeof hook === "function") {
+      const outcome = await hook.call(session.hooks.auth, async () => session.auth);
+      return fromHook(outcome);
+    }
     const baseURL = await provider.baseURL(account.id);
     const options = { auth: session.auth, baseURL, fetchImpl };
     let status = null;
@@ -359,6 +382,27 @@ async function claimFor(provider, account, { env, fetchImpl }) {
   } catch (error) {
     return { ok: false, message: error?.message || "check-in failed" };
   }
+}
+
+/**
+ * Turns the plugin's checkin outcome into Lane's record. `done` and `claimed`
+ * are successes; `inactive` and `ineligible` are the build/account having no
+ * check-in at all, which must not be retried; anything else is a failure.
+ */
+function fromHook(outcome) {
+  const kind = String(outcome?.outcome || "").toLowerCase();
+  const credit = Number(outcome?.credit);
+  const reward = Number.isFinite(credit) && credit > 0 ? String(credit) : "";
+  if (kind === "done") {
+    return { ok: true, message: outcome?.message || "already checked in today", reward };
+  }
+  if (kind === "claimed") {
+    return { ok: true, message: outcome?.message || "checked in", reward };
+  }
+  if (kind === "inactive" || kind === "ineligible") {
+    return { ok: false, skip: true, message: outcome?.message || "该账户没有签到活动" };
+  }
+  return { ok: false, message: outcome?.message || "check-in failed" };
 }
 
 /**

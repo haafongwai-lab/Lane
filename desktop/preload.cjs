@@ -1,5 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// At most one sign-in listener per renderer: onSignIn used to stack a new
+// ipcRenderer.on on every call, so one "lane:signin" event fired every
+// registered callback (duplicate toasts and duplicate status refreshes).
+let signInListener = null;
+
 contextBridge.exposeInMainWorld("lane", {
   status: () => ipcRenderer.invoke("lane:status"),
   clearHistory: (ids) => ipcRenderer.invoke("lane:clear-history", { ids }),
@@ -29,6 +34,13 @@ contextBridge.exposeInMainWorld("lane", {
   openURL: (url) => ipcRenderer.invoke("lane:open-url", url),
   quit: () => ipcRenderer.invoke("lane:quit"),
   onSignIn: (callback) => {
-    ipcRenderer.on("lane:signin", (_event, value) => callback(value));
+    if (signInListener) ipcRenderer.removeListener("lane:signin", signInListener);
+    signInListener = (_event, value) => callback(value);
+    ipcRenderer.on("lane:signin", signInListener);
+  },
+  offSignIn: () => {
+    if (!signInListener) return;
+    ipcRenderer.removeListener("lane:signin", signInListener);
+    signInListener = null;
   }
 });

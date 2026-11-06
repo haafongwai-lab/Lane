@@ -8,6 +8,110 @@
  * as "0" when the request actually cost something.
  */
 
+/**
+ * Picks the usage window that answers "how many credits do I have left".
+ *
+ * The plugin's `auth.usage` hook shapes its `windows` by version:
+ *
+ *   0.1.30      one "Credits" window, plan and extra packages summed.
+ *   0.2.11+     "Credits" (the plan's) and "Extra credits" as two windows,
+ *               one of them `aside` — the one whose running out does not
+ *               stop the account.
+ *   0.2.24+     both of those plus a "Total credits" window that is their
+ *               sum, with the two originals set aside.
+ *   0.2.0+      also "Prepaid credits" (a balance with no cycle limit) and
+ *               "Free model tokens" (a token count, not credits at all).
+ *
+ * A "Total credits" window wins; a build without one has its two credit
+ * windows summed exactly the way 0.2.24's `totalOf` does. A token window is
+ * never a credit window: shown as credits it read "176,000,000 /
+ * 200,000,000" with "积分" beside it.
+ *
+ * The same rule is in `src/credit-window.js` for the gateway's Free-plan
+ * card — repeated here for the same reason as `kindFromText` below: the
+ * renderer cannot import from `src/`.
+ */
+export function creditWindowOf(usage) {
+  const windows = Array.isArray(usage?.windows) ? usage.windows : [];
+  const byName = (name) => windows.find((item) => item.name === name);
+  const total = byName("Total credits");
+  if (total) return total;
+  const plan = byName("Credits");
+  const extra = byName("Extra credits");
+  if (plan && extra && Number(extra.limit) > 0) {
+    const used = (Number(plan.amount) || 0) + (Number(extra.amount) || 0);
+    const limit = (Number(plan.limit) || 0) + (Number(extra.limit) || 0);
+    if (limit > 0) {
+      // The same merge as 0.2.24's totalOf: the plan's reset date, and the
+      // earlier of the two "runs out" dates (both of them when they agree).
+      const at = (item) => (item.runsOutAt ? Date.parse(item.runsOutAt) : 0);
+      const a = at(plan);
+      const b = at(extra);
+      const soon = a > 0 && (!(b > 0) || a <= b) ? plan : b > 0 ? extra : null;
+      return {
+        name: "Total credits",
+        used: (100 * used) / limit,
+        amount: used,
+        limit,
+        unit: "credits",
+        ...(plan.resetsAt ? { resetsAt: plan.resetsAt } : {}),
+        ...(plan.span ? { span: plan.span } : {}),
+        ...(soon ? {
+          runsOutAt: soon.runsOutAt,
+          runsOut: (Number(soon.runsOut) || 0) + (a > 0 && a === b ? Number(extra.runsOut) || 0 : 0)
+        } : {})
+      };
+    }
+  }
+  if (plan) return plan;
+  // A balance with no cycle limit: real credits, just not a meter.
+  const prepaid = byName("Prepaid credits");
+  if (prepaid && Number(prepaid.balance) > 0) return prepaid;
+  return null;
+}
+
+/** The credits card's figures: the chosen window, as numbers and a percent. */
+export function creditView(usage) {
+  if (!usage || usage.error) return null;
+  const window = creditWindowOf(usage);
+  if (!window) return null;
+  if (window.balance != null && !(Number(window.limit) > 0)) {
+    // A prepaid balance has no cycle: it only falls, and it is all left.
+    const balance = Number(window.balance);
+    if (!Number.isFinite(balance) || balance <= 0) return null;
+    return {
+      plan: usage.plan || "",
+      used: 0,
+      limit: balance,
+      left: balance,
+      percent: 0,
+      prepaid: true,
+      runsOutAt: "",
+      runsOut: 0
+    };
+  }
+  const used = Number(window.amount);
+  const limit = Number(window.limit);
+  if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) return null;
+  const percent = Number.isFinite(Number(window.used))
+    ? Math.max(0, Math.min(100, Number(window.used)))
+    : (used / limit) * 100;
+  return {
+    plan: usage.plan || "",
+    used,
+    limit,
+    left: Math.max(0, limit - used),
+    percent,
+    // Two different dates, not one: the cycle starts the allowance over
+    // (resetsAt), while runsOutAt is when credits left would lapse. The old
+    // card called both "重置", which told the user their credits return on
+    // the day they actually expire.
+    resetsAt: window.resetsAt || usage.resetsAt || "",
+    runsOutAt: window.runsOutAt || "",
+    runsOut: Number(window.runsOut) || 0
+  };
+}
+
 /** HTML-escapes text for interpolation into innerHTML. */
 export function esc(value = "") {
   return String(value)

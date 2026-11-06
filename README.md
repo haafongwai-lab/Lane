@@ -67,12 +67,13 @@ The single account Lane used before is imported once, and
 
 ## Daily check-in
 
-Each account has a daily check-in that grants credits. Lane claims it with the
-same two calls WorkBuddy's own client makes:
+Each account has a daily check-in that grants credits. Lane asks the plugin's
+own `auth.checkin` hook (China build only), which makes the same two calls
+WorkBuddy's own client makes:
 
 ```
-POST /v2/billing/meter/checkin-status   today's check-in
-POST /v2/billing/meter/daily-checkin    claim it
+POST /v2/billing/meter/checkin-activity-status   today's check-in
+POST /v2/billing/meter/daily-checkin             claim it
 ```
 
 By default the check-in runs at 09:00 local time for every account that is

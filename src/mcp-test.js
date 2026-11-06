@@ -22,7 +22,10 @@ import { spawn } from "node:child_process";
  * executable (an absolute python.exe, say) still starts directly.
  */
 
-export function testMcpServer(server, { timeoutMs = 30_000, spawnImpl = spawn } = {}) {
+export function testMcpServer(server, { timeoutMs = 30_000, spawnImpl = spawn, fetchImpl = globalThis.fetch } = {}) {
+  // A remote server has no command to spawn. The lamps only say a config was
+  // written; this handshake says the URL, the headers and the token all work.
+  if (server?.transport === "http") return testHttpMcpServer(server, { timeoutMs, fetchImpl });
   return new Promise((resolve) => {
     const phases = [];
     const args = server.transport === "stdio" ? server.args || [] : [];
@@ -122,4 +125,91 @@ export function testMcpServer(server, { timeoutMs = 30_000, spawnImpl = spawn } 
 
     attempt(false);
   });
+}
+
+/**
+ * The same handshake over streamable HTTP: initialize, initialized, tools/list.
+ * GitHub's hosted MCP server is the reason this exists — a remote entry can
+ * be deployed with a URL that is wrong, a token that is expired, or a header
+ * that never made it into the config, and all three look identical until a
+ * request is actually sent.
+ *
+ * Answers arrive either as a bare JSON object or as an SSE `data:` frame, and
+ * the session id from initialize has to ride along on the two later calls.
+ */
+async function testHttpMcpServer(server, { timeoutMs, fetchImpl }) {
+  const phases = [];
+  const base = {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    ...(server.headers || {})
+  };
+
+  const call = (message, sessionId) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const headers = { ...base };
+    if (sessionId) headers["mcp-session-id"] = sessionId;
+    return Promise.resolve(fetchImpl(server.url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(message),
+      signal: controller.signal
+    })).finally(() => clearTimeout(timer));
+  };
+
+  const readMessage = async (response) => {
+    const text = await response.text().catch(() => "");
+    if (!response.ok) {
+      const auth = response.headers?.get?.("www-authenticate") || "";
+      const reason = response.status === 401
+        ? "认证失败（401）：请在「请求头」里填写 Authorization: Bearer <令牌>"
+        : `HTTP ${response.status}`;
+      throw new Error([reason, auth.slice(0, 180), text.trim().slice(0, 160)].filter(Boolean).join(" · "));
+    }
+    try {
+      return JSON.parse(text);
+    } catch {}
+    // streamable HTTP may answer with an SSE frame instead of a JSON body.
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      try {
+        const parsed = JSON.parse(line.slice(5).trim());
+        if (parsed && (parsed.id !== undefined || parsed.result || parsed.error)) return parsed;
+      } catch {}
+    }
+    throw new Error(`无法解析响应（前 160 字）：${text.trim().slice(0, 160) || "(空)"}`);
+  };
+
+  try {
+    const init = await call({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "lane", version: "1.0.0" }
+      }
+    }, "");
+    const hello = await readMessage(init);
+    if (hello?.error) throw new Error(`握手被拒绝：${hello.error.message || hello.error.code}`);
+    phases.push(`握手成功：${hello?.result?.serverInfo?.name || "?"} ${hello?.result?.serverInfo?.version || ""}`.trim());
+
+    const sessionId = init.headers?.get?.("mcp-session-id") || "";
+    // A notification has no reply worth reading; a 202 with an empty body is
+    // normal, and a transport error here must not hide the tool list.
+    await call({ jsonrpc: "2.0", method: "notifications/initialized" }, sessionId).catch(() => {});
+
+    const listed = await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, sessionId);
+    const reply = await readMessage(listed);
+    if (reply?.error) throw new Error(`工具列表请求被拒绝：${reply.error.message || reply.error.code}`);
+    const tools = (reply?.result?.tools || []).map((tool) => tool.name);
+    return { ok: true, serverInfo: reply?.result || {}, tools, phases };
+  } catch (error) {
+    const message = error?.name === "AbortError"
+      ? `${Math.round(timeoutMs / 1000)}s 内未完成握手（已终止）`
+      : error?.message || String(error);
+    return { ok: false, error: message, phases };
+  }
 }

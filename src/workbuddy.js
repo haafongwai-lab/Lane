@@ -185,14 +185,15 @@ export class WorkBuddyProvider {
     if (!session?.auth) return "";
     const loader = await this.loaderFor(session);
     const base = String(loader?.baseURL || "").replace(/\/+$/, "");
-    // The plugin's 0.1.34 changed baseURL from an absolute endpoint to a
-    // relative path, which made every fetch fail with "Failed to parse URL
-    // from /chat/completions". Resolve against the account's own endpoint so
-    // a plugin reporting either shape keeps working.
-    if (!base) return "";
-    if (/^https?:\/\//i.test(base)) return base;
     const site = await this.siteOf(session.id);
     const origin = site === "workbuddy-ai" ? "https://www.workbuddy.ai" : "https://copilot.tencent.com";
+    // 0.1.34 changed baseURL from an absolute endpoint to a relative path, and
+    // from 0.1.33 on the plugin says "" and leaves the URL to each model's own
+    // api.url. Either shape would make a bare concatenation fetch a relative
+    // URL ("Failed to parse URL from /chat/completions"), so every base is
+    // resolved against the account's own endpoint: the API lives at <origin>/v2.
+    if (!base) return `${origin}/v2`;
+    if (/^https?:\/\//i.test(base)) return base;
     try {
       return new URL(base, origin).href.replace(/\/+$/, "");
     } catch {
@@ -316,7 +317,7 @@ export class WorkBuddyProvider {
     }
     try {
       const result = await session.hooks.auth.usage(async () => session.auth);
-      return result || {};
+      return localizeUsage(result);
     } catch (error) {
       return { error: error?.message || "usage is unknown" };
     }
@@ -341,6 +342,12 @@ export class WorkBuddyProvider {
     // WorkBuddy can read back is what got an account banned.
     const { hideDsh } = await readSettings(this.env).catch(() => ({ hideDsh: true }));
     const prepared = await prepareChat({ ...body, stream: true }, { hideDsh });
+    // The plugin's loader takes an absolute URL: from 0.1.33 its baseURL is ""
+    // because each model's api.url names where it is served (/v2 for a chat,
+    // /v1 for a Messages model). Lane relays chat completions only, so it asks
+    // the account's own /v2 — resolved here, once, instead of trusting the
+    // loader's empty base.
+    const endpoint = await this.baseURL(session.id);
     const gate = new AbortController();
     // The reason names its own kind: the relay's catch sees only the
     // rejection, and an AbortError by itself cannot be told apart from the
@@ -361,7 +368,7 @@ export class WorkBuddyProvider {
     }
     let response;
     try {
-      response = await loader.fetch(`${loader.baseURL}/chat/completions`, {
+      response = await loader.fetch(`${endpoint}/chat/completions`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -478,6 +485,30 @@ export class WorkBuddyProvider {
     const account = this.state.accounts.find((item) => item.id === target);
     return normalizeSite(account?.site);
   }
+}
+
+/**
+ * The plugin's usage hook speaks as a plugin host: a refused sign-in reads
+ * "Sign in to it again in magpie: Providers → WorkBuddy → this account's
+ * Sign in again." Lane is the host here, has no Providers page, and has its
+ * own "添加账号" button. The sentence is replaced rather than shown, keeping
+ * the HTTP reason and the action; a message with no such sentence is left
+ * exactly as it came, so the plugin's own diagnostic detail survives.
+ */
+function localizeUsage(value) {
+  if (!value || typeof value !== "object" || typeof value.error !== "string") return value || {};
+  const error = value.error
+    // The host-specific instructions, in the spellings 0.2.x uses: the
+    // browser sign-in's ("Providers → … → Sign in again"), the desktop
+    // sign-in's, and the API key's (which names a Providers page too).
+    .replace(/\s*Sign in to [^.;]+ again in magpie:[^]*$/i, " 请重新登录 WorkBuddy。")
+    .replace(/\s*Sign in to [^.;]+ again in magpie\.?/i, " 请重新登录 WorkBuddy。")
+    .replace(/\s*Sign in to [^.;]+ desktop again;? magpie reads its sign-in on the next request\.?/i, " 请重新登录 WorkBuddy 桌面版。")
+    .replace(/\s*,?\s*then add it again in magpie:[^]*$/i, "，然后在 Lane 中重新添加该密钥。")
+    // Any other "in magpie" phrasing the plugin adds later: name the product
+    // it is actually running in, never another app the user does not have.
+    .replace(/\bin magpie\b/gi, "在 Lane 中");
+  return error === value.error ? value : { ...value, error };
 }
 
 /** The plugin export that serves one site. */

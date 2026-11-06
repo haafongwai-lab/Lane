@@ -200,25 +200,29 @@ function concealDshName(body) {
  */
 export async function prepareChat(body, { hideDsh = true } = {}) {
   const api = await loadInternals();
-  const source = hideDsh ? concealDshName(body).body : body;
-  if (typeof api.withSystem !== "function") return { body: source, names: new Map() };
+  if (typeof api.withSystem !== "function") {
+    return { body: hideDsh ? concealDshName(body).body : body, names: new Map() };
+  }
 
-  let text = api.withSystem(JSON.stringify(source));
+  let text = api.withSystem(JSON.stringify(body));
   const fit = typeof api.fitted === "function" ? api.fitted(text) : { body: text, names: new Map() };
   text = typeof api.normalizeToolChoice === "function" ? api.normalizeToolChoice(fit.body) : fit.body;
 
-  let prepared = source;
+  let prepared = body;
   try {
     prepared = JSON.parse(text);
   } catch {
     // A body the helpers could not read stays as the client sent it.
-    return { body: source, names: new Map() };
+    return { body: hideDsh ? concealDshName(body).body : body, names: new Map() };
   }
-  // The refused wording is rewritten last, so it reads the body the plugin
-  // finished with — including any line the pinned plugin leaves behind.
+  // The refused wording is rewritten before the name is hidden: rule 1's
+  // accepted wording is the DeepSeek Harness line itself, so hiding first
+  // would let the rewrite put the name back into a prompt that is then sent
+  // upstream. The other order leaves nothing for the concealment to miss.
   if (Array.isArray(prepared?.messages)) {
     prepared = { ...prepared, messages: unflagRefusedOpenings(prepared.messages) };
   }
+  if (hideDsh) prepared = concealDshName(prepared).body;
   return { body: prepared, names: fit.names || new Map() };
 }
 

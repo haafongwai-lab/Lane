@@ -132,12 +132,20 @@ export async function listLibrary(env = process.env) {
     } catch {}
     const installs = [];
     for (const agent of AGENTS) {
+      let linked = false;
+      let present = false;
       for (const target of installTargets(agent, env)) {
         try {
           const st = await fs.lstat(path.join(target, entry.name));
-          installs.push({ agent, linked: st.isSymbolicLink() });
+          present = true;
+          if (st.isSymbolicLink()) linked = true;
         } catch {}
       }
+      // One row per agent, not per target. Claude Desktop has two skill
+      // folders, and the renderer folds installs into a map keyed by agent:
+      // two rows meant the last one won, so a real folder of the user's in
+      // the second path could hide a live junction in the first.
+      if (present) installs.push({ agent, linked });
     }
     out.push({ name: entry.name, description, installs });
   }
@@ -218,15 +226,27 @@ export async function installTo(name, agent, env = process.env) {
   for (const target of installTargets(agent, env)) {
     const link = path.join(target, name);
     if (!contained(target, link)) continue;
-    // A file already sitting there is the user's (or another tool's): never
-    // replace it — that would be deleting someone else's work.
-    if (await exists(link)) { results.push({ target, linked: false, existed: true }); continue; }
+    // lstat, not access: a dangling junction still owns the name, while
+    // access() follows the link and would call it absent — then symlink()
+    // failed with EEXIST on a link Lane itself had made.
+    let occupied = null;
+    try { occupied = await fs.lstat(link); } catch {}
+    if (occupied) { results.push({ target, linked: false, existed: true }); continue; }
     await ensureDir(target);
     // ntfs junctions require an absolute target, which path.resolve gives.
     await fs.symlink(source, link, "junction");
     results.push({ target, linked: true });
   }
-  return { name, agent, results };
+  // The renderer needs to know whether anything was actually installed:
+  // "已安装到 Claude" beside a pip that never lights up reads as a broken
+  // button when every target already holds a folder of the user's own.
+  return {
+    name,
+    agent,
+    results,
+    linked: results.some((r) => r.linked),
+    occupied: results.filter((r) => r.existed).map((r) => r.target)
+  };
 }
 
 /** Removes the installed links of one skill from one client. */

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, CREDITS_PER_YUAN } from "../desktop/format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, CREDITS_PER_YUAN, creditView, creditWindowOf } from "../desktop/format.js";
 
 /**
  * esc() is the only thing between a model name or a filesystem path and
@@ -176,5 +176,110 @@ test("parseMcpJson refuses junk with a reason", () => {
     const r = parseMcpJson(text);
     assert.equal(r.ok, false, text);
     assert.match(r.error, match, text);
+  }
+});
+
+// ---- credits windows (the plugin's usage hook) ----
+
+const windows = (list) => ({ plan: "Pro", windows: list });
+
+test("a build with one combined Credits window keeps it as it is", () => {
+  // 0.1.30 through 0.2.10: there is one window and it is the plan's own.
+  const usage = windows([{ name: "Credits", amount: 117.58, limit: 310, used: 37.93, runsOutAt: "2026-11-19T16:14:43.000Z" }]);
+  assert.equal(creditWindowOf(usage).name, "Credits");
+  assert.equal(creditWindowOf(usage).limit, 310);
+  const view = creditView(usage);
+  assert.equal(view.limit, 310);
+  assert.ok(Math.abs(view.left - 192.42) < 1e-9);
+});
+
+test("0.2.24's Total credits window wins over the two it sets aside", () => {
+  const usage = windows([
+    { name: "Credits", amount: 100, limit: 500, used: 20, aside: true },
+    { name: "Extra credits", amount: 30, limit: 200, used: 15, aside: true },
+    { name: "Total credits", amount: 130, limit: 700, used: 18.57, runsOutAt: "2026-11-10T00:00:00.000Z" }
+  ]);
+  const w = creditWindowOf(usage);
+  assert.equal(w.name, "Total credits");
+  assert.equal(w.limit, 700);
+  assert.equal(w.amount, 130);
+});
+
+test("0.2.17's two windows are summed the way 0.2.24's totalOf does", () => {
+  // The build Lane pins has no Total window. Summing plan + extra is the
+  // figure 0.2.24 would print, so the card reads the same after an upgrade.
+  const usage = windows([
+    { name: "Credits", amount: 100, limit: 500, used: 20, resetsAt: "2026-12-01T00:00:00.000Z", runsOutAt: "2026-12-01T00:00:00.000Z", runsOut: 5 },
+    { name: "Extra credits", amount: 30, limit: 200, used: 15, runsOutAt: "2026-11-10T00:00:00.000Z", runsOut: 3 }
+  ]);
+  const w = creditWindowOf(usage);
+  assert.equal(w.name, "Total credits");
+  assert.equal(w.amount, 130);
+  assert.equal(w.limit, 700);
+  assert.equal(w.resetsAt, "2026-12-01T00:00:00.000Z");
+  assert.equal(w.runsOutAt, "2026-11-10T00:00:00.000Z", "the earlier of the two dates runs the account out first");
+  assert.equal(w.runsOut, 3);
+  assert.ok(Math.abs(creditView(usage).percent - (130 / 700) * 100) < 1e-9);
+});
+
+test("a plan-only window beside an extra one is not doubled", () => {
+  const usage = windows([
+    { name: "Credits", amount: 100, limit: 500, used: 20 },
+    { name: "Extra credits", amount: 0, limit: 0, used: 0 }
+  ]);
+  const w = creditWindowOf(usage);
+  assert.equal(w.name, "Credits", "an empty extra window leaves the plan's own figures alone");
+});
+
+test("a token window is never read as a credit allowance", () => {
+  // 0.2.0+ reports "Free model tokens" beside the credit windows. Shown as
+  // credits it printed "176,000,000 / 200,000,000" with "积分" beside it.
+  const usage = windows([{ name: "Free model tokens", amount: 24e6, limit: 2e8, unit: "tokens" }]);
+  assert.equal(creditWindowOf(usage), null);
+  assert.equal(creditView(usage), null);
+  assert.equal(creditView(null), null);
+  assert.equal(creditView({ error: "not signed in" }), null);
+});
+
+test("a prepaid balance is credits with no cycle to meter", () => {
+  // 0.2.0+ reports packages with a remainder but no total as this window.
+  const usage = windows([
+    { name: "Prepaid credits", balance: 42.5, display: "42.5 credits", unit: "credits" },
+    { name: "Free model tokens", amount: 24e6, limit: 2e8, unit: "tokens" }
+  ]);
+  const w = creditWindowOf(usage);
+  assert.equal(w.name, "Prepaid credits");
+  const view = creditView(usage);
+  assert.equal(view.prepaid, true);
+  assert.equal(view.left, 42.5);
+  assert.equal(view.limit, 42.5);
+  assert.equal(view.percent, 0);
+});
+
+// ---- the two copies of the credit-window rule must agree ----
+
+test("the renderer's credit window rule matches the gateway's", async () => {
+  // desktop/format.js cannot import from src/ (see its own note), so
+  // src/credit-window.js is a second copy. One that drifted would show the
+  // page a different allowance than the Free-plan card beside it.
+  const { creditWindowOf: gateway } = await import("../src/credit-window.js");
+  const payloads = [
+    { plan: "Pro", windows: [{ name: "Credits", amount: 1, limit: 2, used: 50 }] },
+    { plan: "Pro", windows: [
+      { name: "Credits", amount: 100, limit: 500, used: 20, resetsAt: "2026-12-01T00:00:00.000Z", runsOutAt: "2026-12-01T00:00:00.000Z", runsOut: 5 },
+      { name: "Extra credits", amount: 30, limit: 200, used: 15, runsOutAt: "2026-11-10T00:00:00.000Z", runsOut: 3 }
+    ] },
+    { plan: "Pro", windows: [
+      { name: "Credits", amount: 100, limit: 500, used: 20, aside: true },
+      { name: "Extra credits", amount: 30, limit: 200, used: 15, aside: true },
+      { name: "Total credits", amount: 130, limit: 700, used: 18.57 }
+    ] },
+    { plan: "Free plan", windows: [{ name: "Prepaid credits", balance: 42.5, unit: "credits" }] },
+    { plan: "Free plan", windows: [{ name: "Free model tokens", amount: 1, limit: 2, unit: "tokens" }] },
+    { plan: "Free plan", windows: [] },
+    null
+  ];
+  for (const usage of payloads) {
+    assert.deepEqual(creditWindowOf(usage), gateway(usage), JSON.stringify(usage));
   }
 });
