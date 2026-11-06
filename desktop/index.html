@@ -379,38 +379,64 @@
         <div class="heading-row">
           <div><div class="eyebrow">设置</div><h1>安静地待在后台</h1><p class="sub">保持网关运行，但不占据任务栏。账号与签到在「账号」页管理。</p></div>
         </div>
-        <div class="settings-grid">
-          <article class="panel">
-            <div class="panel-head"><div><span class="overline">启动</span><h3>开机时启动</h3></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
-            <p class="setting-copy">开机自动运行，只在托盘驻留。</p>
-            <div class="setting-row"><span>网关地址</span><code>127.0.0.1:<input type="number" id="gateway-port" min="1024" max="65535" step="1" inputmode="numeric"></code><button class="text-button" id="gateway-port-save">保存</button></div>
-            <p class="setting-copy" id="gateway-port-note" hidden></p>
-          </article>
+        <article class="panel settings-sheet">
+          <section class="sheet-group">
+            <div class="sheet-head"><span class="overline">启动与网络</span></div>
+            <div class="sheet-row">
+              <div class="sheet-text"><b>开机时启动</b><span>开机自动运行，只在托盘驻留。</span></div>
+              <label class="switch"><input type="checkbox" id="autostart"><span></span></label>
+            </div>
+            <div class="sheet-row">
+              <div class="sheet-text"><b>网关地址</b><span>客户端经由这个地址接入。</span></div>
+              <div class="sheet-control">
+                <span class="addr">127.0.0.1:</span>
+                <input type="number" id="gateway-port" min="1024" max="65535" step="1" inputmode="numeric" aria-label="网关端口">
+                <button class="text-button" id="gateway-port-save">保存</button>
+              </div>
+            </div>
+            <p class="sheet-note" id="gateway-port-note" hidden></p>
+          </section>
 
-          <article class="panel">
-            <div class="panel-head"><div><span class="overline">隐私</span><h3>隐去 DSH 的名字</h3></div><label class="switch"><input type="checkbox" id="hide-dsh"><span></span></label></div>
-            <p class="setting-copy">把 DeepSeek Harness 的名字从它发出的内容里去掉：开头那句，以及说明它源码目录和 Web GUI 的几行。路径、命令和工具结果保持不变。默认开启——名字被上游读出来是封号的原因。</p>
-            <p class="setting-copy" id="hide-dsh-note" hidden></p>
-          </article>
+          <section class="sheet-group">
+            <div class="sheet-head"><span class="overline">隐私</span><span class="sheet-hint">发给上游的内容</span></div>
+            <div class="sheet-row">
+              <div class="sheet-text">
+                <b>隐去 DSH 的名字</b>
+                <span>去掉 DeepSeek Harness 在系统提示里的自称与说明行。路径、命令、工具结果保持原样。默认开启——名字被上游认出来是封号的原因。</span>
+              </div>
+              <label class="switch"><input type="checkbox" id="hide-dsh"><span></span></label>
+            </div>
+            <p class="sheet-note" id="hide-dsh-note" hidden></p>
+          </section>
 
-          <article class="panel">
-            <div class="panel-head"><div><span class="overline">数据</span><h3>本机存放</h3></div></div>
-            <p class="setting-copy">账号、签到记录与请求日志只保存在本机，不上传。</p>
-            <div class="setting-row"><span>数据目录</span><code id="data-path">%LOCALAPPDATA%\lane</code><button class="text-button" id="open-data">打开</button></div>
-            <div class="setting-row"><span>运行日志</span><code id="log-name">lane.log</code><button class="text-button" id="open-log">打开</button></div>
-          </article>
-        </div>
+          <section class="sheet-group">
+            <div class="sheet-head"><span class="overline">本机数据</span><span class="sheet-hint">不上传、不同步</span></div>
+            <div class="sheet-row">
+              <div class="sheet-text"><b>数据目录</b><span>账号、签到记录与请求日志。删掉即清空全部记录。</span></div>
+              <div class="sheet-control">
+                <code id="data-path">%LOCALAPPDATA%\lane</code>
+                <button class="text-button" id="open-data">打开</button>
+              </div>
+            </div>
+            <div class="sheet-row">
+              <div class="sheet-text"><b>运行日志</b><span>网关每次启动与出错的记录。</span></div>
+              <div class="sheet-control">
+                <code id="log-name">lane.log</code>
+                <button class="text-button" id="open-log">打开</button>
+              </div>
+            </div>
+          </section>
 
-        <article class="panel about-panel">
-          <div>
-            <span class="overline">LANE DESKTOP</span>
-            <h3>只做需要的事</h3>
-            <p>WorkBuddy、Codex 与 Claude Desktop 的本地路由。</p>
-          </div>
-          <div class="about-side">
-            <span class="about-version" id="app-version">—</span>
-            <button class="ghost" id="quit-app">退出 Lane</button>
-          </div>
+          <footer class="sheet-foot">
+            <div class="sheet-foot-main">
+              <span class="overline">LANE DESKTOP</span>
+              <p>WorkBuddy、Codex、Claude Desktop、ZCode 与 DeepSeek Harness 的本地路由。</p>
+            </div>
+            <div class="about-side">
+              <span class="about-version" id="app-version">—</span>
+              <button class="ghost" id="quit-app">退出 Lane</button>
+            </div>
+          </footer>
         </article>
       </section>
     </main>

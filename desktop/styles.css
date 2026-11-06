@@ -589,16 +589,89 @@ h1 {
 .model-row .soft-label { justify-self: start; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
-.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.setting-copy { margin: 15px 0 16px; color: #858780; font-size: 12px; line-height: 1.65; }
-.setting-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line-soft); font-size: 11px; }
-.setting-row span { width: 64px; color: var(--faint); }
-.setting-row code { flex: 1; overflow: hidden; color: #777a73; text-overflow: ellipsis; white-space: nowrap; }
-#gateway-port { width: 74px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; font: 600 12px/1.2 monospace; color: #4a564b; background: #fff; }
-#gateway-port:focus { outline: none; border-color: #2d6f4a; }
+/* One sheet, one card: every setting lives in a single panel divided by
+   hairlines, so the page reads as a list of decisions rather than a mosaic
+   of boxes. Groups are separated by a full-width line, rows by a softer one;
+   labels sit left, controls right, and each row's explanation stays under
+   its own label instead of a paragraph at the top of a card. */
+.settings-sheet {
+  padding: 4px 28px 0;
+  max-width: 980px;
+}
+.sheet-group { padding: 15px 0 13px; border-bottom: 1px solid var(--line-soft); }
+.sheet-group:last-of-type { border-bottom: 0; }
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.sheet-hint { color: var(--faint); font-size: 10.5px; }
+.sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 10px 0;
+}
+.sheet-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sheet-text b { font: 600 12.5px/1.4 var(--font-sans); color: var(--ink); }
+.sheet-text span { max-width: 60ch; color: var(--faint); font-size: 11px; line-height: 1.6; }
+/* The privacy explanation is the longest on the sheet; its switch rides the
+   first line of the text instead of being centred against four lines. */
+.sheet-group:nth-of-type(2) .sheet-row { align-items: flex-start; }
+.sheet-group:nth-of-type(2) .switch { margin-top: 1px; }
+.sheet-group:nth-of-type(2) .sheet-text span { max-width: 68ch; }
+.sheet-row > .switch { flex: 0 0 auto; }
+.sheet-control { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.sheet-control .addr { flex: 0 0 auto; color: #777a73; font: 600 11.5px/1 var(--font-mono); }
+.sheet-control code {
+  max-width: 250px;
+  overflow: hidden;
+  color: #777a73;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-note { margin: 0 0 10px; color: #79967f; font-size: 11px; line-height: 1.6; }
+.sheet-note.error { color: #a2543f; }
+/* The sheet's foot: identity on the left, version and the one exit action
+   on the right, closed off by the same hairline that divides the groups. */
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--line);
+}
+.sheet-foot-main { min-width: 0; }
+.sheet-foot-main p { margin-top: 4px; color: var(--muted); font-size: 11px; }
+#gateway-port {
+  width: 66px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: #4a564b;
+  font: 600 12px/1.2 var(--font-mono);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+#gateway-port:focus { outline: none; border-color: #2d6f4a; box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
 #gateway-port::-webkit-outer-spin-button, #gateway-port::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-#gateway-port-note { margin: 0; padding: 0 0 10px; color: #79967f; font-size: 11px; line-height: 1.6; }
-#gateway-port-note.error { color: #a2543f; }
+.setting-copy { margin: 15px 0 16px; color: #858780; font-size: 12px; line-height: 1.65; }
+#gateway-port {
+  width: 66px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: #4a564b;
+  font: 600 12px/1.2 var(--font-mono);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+#gateway-port:focus { outline: none; border-color: #2d6f4a; box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
+#gateway-port::-webkit-outer-spin-button, #gateway-port::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .switch input { display: none; }
 .switch span { position: relative; display: block; width: 35px; height: 20px; border-radius: 20px; background: #d1d2cc; transition: .18s; }
 .switch span:after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.14); transition: .18s; }
@@ -895,7 +968,6 @@ h1 {
   .recent-cost { display: none; }
 }
 
-.about-panel { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .panel-head .text-button { margin-left: 2px; }
 
 /* Startup cover: a brand moment while the gateway comes up, fading into the
@@ -932,8 +1004,6 @@ h1 {
   .boot-rule { width: 190px; animation: none; }
   .boot-dots i { animation: none; }
 }
-.about-panel h3 { margin-top: 5px; }
-.about-panel p { margin-top: 4px; color: var(--muted); font-size: 11px; }
 /* The version sits beside the quit button, quiet enough not to compete with
    the card's own copy. */
 .about-side { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
@@ -1011,7 +1081,13 @@ h1 {
   main { width: calc(100% - 66px); margin-left: 66px; }
   .view { padding-right: 20px; padding-left: 20px; }
   .heading-row { align-items: flex-start; flex-direction: column; gap: 17px; }
-  .two-column, .settings-grid { grid-template-columns: 1fr; }
+  .two-column { grid-template-columns: 1fr; }
+  /* The sheet's rows put label and control on one line; a narrow window
+     stacks them so the control stays reachable. */
+  .sheet-row { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .sheet-text span { max-width: none; }
+  .sheet-control { width: 100%; }
+  .sheet-foot { align-items: flex-start; flex-direction: column; }
   .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .route-canvas {
     --lane-size: 170px;
