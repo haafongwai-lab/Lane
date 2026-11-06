@@ -594,9 +594,12 @@ h1 {
    of boxes. Groups are separated by a full-width line, rows by a softer one;
    labels sit left, controls right, and each row's explanation stays under
    its own label instead of a paragraph at the top of a card. */
+/* The sheet takes the whole content column: a settings page with a fixed
+   narrow card left a dead margin on every wide window, and the rows read
+   better with the label/control pair spread across the full width. */
 .settings-sheet {
-  padding: 4px 28px 0;
-  max-width: 980px;
+  padding: 4px 30px 0;
+  width: 100%;
 }
 .sheet-group { padding: 15px 0 13px; border-bottom: 1px solid var(--line-soft); }
 .sheet-group:last-of-type { border-bottom: 0; }
@@ -617,11 +620,6 @@ h1 {
 .sheet-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .sheet-text b { font: 600 12.5px/1.4 var(--font-sans); color: var(--ink); }
 .sheet-text span { max-width: 60ch; color: var(--faint); font-size: 11px; line-height: 1.6; }
-/* The privacy explanation is the longest on the sheet; its switch rides the
-   first line of the text instead of being centred against four lines. */
-.sheet-group:nth-of-type(2) .sheet-row { align-items: flex-start; }
-.sheet-group:nth-of-type(2) .switch { margin-top: 1px; }
-.sheet-group:nth-of-type(2) .sheet-text span { max-width: 68ch; }
 .sheet-row > .switch { flex: 0 0 auto; }
 .sheet-control { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
 .sheet-control .addr { flex: 0 0 auto; color: #777a73; font: 600 11.5px/1 var(--font-mono); }
