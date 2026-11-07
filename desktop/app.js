@@ -12,6 +12,34 @@ let refreshQueued = null;
 // cannot render the old state over the user's click.
 let autostartPending = false;
 const enabledPending = new Map();
+// Theme: theme.js applied the saved choice before the stylesheet loaded; this
+// keeps the settings control in sync and lets the page switch live. "system"
+// follows the OS preference without asking the main process each time.
+const THEME_MODES = ["light", "dark", "system"];
+const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+function readThemeMode() {
+  try {
+    const saved = localStorage.getItem("lane.themeMode");
+    return THEME_MODES.includes(saved) ? saved : "system";
+  } catch {
+    return "system";
+  }
+}
+let themeMode = readThemeMode();
+function resolvedTheme() {
+  return themeMode === "system" ? (systemTheme.matches ? "dark" : "light") : themeMode;
+}
+function applyTheme({ notify = true } = {}) {
+  document.documentElement.dataset.theme = resolvedTheme();
+  document.documentElement.dataset.themeMode = themeMode;
+  for (const button of $$("#theme-seg button")) {
+    const active = button.dataset.themeMode === themeMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  if (notify) window.lane?.setTheme?.(themeMode)?.catch?.(() => {});
+}
+applyTheme();
 // Account masking: a display preference, not account state, so it lives in
 // the renderer and survives restarts without touching the gateway's files.
 // Default off; the list shows real names until the user asks otherwise.
@@ -1367,6 +1395,20 @@ $("#test-route").addEventListener("click", async () => {
     button.disabled = false;
     button.textContent = "测试链路";
   }
+});
+$("#theme-seg").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-theme-mode]");
+  if (!button) return;
+  const mode = button.dataset.themeMode;
+  if (!THEME_MODES.includes(mode) || mode === themeMode) return;
+  themeMode = mode;
+  try { localStorage.setItem("lane.themeMode", mode); } catch {}
+  applyTheme();
+});
+// While "system" is selected, the OS flipping between light and dark should
+// move the page with it (the native window chrome follows through main).
+systemTheme.addEventListener("change", () => {
+  if (themeMode === "system") applyTheme({ notify: false });
 });
 $("#autostart").addEventListener("change", async (event) => {
   autostartPending = true;

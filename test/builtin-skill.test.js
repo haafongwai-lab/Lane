@@ -83,6 +83,6 @@ test("the card is green-marked and has no delete button", () => {
   assert.match(APP, /skill\.builtin \? " builtin" : ""/);
   assert.match(APP, /<em class="skill-builtin">内置<\/em>/);
   assert.match(APP, /skill\.builtin \? "" : '<button class="mini quiet" data-skill-remove=/);
-  assert.match(CSS, /\.skill-card\.builtin\s*\{[^}]*#d3e5d8/);
+  assert.match(CSS, /\.skill-card\.builtin\s*\{[^}]*var\(--green-bg\)/);
   assert.match(CSS, /\.skill-builtin\s*\{[^}]*var\(--green\)/);
 });

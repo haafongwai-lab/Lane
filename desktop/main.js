@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeTheme, shell } from "electron";
 import net from "node:net";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -279,7 +279,7 @@ function createWindow() {
     height: 920,
     minWidth: 1040,
     minHeight: 680,
-    backgroundColor: "#f4f3ef",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#141512" : "#f4f3ef",
     title: "Lane",
     icon: path.join(DESKTOP_DIR, "assets", "lane.ico"),
     webPreferences: {
@@ -606,6 +606,16 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
     restartNeeded: ownsGateway
   };
 });
+// The page owns the theme preference (localStorage, read before first paint);
+// the main process only mirrors it so Windows' title bar, menus and native
+// scrollbars follow the same side. "system" keeps nativeTheme on the OS.
+ipcMain.handle("lane:set-theme", async (_event, { mode } = {}) => {
+  const next = ["light", "dark", "system"].includes(mode) ? mode : "system";
+  nativeTheme.themeSource = next;
+  const dark = nativeTheme.shouldUseDarkColors;
+  if (window) window.setBackgroundColor(dark ? "#141512" : "#f4f3ef");
+  return { mode: next, dark };
+});
 ipcMain.handle("lane:open", async (_event, target) => {
   if (target === "data") return shell.openPath(dataDir());
   if (target === "log") {
@@ -679,6 +689,11 @@ ipcMain.handle("lane:quit", async () => {
 
 app.whenReady().then(async () => {
   createWindow();
+  // The OS switching light/dark while the page follows "system" changes the
+  // native chrome too; keep the window's own base colour in step.
+  nativeTheme.on("updated", () => {
+    if (window) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#141512" : "#f4f3ef");
+  });
   // The tray exists before the gateway starts: a start that fails leaves a
   // window whose close button hides it, and without a tray the process
   // could only be killed from the task manager.

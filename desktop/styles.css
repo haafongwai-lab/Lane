@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --canvas: #f2f1ed;
   --sidebar: #eae9e4;
   --surface: #fbfaf7;
@@ -13,6 +14,34 @@
   --green-bg: #e6f1e9;
   --red: #a64b3c;
   --red-bg: #f7e9e5;
+  --blue: #3f7fb8;
+  /* Semantic surfaces and controls. These exist so the dark theme can swap
+     the palette in one place instead of chasing literal whites through the
+     file; components should prefer them over #fff / rgba(255,255,255,…. */
+  --panel-bg: rgba(251, 250, 247, .92);
+  --glass: rgba(255, 255, 255, .55);
+  --glass-soft: rgba(255, 255, 255, .42);
+  --hover-bg: #ffffff;
+  --line-strong: #d3d3cc;
+  --sidebar-bg: rgba(234, 233, 228, .8);
+  --sidebar-line: rgba(196, 196, 189, .5);
+  --wordmark: #20231f;
+  --nav-text: #686a65;
+  --nav-icon: #81837d;
+  --code: #686b65;
+  --link: #537361;
+  --primary-bg: #1c1e1c;
+  --primary-ink: #f8f7f3;
+  --primary-hover: #30332f;
+  --primary-sub: #c9cbc4;
+  --switch-track: #d1d2cc;
+  --switch-knob: #ffffff;
+  --chip-bg: #f0efeb;
+  --track: #eceded;
+  --recess: rgba(242, 242, 238, .55);
+  --canvas-glow: rgba(255, 255, 255, .76);
+  --boot-bg: #f2f1ed;
+  --shadow-strong: 0 8px 24px rgba(25, 27, 25, .14);
   --radius-lg: 20px;
   --radius: 14px;
   --radius-sm: 9px;
@@ -22,12 +51,59 @@
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
 }
 
+/* The dark palette. Warm charcoal rather than pure black, so the app still
+   reads as paper at night; accents lift a stop or two to stay legible. The
+   attribute is set on <html> by theme.js before the stylesheet loads, and the
+   settings page switches it together with the native window chrome. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #141512;
+  --sidebar: #191a16;
+  --surface: #1d1e1a;
+  --surface-raised: #242521;
+  --ink: #eceee8;
+  --ink-soft: #c9ccc3;
+  --muted: #969a90;
+  --faint: #71766c;
+  --line: #353730;
+  --line-soft: #2a2c26;
+  --green: #82c79c;
+  --green-bg: #1f3227;
+  --red: #e09180;
+  --red-bg: #382421;
+  --blue: #7db6e6;
+  --panel-bg: rgba(29, 30, 26, .94);
+  --glass: rgba(255, 255, 255, .045);
+  --glass-soft: rgba(255, 255, 255, .07);
+  --hover-bg: #2b2d27;
+  --line-strong: #4a4d44;
+  --sidebar-bg: rgba(25, 26, 22, .86);
+  --sidebar-line: rgba(255, 255, 255, .06);
+  --wordmark: #f0f1eb;
+  --nav-text: #b9bdb3;
+  --nav-icon: #8d9287;
+  --code: #a8aca1;
+  --link: #8fc7a5;
+  --primary-bg: #e6e9e1;
+  --primary-ink: #181a16;
+  --primary-hover: #f2f4ee;
+  --primary-sub: #4d5147;
+  --switch-track: #4a4d44;
+  --switch-knob: #f3f4ee;
+  --chip-bg: #2b2d28;
+  --track: #30322c;
+  --recess: rgba(255, 255, 255, .035);
+  --canvas-glow: rgba(110, 140, 118, .10);
+  --boot-bg: #141512;
+  --shadow: 0 1px 1px rgba(0, 0, 0, .35), 0 18px 44px rgba(0, 0, 0, .35);
+  --shadow-strong: 0 8px 24px rgba(0, 0, 0, .45);
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
   color: var(--ink);
   background:
-    radial-gradient(900px 560px at 74% -18%, rgba(255,255,255,.76), transparent 70%),
+    radial-gradient(900px 560px at 74% -18%, var(--canvas-glow), transparent 70%),
     var(--canvas);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -37,7 +113,7 @@ body {
 button { font: inherit; cursor: pointer; }
 button:disabled { cursor: progress; opacity: .65; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
-code { font-family: var(--font-mono); font-size: 12px; color: #686b65; }
+code { font-family: var(--font-mono); font-size: 12px; color: var(--code); }
 h1, h2, h3, p { margin: 0; }
 .app { display: flex; min-height: 100vh; }
 
@@ -48,12 +124,12 @@ h1, h2, h3, p { margin: 0; }
   display: flex;
   flex-direction: column;
   padding: 27px 15px 20px;
-  background: rgba(234, 233, 228, .8);
-  border-right: 1px solid rgba(196, 196, 189, .5);
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-line);
   backdrop-filter: blur(18px);
 }
 .wordmark {
-  color: #20231f;
+  color: var(--wordmark);
   font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Microsoft YaHei UI", serif;
   font-size: 29px;
   font-style: italic;
@@ -78,15 +154,15 @@ nav p {
   margin: 2px 0;
   border: 0;
   border-radius: var(--radius-sm);
-  color: #686a65;
+  color: var(--nav-text);
   background: transparent;
   text-align: left;
   font-size: 13px;
   transition: color .16s ease, background .16s ease, transform .16s ease;
 }
-.nav i { width: 18px; flex: 0 0 18px; color: #81837d; font-style: normal; font-size: 16px; text-align: center; }
-.nav:hover { background: rgba(255, 255, 255, .42); color: var(--ink); }
-.nav.active { color: #1d1e1c; background: var(--surface); font-weight: 650; box-shadow: 0 1px 2px rgba(25,27,25,.04); }
+.nav i { width: 18px; flex: 0 0 18px; color: var(--nav-icon); font-style: normal; font-size: 16px; text-align: center; }
+.nav:hover { background: var(--glass-soft); color: var(--ink); }
+.nav.active { color: var(--ink); background: var(--surface); font-weight: 650; box-shadow: 0 1px 2px rgba(25,27,25,.04); }
 .nav.active i { color: var(--green); }
 .dot { width: 7px; height: 7px; display: inline-block; flex: 0 0 7px; border-radius: 50%; background: var(--faint); }
 .dot.ok { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.12); }
@@ -103,41 +179,41 @@ main {
 .ghost, .primary, .outline, .text-button { border: 0; background: transparent; }
 .ghost {
   padding: 9px 15px;
-  border: 1px solid #d3d3cc;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--ink-soft);
-  background: rgba(255,255,255,.55);
+  background: var(--glass);
   font-size: 12px;
   transition: border-color .15s ease, background .15s ease, transform .15s ease;
 }
-.ghost:hover { border-color: #b5b6ae; background: #fff; }
+.ghost:hover { border-color: var(--line-strong); background: var(--hover-bg); }
 .ghost.small { padding: 6px 11px; font-size: 12px; }
 .primary {
   padding: 10px 17px;
   border-radius: var(--radius-sm);
-  color: #f8f7f3;
-  background: #1c1e1c;
+  color: var(--primary-ink);
+  background: var(--primary-bg);
   font-size: 12px;
   font-weight: 650;
   box-shadow: 0 5px 14px rgba(24,26,24,.13);
   transition: background .15s ease, transform .15s ease;
 }
-.primary:hover { background: #30332f; transform: translateY(-1px); }
-.primary span { margin-left: 7px; color: #c9cbc4; }
+.primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+.primary span { margin-left: 7px; color: var(--primary-sub); }
 .outline {
   padding: 9px 12px;
-  border: 1px solid #d5d5ce;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--ink-soft);
-  background: rgba(255,255,255,.4);
+  background: var(--glass);
   font-size: 12px;
 }
-.outline:hover { border-color: #b5b6ae; background: #fff; }
+.outline:hover { border-color: var(--line-strong); background: var(--hover-bg); }
 .wide { width: 100%; margin-top: 13px; }
 /* The health panel's sign-in action hugs its text and sits centered: a
    full-width bar read as padding, not as a button. */
 .signin-btn { display: block; width: max-content; margin: 14px auto 0; padding: 8px 24px; }
-.text-button { padding: 0; color: #537361; font-size: 12px; font-weight: 600; }
+.text-button { padding: 0; color: var(--link); font-size: 12px; font-weight: 600; }
 .text-button:hover { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
 
 .view {
@@ -150,14 +226,14 @@ main {
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 28px; }
 .eyebrow, .overline {
-  color: #797b75;
+  color: var(--muted);
   font: 650 11px/1.4 var(--font-sans);
   letter-spacing: 1.18px;
   text-transform: uppercase;
 }
 .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 h1 {
-  color: #1b1d1b;
+  color: var(--ink);
   font: 600 clamp(28px, 2.35vw, 36px)/1.13 var(--font-display);
   letter-spacing: -1.25px;
 }
@@ -166,7 +242,7 @@ h1 {
 .route-card, .panel, .agent-card {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: rgba(251,250,247,.92);
+  background: var(--panel-bg);
   box-shadow: var(--shadow);
 }
 .route-card { overflow: hidden; }
@@ -292,9 +368,9 @@ h1 {
   min-height: 166px;
   min-width: 0;
   padding: 16px 20px;
-  border: 1px solid rgba(213,213,206,.9);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(255,255,255,.82);
+  background: var(--surface-raised);
   box-shadow: 0 9px 22px rgba(25,27,25,.035);
 }
 .route-node strong { font: 600 15px/1.4 var(--font-display); }
@@ -309,7 +385,7 @@ h1 {
 .route-node > span:not(.node-label):not(.node-kicker) {
   max-width: 100%;
   overflow: hidden;
-  color: #91938d;
+  color: var(--muted);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -318,7 +394,7 @@ h1 {
   position: absolute;
   top: 12px;
   left: 13px;
-  color: #a6a8a1;
+  color: var(--faint);
   font: 650 9px/1 var(--font-sans);
   letter-spacing: .9px;
 }
@@ -330,8 +406,8 @@ h1 {
      never disagree: equal when content is calm, equal when something grows. */
   width: var(--lane-size);
   min-height: var(--lane-size);
-  border-color: #aab7a9;
-  background: rgba(253,253,249,.96);
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
   box-shadow: 0 15px 34px rgba(52,76,58,.075);
 }
 .lane-node strong { margin-top: 7px; font-size: 27px; letter-spacing: -1.8px; }
@@ -353,8 +429,8 @@ h1 {
   display: block;
   object-fit: contain;
 }
-.node-kicker { margin-bottom: 9px; color: #79967f; font: 650 9px/1 var(--font-sans); letter-spacing: 1px; }
-.node-state { display: flex; align-items: center; gap: 5px; margin-top: 11px; color: #7c7e78; font-size: 11px; }
+.node-kicker { margin-bottom: 9px; color: var(--green); font: 650 9px/1 var(--font-sans); letter-spacing: 1px; }
+.node-state { display: flex; align-items: center; gap: 5px; margin-top: 11px; color: var(--muted); font-size: 11px; }
 .node-state i { width: 5px; height: 5px; display: inline-block; border-radius: 50%; background: #2b975f; }
 .node-state i.off { background: #b6b8b0; }
 .node-logo {
@@ -381,8 +457,8 @@ h1 {
 /* Each mark is its own column — logo with its name directly under it — so
    every icon answers to its own label, not to a joined name line. */
 .agent-mark { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.agent-mark span { color: #91938d; font-size: 10.5px; }
-.claude-logo { overflow: hidden; background: #fff; }
+.agent-mark span { color: var(--muted); font-size: 10.5px; }
+.claude-logo { overflow: hidden; background: transparent; }
 .claude-logo img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .hidden { display: none !important; }
 /* ZCode ships a white Z on a black plate; Lane's surface is light, so the
@@ -424,7 +500,13 @@ h1 {
   object-fit: contain;
 }
 .route-canvas .dsh-logo img { width: 40px; height: 40px; margin-bottom: 4px; }
-.codex-logo { overflow: hidden; background: #fff; }
+.codex-logo {
+  overflow: hidden;
+  background: transparent;
+  /* The Codex mark is its own rounded square; a circular clip turned it into
+     a white puck. Keep the asset's corners instead. */
+  border-radius: 10px;
+}
 .codex-logo img, .agent-icon.codex img {
   width: 100%;
   height: 100%;
@@ -447,7 +529,7 @@ h1 {
   max-width: 100%;
   margin-top: 4px;
   overflow: hidden;
-  color: #6f8a79 !important;
+  color: var(--green) !important;
   font-size: 11px !important;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -462,7 +544,7 @@ h1 {
   padding: 4px 8px;
   border-radius: 5px;
   color: #49785a;
-  background: #ebf3ed;
+  background: var(--green-bg);
   font-size: 11px;
   font-weight: 650;
 }
@@ -536,7 +618,7 @@ h1 {
   color: var(--muted);
   font-size: 11px;
 }
-.connection-state.on { border-color: #d2e3d6; color: #46785a; background: #edf5ef; }
+.connection-state.on { border-color: var(--green-bg); color: var(--green); background: var(--green-bg); }
 .agent-detail { display: flex; justify-content: space-between; gap: 10px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--line-soft); font-size: 11px; }
 /* The gateway address is dynamic (a saved port or another host can be much
    longer than the default), so it must never widen the card. */
@@ -549,7 +631,7 @@ h1 {
 .agent-detail > span { flex: 0 0 auto; color: var(--muted); }
 .agent-detail span { color: var(--faint); }
 .agent-detail b { font-weight: 550; }
-.agent-note { margin-top: 18px; color: #858780; font-size: 11px; line-height: 1.65; }
+.agent-note { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.65; }
 /* The real config path from the status snapshot gets its own ellipsised
    line: dropping it inside the note would wrap that card to four lines and
    stretch the whole equal-height row. */
@@ -579,7 +661,7 @@ h1 {
   padding: 13px 22px;
   border-bottom: 1px solid var(--line);
   color: var(--faint);
-  background: rgba(242,242,238,.32);
+  background: var(--glass);
   font-size: 11px;
   letter-spacing: .55px;
   text-transform: uppercase;
@@ -594,9 +676,9 @@ h1 {
 }
 .model-row:last-child { border-bottom: 0; }
 .model-name { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.credit-rate { display: flex; align-items: baseline; gap: 6px; color: #49765a; font-variant-numeric: tabular-nums; }
+.credit-rate { display: flex; align-items: baseline; gap: 6px; color: var(--green); font-variant-numeric: tabular-nums; }
 .credit-rate s { color: var(--faint); font-size: 10px; }
-.model-row code { color: #858780; }
+.model-row code { color: var(--muted); }
 .model-row .soft-label { justify-self: start; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
@@ -632,18 +714,41 @@ h1 {
 .sheet-text b { font: 600 12.5px/1.4 var(--font-sans); color: var(--ink); }
 .sheet-text span { max-width: 60ch; color: var(--faint); font-size: 11px; line-height: 1.6; }
 .sheet-row > .switch { flex: 0 0 auto; }
+/* Theme picker: a small segmented pill, matching the range control on the
+   usage page rather than inventing another control language. */
+.theme-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--glass);
+}
+.theme-seg button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.theme-seg button:hover { color: var(--ink); }
+.theme-seg button.active { background: var(--primary-bg); color: var(--primary-ink); }
 .sheet-control { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
-.sheet-control .addr { flex: 0 0 auto; color: #777a73; font: 600 11.5px/1 var(--font-mono); }
+.sheet-control .addr { flex: 0 0 auto; color: var(--muted); font: 600 11.5px/1 var(--font-mono); }
 .sheet-control code {
   max-width: 250px;
   overflow: hidden;
-  color: #777a73;
+  color: var(--muted);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sheet-note { margin: 0 0 10px; color: #79967f; font-size: 11px; line-height: 1.6; }
-.sheet-note.error { color: #a2543f; }
+.sheet-note { margin: 0 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.sheet-note.error { color: var(--red); }
 /* The sheet's foot: identity on the left, version and the one exit action
    on the right, closed off by the same hairline that divides the groups. */
 .sheet-foot {
@@ -661,29 +766,29 @@ h1 {
   padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
-  color: #4a564b;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
   font: 600 12px/1.2 var(--font-mono);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-#gateway-port:focus { outline: none; border-color: #2d6f4a; box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
+#gateway-port:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
 #gateway-port::-webkit-outer-spin-button, #gateway-port::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.setting-copy { margin: 15px 0 16px; color: #858780; font-size: 12px; line-height: 1.65; }
+.setting-copy { margin: 15px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.65; }
 #gateway-port {
   width: 66px;
   padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
-  color: #4a564b;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
   font: 600 12px/1.2 var(--font-mono);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-#gateway-port:focus { outline: none; border-color: #2d6f4a; box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
+#gateway-port:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(45, 111, 74, .1); }
 #gateway-port::-webkit-outer-spin-button, #gateway-port::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .switch input { display: none; }
-.switch span { position: relative; display: block; width: 35px; height: 20px; border-radius: 20px; background: #d1d2cc; transition: .18s; }
-.switch span:after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.14); transition: .18s; }
+.switch span { position: relative; display: block; width: 35px; height: 20px; border-radius: 20px; background: var(--switch-track); transition: .18s; }
+.switch span:after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--switch-knob); box-shadow: 0 1px 3px rgba(0,0,0,.14); transition: .18s; }
 .switch input:checked + span { background: #2d6f4a; }
 .switch input:checked + span:after { left: 18px; }
 .account-avatar {
@@ -694,7 +799,7 @@ h1 {
   flex: 0 0 33px;
   overflow: hidden;
   border-radius: 50%;
-  background: #e3f0e6;
+  background: var(--green-bg);
   font-weight: 650;
 }
 .account-avatar img { width: 100%; height: 100%; display: block; object-fit: contain; }
@@ -707,7 +812,7 @@ h1 {
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: rgba(255,255,255,.55);
+  background: var(--glass);
 }
 .segmented button {
   padding: 6px 12px;
@@ -830,7 +935,7 @@ h1 {
   padding: 3px 9px;
   border-radius: 999px;
   color: var(--muted);
-  background: #f0efeb;
+  background: var(--chip-bg);
   font-size: 10.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -886,7 +991,7 @@ h1 {
   margin-top: 14px;
   overflow: hidden;
   border-radius: 8px;
-  background: #eceded;
+  background: var(--track);
 }
 .quota-meter i {
   display: block;
@@ -1014,10 +1119,10 @@ h1 {
 .recent-head { padding: 0 0 6px; color: var(--faint); font-size: 11px; }
 .recent-time { color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recent-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-pill { color: #5a7764; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-pill { color: var(--green); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-state { font-size: 11px; white-space: nowrap; }
 .recent-state.ok { color: var(--green); }
-.recent-state.live { color: #3f7fb8; }
+.recent-state.live { color: var(--blue); }
 .recent-state.err { color: var(--red); }
 /* A client closing its window is not a fault: muted, so it does not read as
    one more failure in a column the eye scans for red. */
@@ -1041,7 +1146,7 @@ h1 {
    routing page on the first snapshot (app.js calls bootOut). */.boot {
   position: fixed; inset: 0; z-index: 80;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px;
-  background: #f2f1ed;
+  background: var(--boot-bg);
   transition: opacity .5s ease, visibility .5s;
 }
 .boot.gone { opacity: 0; visibility: hidden; pointer-events: none; }
@@ -1052,15 +1157,15 @@ h1 {
   animation: boot-rise .7s .1s cubic-bezier(.2,.7,.2,1) both;
 }
 .boot-rule {
-  width: 0; height: 1px; background: #16181a; opacity: .4;
+  width: 0; height: 1px; background: var(--ink); opacity: .4;
   animation: boot-rule-in .9s .3s cubic-bezier(.3,.7,.3,1) forwards;
 }
 .boot-sub {
-  font-size: 15.5px; color: #858681; letter-spacing: 1.5px;
+  font-size: 15.5px; color: var(--muted); letter-spacing: 1.5px;
   animation: boot-rise .8s .45s cubic-bezier(.2,.7,.2,1) both;
 }
 .boot-dots { display: flex; gap: 7px; margin-top: 8px; }
-.boot-dots i { width: 6px; height: 6px; border-radius: 50%; background: #c9cdc6; animation: boot-blink 1.1s infinite; }
+.boot-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); animation: boot-blink 1.1s infinite; }
 .boot-dots i:nth-child(2) { animation-delay: .18s; }
 .boot-dots i:nth-child(3) { animation-delay: .36s; }
 @keyframes boot-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
@@ -1079,7 +1184,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--faint);
-  background: rgba(255, 255, 255, .5);
+  background: var(--glass);
   font: 600 11px/1.4 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -1092,10 +1197,10 @@ h1 {
   z-index: 20;
   max-width: 280px;
   padding: 8px 11px;
-  background: #fff;
+  background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 8px 24px rgba(25, 27, 25, .14);
+  box-shadow: var(--shadow-strong);
   color: var(--ink);
   font-size: 11px;
   line-height: 1.7;
@@ -1202,7 +1307,7 @@ h1 {
    quiet until the user wants it, then filled in to say it is on. */
 .account-tools { display: flex; align-items: center; gap: 10px; }
 .account-tools .text-button { padding: 2px 7px; border-radius: 6px; border: 1px solid transparent; }
-.account-tools .text-button.on { color: var(--green); border-color: #d2e3d6; background: #edf5ef; text-decoration: none; }
+.account-tools .text-button.on { color: var(--green); border-color: var(--green-bg); background: var(--green-bg); text-decoration: none; }
 .account-tools .soft-label:empty { display: none; }
 /* The right rail stacks the daily card and the welcome card. A third child
    of the grid itself would land in the left column, not below the daily
@@ -1248,7 +1353,7 @@ h1 {
   background: transparent;
   text-align: left;
 }
-.add-menu button:hover { background: #f3f4ef; }
+.add-menu button:hover { background: var(--hover-bg); }
 .add-menu b { display: block; color: var(--ink); font-size: 12px; font-weight: 650; }
 .add-menu small { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; }
 .accounts-panel .soft-label:empty { display: none; }
@@ -1300,7 +1405,7 @@ h1 {
   color: var(--faint);
   font: 11px/1.45 var(--font-mono);
 }
-.account-meta i { color: #c7c8c2; font-style: normal; }
+.account-meta i { color: var(--faint); font-style: normal; }
 .account-meta code { color: inherit; font-size: 11px; }
 .account-host {
   max-width: 190px;
@@ -1325,9 +1430,9 @@ h1 {
   font: 600 11px/1.3 var(--font-sans);
   transition: .15s;
 }
-.mini:hover:not([disabled]) { border-color: #b6b7af; color: var(--ink); }
+.mini:hover:not([disabled]) { border-color: var(--line-strong); color: var(--ink); }
 .mini[disabled] { border-color: var(--line-soft); background: transparent; color: var(--faint); cursor: default; opacity: 1; }
-.mini.quiet { border-color: transparent; background: transparent; color: #537361; }
+.mini.quiet { border-color: transparent; background: transparent; color: var(--link); }
 .mini.quiet:hover { border-color: transparent; background: var(--green-bg); color: var(--green); }
 .icon-mini {
   border: 0;
@@ -1351,7 +1456,7 @@ h1 {
   font-style: normal;
 }
 .tag-on { color: var(--green); background: var(--green-bg); }
-.tag-soft { color: #6d6f69; background: #f0efeb; }
+.tag-soft { color: var(--muted); background: var(--chip-bg); }
 
 .account-chip {
   padding: 2px 7px;
@@ -1361,7 +1466,7 @@ h1 {
 }
 .account-chip.ok { color: var(--green); background: var(--green-bg); }
 .account-chip.warn { color: var(--red); background: var(--red-bg); }
-.account-chip.idle { color: var(--muted); background: #f1f0ec; }
+.account-chip.idle { color: var(--muted); background: var(--chip-bg); }
 
 .switch.small span { width: 29px; height: 17px; }
 .switch.small span:after { top: 3px; left: 3px; width: 11px; height: 11px; }
@@ -1446,7 +1551,7 @@ h1 {
   stroke-linejoin: round;
   transition: fill .2s ease, stroke .2s ease;
 }
-.checkin-star:hover { color: var(--ink-soft); border-color: var(--line); background: #faf9f4; }
+.checkin-star:hover { color: var(--ink-soft); border-color: var(--line); background: var(--hover-bg); }
 .checkin-star:hover .star { fill: #e2a63b; stroke: #e2a63b; }
 
 /* A quiet text card below the daily check-in: the verse and the GitHub star
@@ -1529,7 +1634,7 @@ h1 {
   padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(242, 242, 238, .55);
+  background: var(--recess);
   animation: ext-drop .28s cubic-bezier(.2,.7,.2,1) both;
 }
 .mcp-editor[hidden] { display: none; }
@@ -1550,7 +1655,7 @@ h1 {
   padding: 4px 12px; border: 0; border-radius: 6px; background: transparent;
   color: var(--muted); font-size: 12px; font-weight: 600; transition: .15s;
 }
-.mcp-seg button.active { background: var(--ink); color: #fff; }
+.mcp-seg button.active { background: var(--primary-bg); color: var(--primary-ink); }
 
 .mcp-field { display: block; margin-bottom: 10px; }
 .mcp-field > span {
@@ -1560,7 +1665,7 @@ h1 {
 .mcp-field input {
   width: 100%; padding: 8px 11px;
   border: 1px solid var(--line); border-radius: 8px;
-  background: #fff; color: var(--ink);
+  background: var(--surface-raised); color: var(--ink);
   font: 13px/1.4 var(--font-mono);
 }
 .mcp-field input:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(35,118,77,.08); }
@@ -1570,18 +1675,18 @@ h1 {
 /* The remote form's one line of help: header syntax and which clients can
    actually take a streamable-HTTP server. */
 .mcp-hint { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.mcp-hint code { padding: 1px 4px; border-radius: 4px; background: #f0efeb; font: 10.5px var(--font-mono); }
+.mcp-hint code { padding: 1px 4px; border-radius: 4px; background: var(--chip-bg); font: 10.5px var(--font-mono); }
 .mcp-pick > span { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 2px; }
 .mcp-chip { position: relative; }
 .mcp-chip input { position: absolute; opacity: 0; pointer-events: none; }
 .mcp-chip b {
   display: inline-block; padding: 5px 12px; border-radius: 16px;
-  border: 1px solid var(--line); background: #fff;
+  border: 1px solid var(--line); background: var(--surface-raised);
   font-size: 12px; font-weight: 600; color: var(--muted);
   transition: .15s; cursor: pointer;
 }
 .mcp-chip input:checked + b {
-  border-color: #b7d3c2; background: var(--green-bg); color: var(--green);
+  border-color: var(--green-bg); background: var(--green-bg); color: var(--green);
 }
 .mcp-chip input:focus-visible + b { outline: 2px solid var(--green); outline-offset: 2px; }
 
@@ -1592,7 +1697,7 @@ h1 {
 .mcp-json textarea {
   width: 100%; margin-top: 8px; padding: 9px 11px;
   border: 1px solid var(--line); border-radius: 8px;
-  background: #fff; color: var(--ink);
+  background: var(--surface-raised); color: var(--ink);
   font: 11.5px/1.55 ui-monospace, Consolas, monospace;
   resize: vertical;
 }
@@ -1611,7 +1716,7 @@ h1 {
 .mcp-item-name { display: flex; align-items: baseline; gap: 8px; }
 .mcp-item-name b { font-size: 13.5px; font-weight: 650; letter-spacing: -.1px; }
 .mcp-item-name code {
-  padding: 1px 6px; border-radius: 5px; background: #f0efeb;
+  padding: 1px 6px; border-radius: 5px; background: var(--chip-bg);
   color: var(--muted); font-size: 10.5px; font-weight: 600;
 }
 .mcp-item-cmd {
@@ -1633,7 +1738,7 @@ h1 {
 }
 .mcp-lamp.on { color: var(--green); }
 .mcp-lamp.on i { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.13); }
-.mcp-lamp.blocked { color: #c08a7c; cursor: not-allowed; }
+.mcp-lamp.blocked { color: var(--red); cursor: not-allowed; }
 .mcp-lamp.blocked i { background: #e5cdc6; }
 .mcp-lamp:hover:not(.blocked) i { transform: scale(1.25); }
 
@@ -1660,22 +1765,22 @@ h1 {
   position: relative;
   padding: 13px 14px 12px;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: rgba(255,255,255,.6);
+  background: var(--glass);
   transition: border-color .15s, background .15s;
 }
-.skill-card:hover { border-color: #c9cac2; background: #fff; }
+.skill-card:hover { border-color: var(--line-strong); background: var(--hover-bg); }
 /* A skill Lane ships with: green badge and a faint green edge, so it reads
    as part of the product rather than something the user imported. */
 .skill-card.builtin {
-  border-color: #d3e5d8;
-  background: linear-gradient(180deg, rgba(237, 245, 239, .6), rgba(255, 255, 255, .6));
+  border-color: var(--green-bg);
+  background: linear-gradient(180deg, var(--green-bg), var(--glass));
 }
 .skill-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .skill-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-builtin {
   flex: 0 0 auto;
   padding: 1px 6px;
-  border: 1px solid #cfe3d6;
+  border: 1px solid var(--green-bg);
   border-radius: 4px;
   color: var(--green);
   background: var(--green-bg);
@@ -1696,19 +1801,19 @@ h1 {
 .skill-pip {
   width: 18px; height: 18px; border-radius: 5px;
   display: grid; place-items: center;
-  border: 1px solid var(--line); background: #fff;
+  border: 1px solid var(--line); background: var(--surface-raised);
   color: var(--faint); font-size: 9px; font-weight: 700;
   cursor: pointer; transition: .15s;
 }
-.skill-pip.on { border-color: #b7d3c2; background: var(--green-bg); color: var(--green); }
+.skill-pip.on { border-color: var(--green-bg); background: var(--green-bg); color: var(--green); }
 .skill-pip.on:hover { border-color: #d9b6ad; background: var(--red-bg); color: var(--red); }
-.skill-pip:hover { border-color: #b9bab3; color: var(--ink); }
+.skill-pip:hover { border-color: var(--line-strong); color: var(--ink); }
 
 /* The free plan's own footnote: which models it covers and what this machine
    has run on it, smaller than the meter above because it is context, not a
    figure to watch. */
 /* An exhausted daily allowance is the one state on this card worth red. */
-.free-refused { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(160, 40, 40, .08); color: var(--red); font-size: 11px; }
+.free-refused { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--red-bg); color: var(--red); font-size: 11px; }
 .free-credits-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 10.5px; color: var(--faint); }
 
 /* The live-connection test's verdict. It is a wrapped row of its own, not a
@@ -1723,8 +1828,37 @@ h1 {
   overflow-wrap: anywhere;
 }
 .mcp-test.running { color: var(--muted); }
-.mcp-test.ok { background: rgba(31, 107, 70, .09); color: var(--green); }
-.mcp-test.bad { background: rgba(160, 40, 40, .08); color: var(--red); }
+.mcp-test.ok { background: var(--green-bg); color: var(--green); }
+.mcp-test.bad { background: var(--red-bg); color: var(--red); }
 
 /* A single request whose cost stands out: the flag rides the cost cell. */
 .cost-flag { color: #b8860b; font-style: normal; font-size: 10px; }
+
+/* ---- dark theme: component adjustments ---------------------------------- */
+/* The token layer above flips every surface, text and control that uses a
+   variable. These rules cover the few components whose colours are literal
+   (canvas dots, brand plates, chart strokes) so the dark page stays coherent
+   without rewriting the whole stylesheet in this pass. */
+:root[data-theme="dark"] .route-canvas {
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, .055) .7px, transparent .8px);
+}
+:root[data-theme="dark"] .flow-rail { background: linear-gradient(90deg, transparent, #3a3d35 9%, #4d5a4f 91%, transparent); }
+:root[data-theme="dark"] .route-canvas.busy .flow-rail { background: linear-gradient(90deg, #3a3d35, #4f7d60 30%, #3f6285 70%, #3a3d35); }
+:root[data-theme="dark"] .health-grid div { border-left-color: var(--line); }
+:root[data-theme="dark"] .model-row { background: rgba(255, 255, 255, .03); }
+:root[data-theme="dark"] .account-row.active { background: linear-gradient(90deg, rgba(130, 199, 156, .10), rgba(130, 199, 156, 0) 62%); }
+:root[data-theme="dark"] .recent-row:has(.recent-pick:checked) { background: rgba(130, 199, 156, .08); }
+:root[data-theme="dark"] .mcp-lamp i { background: var(--switch-track); }
+:root[data-theme="dark"] .mcp-lamp.blocked i { background: var(--red-bg); }
+:root[data-theme="dark"] .accounts-error { border-color: var(--red-bg); color: var(--red); background: var(--red-bg); }
+:root[data-theme="dark"] .sheet-note.error { color: var(--red); }
+:root[data-theme="dark"] .toast { background: #2a2d27; }
+:root[data-theme="dark"] .boot-emblem,
+:root[data-theme="dark"] .lane-emblem img { filter: invert(1); }
+:root[data-theme="dark"] .model-chart .seg,
+:root[data-theme="dark"] .model-dot { filter: brightness(1.4) saturate(1.1); }
+:root[data-theme="dark"] .trend-line,
+:root[data-theme="dark"] .trend-dot,
+:root[data-theme="dark"] .trend-single { stroke: #8fc7a5; }
+:root[data-theme="dark"] .trend-dot { fill: var(--surface-raised); }
+:root[data-theme="dark"] #usageTrendFill stop { stop-color: #8fc7a5; }

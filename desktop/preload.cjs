@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("lane", {
   gatewaySettings: () => ipcRenderer.invoke("lane:gateway-settings"),
   hideDsh: (hideDsh) => ipcRenderer.invoke("lane:hide-dsh", { hideDsh }),
   saveGatewaySettings: (patch) => ipcRenderer.invoke("lane:save-gateway-settings", patch),
+  setTheme: (mode) => ipcRenderer.invoke("lane:set-theme", { mode }),
   test: () => ipcRenderer.invoke("lane:test"),
   open: (target) => ipcRenderer.invoke("lane:open", target),
   openURL: (url) => ipcRenderer.invoke("lane:open-url", url),

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>Lane</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -390,6 +391,18 @@
           <div><div class="eyebrow">设置</div><h1>安静地待在后台</h1><p class="sub">保持网关运行，但不占据任务栏。账号与签到在「账号」页管理。</p></div>
         </div>
         <article class="panel settings-sheet">
+          <section class="sheet-group">
+            <div class="sheet-head"><span class="overline">外观</span><span class="sheet-hint">立即生效</span></div>
+            <div class="sheet-row">
+              <div class="sheet-text"><b>主题</b><span>浅色、深色，或跟随系统的外观设置。</span></div>
+              <div class="theme-seg" id="theme-seg" role="group" aria-label="主题">
+                <button type="button" data-theme-mode="light">浅色</button>
+                <button type="button" data-theme-mode="dark">深色</button>
+                <button type="button" data-theme-mode="system">跟随系统</button>
+              </div>
+            </div>
+          </section>
+
           <section class="sheet-group">
             <div class="sheet-head"><span class="overline">启动与网络</span></div>
             <div class="sheet-row">
