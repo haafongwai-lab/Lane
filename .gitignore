@@ -11,3 +11,5 @@ coverage/
 *.log
 .env
 .mimosa/
+__pycache__/
+*.pyc

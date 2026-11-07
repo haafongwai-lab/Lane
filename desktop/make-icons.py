@@ -1,9 +1,11 @@
 """Rasterise the Lane app icon at every size Windows asks for.
 
-The source is the illustration on a white rounded tile. Drawing each frame
-from the tile geometry at its own resolution keeps corners truly
-transparent — downsampling a 1024 master leaves a few stray alpha levels in
-the corner arc that show up as a grey tick on a 16px taskbar icon.
+The source is a square line drawing of the Lane robot on white paper. Each
+frame is drawn from the tile geometry at its own resolution, which keeps
+corners truly transparent - downsampling a 1024 master leaves stray alpha
+levels in the corner arc that show up as a grey tick on a 16px taskbar icon.
+Wireframe strokes almost vanish once a 1024px drawing becomes 16px, so the
+smallest frames get a contrast stretch after downsampling.
 
 Run: python desktop/make-icons.py
 """
@@ -28,21 +30,24 @@ RADIUS_RATIO = 0.18
 # small sizes without the flat edges a single-pass GDI scale produces.
 SS = 8
 
-# How much of the canvas the tile occupies. Windows' own app icons leave a
-# margin: the artwork sits inside roughly 84% of the frame, with the rest
-# transparent. The source image has no such margin — it is the tile edge to
-# edge — so drawing it at 100% made Lane's start-menu shortcut look smaller
-# than every icon beside it once the shell laid them out on one grid.
-TILE_RATIO = 0.86
+# How much of the canvas the tile occupies. Windows lays shortcuts on one
+# grid, so a tile much below 90% reads as a visibly smaller icon than its
+# neighbours; 0.86 was that case once the source's own white margin was
+# cropped away. The transparent artwork now fills the tile itself.
+TILE_RATIO = 0.92
 # The small frames Windows shows in lists and the taskbar are already hard
 # to read; a margin there costs the mark the pixels it needs. The shell
 # draws 16/24/32 at their own sizes, so they keep a fuller tile.
-SMALL_RATIO = {16: 1.0, 24: 0.95, 32: 0.92}
-# How much of the tile the mark fills, keeping its own aspect ratio. The
-# source tile had 14% of its height as white above and below the mark; the
-# mark is now drawn against a tile of its own, so it fills nearly all of it
-# and the icon reads at the same weight as its neighbours.
-MARK_RATIO = 0.94
+SMALL_RATIO = {16: 1.0, 24: 0.98, 32: 0.96}
+# A wireframe's thin grey strokes average into near-white at taskbar sizes.
+# Stretching their distance from white by this much after downsampling keeps
+# the mark readable without turning it into a solid black blob.
+SMALL_STRETCH = 3
+# How much of the tile the mark fills, keeping its own aspect ratio. Once the
+# source's white margin is cropped away, the mark is drawn against a tile of
+# its own and fills nearly all of it, so the icon reads at the same weight as
+# its neighbours on the start menu.
+MARK_RATIO = 0.96
 
 
 def master() -> Image.Image:
@@ -72,6 +77,26 @@ def master() -> Image.Image:
     return source.crop(box)
 
 
+def stretch_contrast(image: Image.Image, factor: float) -> Image.Image:
+    """Darken every grey stroke on the white tile, leaving the paper white.
+
+    A linear stretch (rather than a threshold) keeps the wireframe's internal
+    grid lines visible; thresholding at these sizes turns the robot into one
+    solid black shape.
+    """
+    image = image.convert("RGBA")
+    px = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = px[x, y]
+            if a < 8:
+                continue
+            lum = (r * 299 + g * 587 + b * 114) // 1000
+            v = max(0, min(255, round(255 - (255 - lum) * factor)))
+            px[x, y] = (v, v, v, a)
+    return image
+
+
 def frame(art: Image.Image, size: int) -> Image.Image:
     """One icon frame: a rounded tile with the mark centred on it."""
     big = size * SS
@@ -86,7 +111,12 @@ def frame(art: Image.Image, size: int) -> Image.Image:
     draw.rounded_rectangle(
         [inset, inset, inset + side - 1, inset + side - 1], radius=radius, fill=255
     )
-    canvas.paste(Image.new("RGBA", (big, big), (255, 255, 255, 255)), (0, 0), mask)
+    # The tile matches the app's own warm off-white surface, not pure white:
+    # a #ffffff square reads as a pasted-on patch next to the other marks and
+    # against the #fbfaf7 route canvas. The source artwork is transparent, so
+    # this rounded tile is the only background the icon has.
+    TILE = (251, 250, 247, 255)
+    canvas.paste(Image.new("RGBA", (big, big), TILE), (0, 0), mask)
 
     # The mark keeps its aspect ratio inside the tile with a small inset of
     # its own, so a wide mark is not stretched to the tile's square.
@@ -102,7 +132,8 @@ def frame(art: Image.Image, size: int) -> Image.Image:
     )
     # BOX is a plain area average: no negative lobes, so the corner arc
     # cannot smear a faint alpha tick into an otherwise transparent corner.
-    return canvas.resize((size, size), Image.BOX)
+    small = canvas.resize((size, size), Image.BOX)
+    return stretch_contrast(small, SMALL_STRETCH) if size in SMALL_RATIO else small
 
 
 def write_ico(path: Path, frames: list[Image.Image]) -> None:

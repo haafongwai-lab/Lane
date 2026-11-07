@@ -1153,6 +1153,14 @@ h1 {
   align-items: stretch;
 }
 .accounts-panel { display: flex; flex-direction: column; min-width: 0; }
+/* The right rail stacks the daily card and the welcome card. A third child
+   of the grid itself would land in the left column, not below the daily
+   card, so both right-hand panels live in one vertical flex column. */
+.accounts-rail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* The rail stretches with the account list, but its cards would otherwise
+   keep their content height and leave an unframed gap at the bottom. Let the
+   last card take the leftover space so both columns end on one baseline. */
+.accounts-rail .welcome-card { flex: 1 1 auto; }
 .account-list { margin-top: 10px; }
 /* A sign-in that never landed stays visible here, not just in a toast. */
 .accounts-error {
@@ -1390,6 +1398,24 @@ h1 {
 .checkin-star:hover { color: var(--ink-soft); border-color: var(--line); background: #faf9f4; }
 .checkin-star:hover .star { fill: #e2a63b; stroke: #e2a63b; }
 
+/* A quiet text card below the daily check-in: the verse and the GitHub star
+   link, with no illustration. The panel's own padding frames the text. */
+.welcome-body h3 { margin-top: 5px; font: 600 15px/1.4 var(--font-display); letter-spacing: -.2px; }
+.welcome-verse {
+  margin: 9px 0 14px;
+  color: var(--ink-soft);
+  font: 13px/1.8 var(--font-display);
+  letter-spacing: .6px;
+}
+.welcome-verse span {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+  font: 10.5px/1.5 var(--font-sans);
+  letter-spacing: 0;
+}
+.welcome-card .checkin-star { margin-top: 0; }
+
 @media (max-width: 1200px) {
   .accounts-grid { grid-template-columns: 1fr; }
 }
@@ -1574,6 +1600,10 @@ h1 {
 #skills-list {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 10px; margin-top: 12px;
+  /* The list takes the panel's slack when the MCP editor opens. Grid rows
+     would otherwise stretch to share that extra height and visibly elongate
+     every skill card; keep them at their content height from the top. */
+  align-content: start;
 }
 .skill-card {
   position: relative;
