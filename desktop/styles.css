@@ -751,54 +751,58 @@ h1 {
    stretch past the panel and wrap the figures mid-row. */
 .usage-estimate { margin-top: 4px; color: var(--faint); font-size: 11px; }
 
-/* Paired bars: credits dark, tokens a pale companion on the same baseline. */
-.usage-chart { padding: 6px 2px 0; }
-.usage-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  height: 186px;
-  padding-top: 8px;
+/* Daily spend trend: a soft area and a thin monotone curve across the full
+   card width. The line owns the space the old centred bars left empty, and
+   the left gutter carries three quiet scale marks instead of a bare chart. */
+.usage-chart { padding: 4px 2px 0; }
+.usage-trend svg { display: block; width: 100%; height: auto; overflow: visible; }
+.trend-grid { stroke: var(--line-soft); stroke-width: 1; stroke-dasharray: 2 5; }
+.trend-axis {
+  fill: var(--faint);
+  font: 10px var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
-.usage-bars.single { gap: 0; }
-.usage-bar {
-  flex: 1 1 0;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 9px;
+.trend-x { fill: var(--muted); }
+.trend-line {
+  fill: none;
+  stroke: #4f7d60;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: trend-draw 1s cubic-bezier(.25,.7,.3,1) forwards;
 }
-.usage-bar-track {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 3px;
-  /* The rest of the column after the date label — a height:100% here would
-     resolve against the whole column and push bars past the chart's top. */
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 0 6%;
-  border-bottom: 1px solid var(--line-soft);
+.trend-area {
+  fill: url(#usageTrendFill);
+  opacity: 0;
+  animation: trend-fade .9s ease .25s forwards;
 }
-.usage-bar-track i {
-  width: 46%;
-  max-width: 16px;
-  min-height: 2px;
-  border-radius: 3px 3px 0 0;
-  transition: height .3s ease;
+.trend-dot {
+  fill: #fff;
+  stroke: #4f7d60;
+  stroke-width: 1.8;
 }
-/* A range with a single day (or one busy day and six quiet ones) must not
-   stretch its bars across the whole panel. */
-/* 72px slots while they fit (7d); shrinkable when they do not (15d) - a
-   fixed basis at 15 slots overflows the panel and spills the row under the
-   sidebar, misaligning every bar from its date. */
-.usage-bars.single .usage-bar { flex: 0 1 72px; }
-.usage-bars.single { justify-content: center; }
-.usage-bars.single .usage-bar-track { padding: 0 22%; }
-/* A day with no traffic keeps a faint stub so the axis reads as a whole. */
-.usage-bar.quiet .usage-bar-track i { background: #eceded; }
+.trend-peak {
+  fill: var(--ink-soft);
+  font: 600 10.5px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.trend-single { fill: url(#usageTrendFill); stroke: #4f7d60; stroke-width: 1.5; }
+.usage-day { cursor: default; }
+.usage-day .day-line {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.usage-day:hover .day-line { opacity: 1; }
+.usage-day:hover .trend-dot { stroke-width: 2.6; r: 4.6; }
+@keyframes trend-draw { to { stroke-dashoffset: 0; } }
+@keyframes trend-fade { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .trend-line, .trend-area { animation: none; stroke-dashoffset: 0; opacity: 1; }
+}
 .usage-chart-note {
   margin-top: 10px;
   padding-top: 10px;
@@ -807,19 +811,57 @@ h1 {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.usage-bar-track i.credits { background: linear-gradient(180deg, #6d9a7e, #5c8a6d); }
-.usage-bar span {
-  display: block;
-  overflow: hidden;
-  color: var(--faint);
-  font-size: 10px;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-/* The account's own credits, kept visually apart from Lane's accounting. */
-.usage-quota { margin-top: 16px; }
+/* The account's own credits, kept visually apart from Lane's accounting.
+   The card reads top-down: a large remaining figure, one meter, then the
+   small facts (spent / reset / lapse) as equal columns. */
+.usage-quota { margin-top: 14px; }
+.quota-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.quota-figure { min-width: 0; }
+.quota-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .3px;
+}
+.quota-badge {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: #f0efeb;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.quota-badge.warn { color: var(--red); background: var(--red-bg); }
+.quota-facts {
+  display: flex;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+.quota-fact {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line-soft);
+}
+.quota-fact:first-child { padding-left: 0; border-left: 0; }
+.quota-fact span { color: var(--faint); font-size: 10.5px; }
+.quota-fact b {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* The free-model allowance sits under the cycle credits: a different meter
    with a different reset, so it is separated rather than merged into one. */
@@ -837,24 +879,27 @@ h1 {
 .usage-free .quota-meter i { background: var(--green); }
 .quota-amount { display: flex; align-items: baseline; gap: 8px; }
 .quota-amount b { font: 600 24px/1 var(--font-display); letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
+.quota-hero .quota-amount b { font-size: 30px; letter-spacing: -.9px; }
 .quota-amount span { color: var(--faint); font-size: 11px; }
 .quota-meter {
-  height: 5px;
-  margin-top: 12px;
+  height: 8px;
+  margin-top: 14px;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 8px;
   background: #eceded;
 }
 .quota-meter i {
   display: block;
   height: 100%;
-  border-radius: 5px;
+  border-radius: 8px;
   background: linear-gradient(90deg, #6d9a7e, #4f7d60);
   transition: width .3s ease;
 }
 .quota-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 4px 10px;
   margin-top: 8px;
   color: var(--faint);
   font-size: 11px;
@@ -1153,6 +1198,12 @@ h1 {
   align-items: stretch;
 }
 .accounts-panel { display: flex; flex-direction: column; min-width: 0; }
+/* The mask toggle sits beside the count: a display preference for the list,
+   quiet until the user wants it, then filled in to say it is on. */
+.account-tools { display: flex; align-items: center; gap: 10px; }
+.account-tools .text-button { padding: 2px 7px; border-radius: 6px; border: 1px solid transparent; }
+.account-tools .text-button.on { color: var(--green); border-color: #d2e3d6; background: #edf5ef; text-decoration: none; }
+.account-tools .soft-label:empty { display: none; }
 /* The right rail stacks the daily card and the welcome card. A third child
    of the grid itself would land in the left column, not below the daily
    card, so both right-hand panels live in one vertical flex column. */
@@ -1613,6 +1664,24 @@ h1 {
   transition: border-color .15s, background .15s;
 }
 .skill-card:hover { border-color: #c9cac2; background: #fff; }
+/* A skill Lane ships with: green badge and a faint green edge, so it reads
+   as part of the product rather than something the user imported. */
+.skill-card.builtin {
+  border-color: #d3e5d8;
+  background: linear-gradient(180deg, rgba(237, 245, 239, .6), rgba(255, 255, 255, .6));
+}
+.skill-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.skill-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-builtin {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid #cfe3d6;
+  border-radius: 4px;
+  color: var(--green);
+  background: var(--green-bg);
+  font: 600 9.5px/1.7 var(--font-sans);
+  letter-spacing: .4px;
+}
 .skill-card b { display: block; font-size: 13px; font-weight: 650; letter-spacing: -.1px; }
 .skill-card p {
   margin-top: 4px; min-height: 30px;

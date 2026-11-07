@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { dataDir } from "./config.js";
 
 /**
@@ -19,6 +20,37 @@ import { dataDir } from "./config.js";
 
 const AGENTS = ["codex", "zcode", "claude-desktop"];
 const SKILL_MARK = "SKILL.md";
+
+// Skills Lane ships with. They are copied into the library on first use so
+// they behave like any other skill (installable by junction, editable), and
+// they cannot be removed from the library. The content lives under
+// src/builtin-skills/<name>/SKILL.md and is packaged with the app.
+export const BUILTIN_SKILLS = ["find-skills"];
+
+export function isBuiltinSkill(name) {
+  return BUILTIN_SKILLS.includes(String(name ?? ""));
+}
+
+/**
+ * Materialises the built-in skills in the user's library when missing. A
+ * SKILL.md that already exists is left alone: the user may have edited it,
+ * and a later app update must not overwrite their copy.
+ */
+export async function ensureBuiltins(env = process.env) {
+  const root = libraryRoot(env);
+  for (const name of BUILTIN_SKILLS) {
+    const dir = path.join(root, name);
+    const marker = path.join(dir, SKILL_MARK);
+    if (await exists(marker)) continue;
+    await fs.mkdir(dir, { recursive: true });
+    // Read then write, with a plain string path: inside the packaged app the
+    // source lives in app.asar, and Electron's fs patch reads a string path
+    // there reliably (a file:// URL through copyFile is the shakier path).
+    const source = fileURLToPath(new URL(`./builtin-skills/${name}/${SKILL_MARK}`, import.meta.url));
+    const content = await fs.readFile(source, "utf8");
+    await fs.writeFile(marker, content, "utf8");
+  }
+}
 
 // Windows refuses these as file or directory names (with or without an
 // extension), so a folder by such a name cannot exist in the library —

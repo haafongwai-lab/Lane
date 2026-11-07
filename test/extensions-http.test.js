@@ -137,27 +137,31 @@ test("skills routes: import from a folder, install, list, uninstall, remove", as
   assert.equal(imported.name, "pdf-tools");
 
   let list = await (await fetch(`${base}/lane/skills`)).json();
-  assert.equal(list.skills.length, 1);
-  assert.equal(list.skills[0].name, "pdf-tools");
-  assert.match(list.skills[0].description, /PDF/);
-  assert.deepEqual(list.skills[0].installs, []);
+  // The built-in skill is always there, marked; user skills follow.
+  assert.ok(list.skills.some((s) => s.name === "find-skills" && s.builtin), "built-in find-skills");
+  const mine = () => list.skills.filter((s) => !s.builtin);
+  assert.equal(mine().length, 1);
+  assert.equal(mine()[0].name, "pdf-tools");
+  assert.match(mine()[0].description, /PDF/);
+  assert.deepEqual(mine()[0].installs, []);
 
   // Install into Codex: a junction appears, and the list reports it.
   await post(base, "/lane/skills/install", { name: "pdf-tools", agent: "codex" });
   const link = path.join(env.CODEX_HOME, "skills", "pdf-tools");
   assert.ok(fs.lstatSync(link).isSymbolicLink());
   list = await (await fetch(`${base}/lane/skills`)).json();
-  assert.ok(list.skills[0].installs.some((i) => i.agent === "codex" && i.linked));
+  assert.ok(mine()[0].installs.some((i) => i.agent === "codex" && i.linked));
 
   // Uninstall leaves the library copy.
   await post(base, "/lane/skills/uninstall", { name: "pdf-tools", agent: "codex" });
   assert.ok(!fs.existsSync(link));
   assert.ok(fs.existsSync(path.join(dir, "skills", "pdf-tools", "SKILL.md")));
 
-  // Remove clears the library too.
+  // Remove clears the library too, leaving only the built-in skill.
   await post(base, "/lane/skills/remove", { name: "pdf-tools" });
   list = await (await fetch(`${base}/lane/skills`)).json();
-  assert.deepEqual(list.skills, []);
+  assert.deepEqual(list.skills.map((s) => s.name), ["find-skills"]);
+  assert.equal(list.skills[0].builtin, true);
 });
 
 test("a skills import of something that is not a skill answers 400", async (t) => {
@@ -191,7 +195,7 @@ test("a skills remove of a traversal name answers 400 and deletes nothing", asyn
   assert.ok(fs.existsSync(path.join(dir, "keep-me.txt")), "the data directory survived");
   assert.ok(fs.existsSync(path.join(dir, "skills", "weather", "SKILL.md")), "the library survived");
   const list = await (await fetch(`${base}/lane/skills`)).json();
-  assert.equal(list.skills.length, 1, "the library listing still works");
+  assert.equal(list.skills.filter((s) => !s.builtin).length, 1, "the library listing still works");
 });
 
 test("the MCP test route performs a real stdio handshake", async (t) => {

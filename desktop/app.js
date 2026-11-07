@@ -12,6 +12,29 @@ let refreshQueued = null;
 // cannot render the old state over the user's click.
 let autostartPending = false;
 const enabledPending = new Map();
+// Account masking: a display preference, not account state, so it lives in
+// the renderer and survives restarts without touching the gateway's files.
+// Default off; the list shows real names until the user asks otherwise.
+let accountMasked = false;
+try { accountMasked = localStorage.getItem("lane.accountMasked") === "1"; } catch {}
+
+// Masks a label for the account list. One ASCII/Chinese character at each
+// end stays legible so the user can still tell two accounts apart, while the
+// middle is replaced; very short names lose everything but the first char.
+function maskName(value) {
+  const text = String(value ?? "");
+  if (!text) return "";
+  if (text.length === 1) return "*";
+  if (text.length === 2) return `${text[0]}*`;
+  return `${text[0]}${"*".repeat(Math.min(3, text.length - 2))}${text[text.length - 1]}`;
+}
+
+// The row shows only the first 8 characters of the account hash; masking
+// keeps two of them so the row is still distinguishable in a screenshot.
+function maskId(value) {
+  const text = String(value ?? "");
+  return text.length <= 2 ? "*".repeat(text.length || 1) : `${text.slice(0, 2)}${"*".repeat(4)}`;
+}
 
 
 
@@ -281,6 +304,13 @@ function renderAccounts() {
   errorNode.textContent = failed ? `上次登录未完成：${failed}` : "";
   const list = $("#account-list");
   const foot = $("#accounts-foot");
+  // The toggle reflects the stored preference even when the list is empty.
+  const maskButton = $("#account-mask");
+  if (maskButton) {
+    maskButton.textContent = accountMasked ? "显示" : "打码";
+    maskButton.setAttribute("aria-pressed", String(accountMasked));
+    maskButton.classList.toggle("on", accountMasked);
+  }
   if (!accounts.length) {
     list.innerHTML = '<div class="empty">还没有账号。点「添加账号」登录 WorkBuddy。</div>';
     foot.textContent = "";
@@ -288,8 +318,9 @@ function renderAccounts() {
   }
   const carrier = accounts.find((account) => account.id === activeId);
   const off = accounts.filter((account) => !account.enabled).length;
+  const shownName = (account) => (accountMasked ? maskName(account.label) : account.label);
   foot.textContent = [
-    carrier ? `${carrier.label} 正在承载请求` : "没有账号承载请求",
+    carrier ? `${shownName(carrier)} 正在承载请求` : "没有账号承载请求",
     off ? `${off} 个已关闭` : ""
   ].filter(Boolean).join(" · ");
   const checkin = new Map((snapshot.checkin?.accounts || []).map((item) => [item.id, item]));
@@ -307,11 +338,11 @@ function renderAccounts() {
     <div class="account-row${active ? " active" : ""}${enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
       <div class="account-avatar"><img src="assets/workbuddy-official.svg" alt=""></div>
       <div class="account-main">
-        <div class="account-title"><b>${esc(account.label)}</b>${tags}</div>
+        <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
         <div class="account-meta">
           <span class="account-host">${esc(account.domain || "WorkBuddy")}</span>
           <i>·</i>
-          <code>${esc(account.id.slice(0, 8))}</code>
+          <code>${esc(accountMasked ? maskId(account.id) : account.id.slice(0, 8))}</code>
           ${checkinChip(checkin.get(account.id), { ...account, enabled })}
           ${creditsChip(account)}
         </div>
@@ -443,7 +474,7 @@ function renderCheckin() {
   list.hidden = issues.length === 0;
   list.innerHTML = issues.map((item) => `
     <div class="checkin-item">
-      <span>${esc(item.label)}</span>
+      <span>${esc(accountMasked ? maskName(item.label) : item.label)}</span>
       <b class="err">${esc(item.error || "签到失败")}</b>
     </div>`).join("");
 }
@@ -598,8 +629,59 @@ function renderUsage() {
   renderUsageRecent();
 }
 
-// One bar per day: the billed credits that day cost. A range where nothing
-// ran at all says so instead of drawing a flat empty chart.
+// A smooth area trend for the daily spend. The old bar chart reserved a fixed
+// 72px slot per day and centred a 16px bar in it, so a week of data floated in
+// a wide panel with most of the card empty. This draws the same numbers as one
+// continuous line across the full width: a soft area, a thin curve, a dot on
+// every day that spent something, and the peak labelled in place.
+function niceCeil(value) {
+  if (!(value > 0)) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10]) {
+    if (step * magnitude >= value) return step * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+// Monotone cubic interpolation (Fritsch-Carlson): a smooth curve that never
+// overshoots a day's own value, so the line cannot dip below zero or invent a
+// peak between two quiet days.
+function trendPath(points) {
+  const n = points.length;
+  if (n < 2) return "";
+  const dx = [];
+  const slope = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    dx[i] = points[i + 1].x - points[i].x;
+    slope[i] = dx[i] ? (points[i + 1].y - points[i].y) / dx[i] : 0;
+  }
+  const m = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i += 1) {
+    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+  }
+  for (let i = 0; i < n - 1; i += 1) {
+    if (!slope[i]) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i];
+    const b = m[i + 1] / slope[i];
+    const h = Math.hypot(a, b);
+    if (h > 3) {
+      m[i] = (3 / h) * a * slope[i];
+      m[i + 1] = (3 / h) * b * slope[i];
+    }
+  }
+  let d = `M${points[0].x.toFixed(2)},${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i += 1) {
+    const p = points[i];
+    const q = points[i + 1];
+    d += ` C${(p.x + dx[i] / 3).toFixed(2)},${(p.y + (m[i] * dx[i]) / 3).toFixed(2)} ` +
+      `${(q.x - dx[i] / 3).toFixed(2)},${(q.y - (m[i + 1] * dx[i]) / 3).toFixed(2)} ` +
+      `${q.x.toFixed(2)},${q.y.toFixed(2)}`;
+  }
+  return d;
+}
+
 function renderUsageChart(series) {
   const node = $("#usage-chart");
   const active = series.filter((item) => (item.requests || 0) > 0);
@@ -607,53 +689,99 @@ function renderUsageChart(series) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
     return;
   }
-  const creditMax = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
+  const W = 720;
+  const H = 236;
+  const pad = { top: 26, right: 16, bottom: 30, left: 48 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  const maxCredits = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
+  // A little headroom above the peak keeps its label inside the plot.
+  const yMax = niceCeil(maxCredits * 1.12 || 1);
+  const n = series.length;
+  const xAt = (i) => (n === 1 ? pad.left + plotW / 2 : pad.left + (plotW * i) / (n - 1));
+  const yAt = (v) => pad.top + plotH - (Math.max(0, Number(v) || 0) / yMax) * plotH;
+  const today = new Date();
+  const pad2 = (v) => String(v).padStart(2, "0");
+  const todayKey = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+
+  const points = series.map((item, i) => ({ x: xAt(i), y: yAt(item.credits), item }));
+  const line = trendPath(points);
+  const baseline = pad.top + plotH;
+  const area = points.length > 1
+    ? `${line} L${points[n - 1].x.toFixed(2)},${baseline} L${points[0].x.toFixed(2)},${baseline} Z`
+    : "";
+
+  // Horizontal guides at 0, half and full scale, labelled on the left gutter.
+  const grid = [0, 0.5, 1].map((t) => {
+    const y = pad.top + plotH * (1 - t);
+    return `<line class="trend-grid" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${W - pad.right}" y2="${y.toFixed(1)}"></line>` +
+      `<text class="trend-axis" x="${pad.left - 10}" y="${(y + 3.5).toFixed(1)}" text-anchor="end">${credits(yMax * t)}</text>`;
+  }).join("");
+
+  // One label per point while they fit; a 15-day range thins to every other
+  // date plus the last one so labels never touch.
+  const step = n > 9 ? Math.ceil(n / 6) : 1;
+  const ticks = new Set();
+  for (let i = 0; i < n; i += step) ticks.add(i);
+  ticks.add(n - 1);
+  const xlabels = [...ticks].sort((a, b) => a - b).map((i) => {
+    const item = series[i];
+    const label = item.date === todayKey
+      ? "今天"
+      : new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+    return `<text class="trend-axis trend-x" x="${xAt(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(label)}</text>`;
+  }).join("");
+
+  const slot = n === 1 ? plotW : plotW / (n - 1);
+  const days = series.map((item, i) => {
+    const dayCredits = Number(item.credits) || 0;
+    const detail = [
+      `${item.date}`,
+      `积分 ${credits(item.credits)}`,
+      ...(dayCredits > 0 ? [`折合 ¥${rmb(dayCredits)}`] : []),
+      `请求 ${item.requests} 次`
+    ].join("\n");
+    const x = xAt(i);
+    const dot = dayCredits > 0
+      ? `<circle class="trend-dot" cx="${x.toFixed(1)}" cy="${yAt(dayCredits).toFixed(1)}" r="3.2"></circle>`
+      : "";
+    return `<g class="usage-day" data-tip="${esc(detail)}">` +
+      `<rect x="${(x - slot / 2).toFixed(1)}" y="${pad.top}" width="${Math.max(slot, 8).toFixed(1)}" height="${plotH}" fill="transparent"></rect>` +
+      `<line class="day-line" x1="${x.toFixed(1)}" y1="${pad.top}" x2="${x.toFixed(1)}" y2="${baseline}"></line>` +
+      dot +
+      `</g>`;
+  }).join("");
+
   const peak = series.reduce((best, item) => (
     (Number(item.credits) || 0) > (Number(best.credits) || 0) ? item : best
   ), series[0]);
+  const peakIndex = series.indexOf(peak);
+  const peakLabel = Number(peak.credits) > 0
+    ? `<text class="trend-peak" x="${xAt(peakIndex).toFixed(1)}" y="${(yAt(peak.credits) - 11).toFixed(1)}" text-anchor="middle">${credits(peak.credits)}</text>`
+    : "";
+
+  const single = n === 1
+    ? `<rect class="trend-single" x="${(xAt(0) - 17).toFixed(1)}" y="${yAt(peak.credits).toFixed(1)}" width="34" height="${Math.max(2, baseline - yAt(peak.credits)).toFixed(1)}" rx="7"></rect>`
+    : `<path class="trend-area" d="${area}"></path>` +
+      `<path class="trend-line" d="${line}" pathLength="1"></path>`;
+
   node.innerHTML = `
-    <div class="usage-bars single">
-      ${series.map((item) => {
-        const dayCredits = Number(item.credits) || 0;
-        const creditHeight = creditMax ? dayCredits / creditMax * 100 : 0;
-        const label = new Date(`${item.date}T00:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-        // One line per figure: the popup renders data-tip verbatim, with
-        // newlines as breaks.
-        const detail = [
-          `${item.date}`,
-          `积分 ${credits(item.credits)}`,
-          ...(dayCredits > 0 ? [`折合 ¥${rmb(dayCredits)}`] : []),
-          `请求 ${item.requests} 次`
-        ].join("\n");
-        const empty = !(item.requests || 0);
-        // An empty day keeps a 1px stub (the class supplies its colour);
-        // a busy day always shows at least 1.5% so it is never invisible.
-        const height = (value) => (empty ? 0.6 : Math.max(value, 1.5)).toFixed(1);
-        return `<div class="usage-bar${empty ? " quiet" : ""}" data-tip="${esc(detail)}">
-          <div class="usage-bar-track">
-            <i class="credits" data-h="${height(creditHeight)}" style="height:0%"></i>
-          </div>
-          <span>${esc(label)}</span>
-        </div>`;
-      }).join("")}
+    <div class="usage-trend">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="每日消耗趋势">
+        <defs>
+          <linearGradient id="usageTrendFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4f7d60" stop-opacity="0.22"></stop>
+            <stop offset="100%" stop-color="#4f7d60" stop-opacity="0.02"></stop>
+          </linearGradient>
+        </defs>
+        ${grid}
+        ${single}
+        ${days}
+        ${xlabels}
+        ${peakLabel}
+      </svg>
     </div>
     <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)}（¥${rmb(peak.credits)}） · 请求 ${peak.requests} 次</p>`;
-  growUsageBars(node);
-}
-
-// The bars' entrance: they start at zero and grow to their day's height,
-// staggered left to right — the same easing and stagger language as the
-// donut's sweep-in. Motion-averse settings get the finished chart.
-function growUsageBars(node) {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  node.querySelectorAll(".usage-bar-track i").forEach((bar, i) => {
-    const target = bar.dataset.h;
-    if (!target) return;
-    bar.style.transition = "none";
-    bar.getBoundingClientRect();
-    bar.style.transition = `height .7s cubic-bezier(.25,.7,.3,1) ${i * 40}ms`;
-    bar.style.height = `${target}%`;
-  });
 }
 
 // The international Free plan has two separate allowances, and this card
@@ -719,8 +847,16 @@ function renderUsageQuota(quota) {
   // its full allowance, which is the opposite of what a falling balance means.
   if (view.balance != null && !(Number(view.limit) > 0)) {
     node.innerHTML = `
-      <div class="quota-amount"><b>${creditNumber(view.balance)}</b><span>预付积分余额</span></div>
-      <div class="quota-foot"><span>按次扣减，用完为止</span></div>`;
+      <div class="quota-hero">
+        <div class="quota-figure">
+          <span class="quota-label">预付积分余额</span>
+          <div class="quota-amount"><b>${creditNumber(view.balance)}</b></div>
+        </div>
+        <span class="quota-badge">按次扣减</span>
+      </div>
+      <div class="quota-facts">
+        <div class="quota-fact"><span>计费方式</span><b>用完为止</b></div>
+      </div>`;
     return;
   }
   const used = Number(view.amount) || 0;
@@ -740,12 +876,18 @@ function renderUsageQuota(quota) {
     ? new Date(view.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
   node.innerHTML = `
-    <div class="quota-amount"><b>${creditNumber(left)}</b><span>剩余积分 / 共 ${creditNumber(limit)}</span></div>
+    <div class="quota-hero">
+      <div class="quota-figure">
+        <span class="quota-label">剩余积分</span>
+        <div class="quota-amount"><b>${creditNumber(left)}</b><span>/ 共 ${creditNumber(limit)}</span></div>
+      </div>
+      <span class="quota-badge${share >= 90 ? " warn" : ""}">剩余 ${percent((100 - share) / 100)}</span>
+    </div>
     <div class="quota-meter"><i style="width:${share.toFixed(1)}%"></i></div>
-    <div class="quota-foot">
-      <span>已用 ${percent(share / 100)}</span>
-      ${reset ? `<span>${esc(reset)} 重置</span>` : ""}
-      ${lapsesAt ? `<span>${esc(lapsesAt)} 未用额度过期</span>` : ""}
+    <div class="quota-facts">
+      <div class="quota-fact"><span>已用</span><b>${percent(share / 100)}</b></div>
+      <div class="quota-fact"><span>重置</span><b>${reset ? esc(reset) : "—"}</b></div>
+      <div class="quota-fact"><span>未用额度</span><b>${lapsesAt ? `${esc(lapsesAt)} 到期` : "—"}</b></div>
     </div>`;
 }
 
@@ -1100,6 +1242,11 @@ $("#account-list").addEventListener("click", async (event) => {
     if (!confirm(`移除账号「${label}」？这会删除 Lane 保存的该账号登录信息。`)) return;
     return accountAction("remove", id);
   }
+});
+$("#account-mask").addEventListener("click", () => {
+  accountMasked = !accountMasked;
+  try { localStorage.setItem("lane.accountMasked", accountMasked ? "1" : "0"); } catch {}
+  renderAccounts();
 });
 $("#account-list").addEventListener("change", (event) => {
   const input = event.target.closest('input[data-act="enabled"]');
@@ -1459,12 +1606,14 @@ function renderSkills(list) {
         '" data-agent="' + agent + '" title="' + (on ? "从 " + AGENT_SHORT[agent] + " 卸载" : "安装到 " + AGENT_SHORT[agent]) + '">' +
         AGENT_INITIAL[agent] + "</button>";
     }).join("");
-    return '<div class="skill-card">' +
-      "<b>" + esc(skill.name) + "</b>" +
+    return '<div class="skill-card' + (skill.builtin ? " builtin" : "") + '">' +
+      '<div class="skill-title"><b>' + esc(skill.name) + "</b>" +
+        (skill.builtin ? '<em class="skill-builtin">内置</em>' : "") +
+      "</div>" +
       "<p>" + esc(skill.description || "无描述") + "</p>" +
       '<div class="skill-foot">' + pips +
         '<span class="grow"></span>' +
-        '<button class="mini quiet" data-skill-remove="' + esc(skill.name) + '">删除</button>' +
+        (skill.builtin ? "" : '<button class="mini quiet" data-skill-remove="' + esc(skill.name) + '">删除</button>') +
       "</div>" +
     "</div>";
   }).join("");

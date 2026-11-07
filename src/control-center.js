@@ -542,7 +542,14 @@ export function createControlCenter({
     },
 
     async skillsList() {
-      return skills.listLibrary(env);
+      // The built-in skills are copied into the library on first read, so the
+      // page shows them exactly like imported ones (with a green "builtin"
+      // marker added here; the skill folder itself stays a normal folder).
+      await skills.ensureBuiltins(env);
+      const rows = await skills.listLibrary(env);
+      return rows
+        .map((row) => ({ ...row, builtin: skills.isBuiltinSkill(row.name) }))
+        .sort((a, b) => Number(b.builtin) - Number(a.builtin) || a.name.localeCompare(b.name));
     },
 
     async skillsImport(sourceDir) {
@@ -552,11 +559,15 @@ export function createControlCenter({
 
     async skillsRemove(name) {
       if (journal.shared) throw new Error("只读窗口不能管理技能");
+      if (skills.isBuiltinSkill(name)) {
+        throw Object.assign(new Error("内置技能不能删除"), { status: 400 });
+      }
       return skills.removeFromLibrary(name, env);
     },
 
     async skillsInstall(name, agent) {
       if (journal.shared) throw new Error("只读窗口不能管理技能");
+      await skills.ensureBuiltins(env);
       return skills.installTo(name, agent, env);
     },
 
