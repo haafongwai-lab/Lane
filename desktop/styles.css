@@ -538,9 +538,8 @@ h1 {
 }
 .connection-state.on { border-color: #d2e3d6; color: #46785a; background: #edf5ef; }
 .agent-detail { display: flex; justify-content: space-between; gap: 10px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--line-soft); font-size: 11px; }
-/* The DSH card's config path is far longer than the others' labels, and a
-   card that has narrowed to one grid track would let it push the row wider
-   than the card. It gets the same ellipsis the name line has. */
+/* The gateway address is dynamic (a saved port or another host can be much
+   longer than the default), so it must never widen the card. */
 .agent-detail code {
   min-width: 0;
   overflow: hidden;
@@ -551,6 +550,18 @@ h1 {
 .agent-detail span { color: var(--faint); }
 .agent-detail b { font-weight: 550; }
 .agent-note { margin-top: 18px; color: #858780; font-size: 11px; line-height: 1.65; }
+/* The real config path from the status snapshot gets its own ellipsised
+   line: dropping it inside the note would wrap that card to four lines and
+   stretch the whole equal-height row. */
+.agent-path {
+  display: block;
+  margin-top: 5px;
+  color: var(--faint);
+  font: 10px/1.5 var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .card-actions { margin-top: 18px; }
 .card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 11px; box-shadow: none; }
 .models-panel { overflow: hidden; padding: 0; }
@@ -908,7 +919,20 @@ h1 {
 .model-table { min-width: 0; }
 .model-table .usage-table-head,
 .model-table .usage-table-row,
-.model-table .usage-table-foot { grid-template-columns: minmax(0, 2fr) .6fr .9fr; }
+.model-table .usage-table-foot { grid-template-columns: minmax(0, 2fr) .6fr .9fr 24px; }
+/* A row's delete control is deliberately quiet until hovered: the table is
+   mostly read, and a wall of red crosses would compete with the figures. */
+.model-delete {
+  justify-self: end;
+  width: 22px; height: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--faint);
+  font: 12px/1 var(--font-sans); cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.model-delete:hover { border-color: var(--line); background: rgba(160, 40, 40, .07); color: var(--red); }
+.model-delete:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+.model-delete:disabled { opacity: .4; cursor: default; }
 @media (max-width: 930px) {
   .models-split { grid-template-columns: 1fr; }
   .model-chart { max-width: 236px; margin: 0 auto; }

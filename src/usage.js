@@ -29,6 +29,29 @@ export function rangeDays(key) {
   return RANGES.find((range) => range.key === key)?.days || 1;
 }
 
+/**
+ * The local-midnight timestamp a range starts at. Exported because deleting
+ * one model's rows must drop exactly the rows `summary` counted for the range
+ * the user is looking at — a second implementation of the boundary would
+ * eventually disagree with the one that draws the table.
+ */
+export function rangeStart(range = "today", now = Date.now()) {
+  const start = midnight(now);
+  start.setDate(start.getDate() - (rangeDays(range) - 1));
+  return start.getTime();
+}
+
+/**
+ * Every range ends at the end of today. Together with rangeStart this is the
+ * exact set of local days `summary` counts, so a row dated in the future (a
+ * clock that was set back) is neither shown nor deleted.
+ */
+export function rangeEnd(now = Date.now()) {
+  const end = midnight(now);
+  end.setDate(end.getDate() + 1);
+  return end.getTime();
+}
+
 export function localDateKey(date = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -142,7 +165,7 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
   const days = rangeDays(range);
   const keys = dayKeys(days, now);
   const wanted = new Set(keys);
-  const startAt = new Date(`${keys[0]}T00:00:00`).getTime();
+  const startAt = rangeStart(range, now);
 
   const totals = newCounter();
   const byDay = new Map(keys.map((key) => [key, { date: key, ...newCounter() }]));

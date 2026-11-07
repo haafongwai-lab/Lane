@@ -131,9 +131,9 @@
               <div class="agent-icon codex"><img src="assets/codex-official.svg" alt=""></div>
               <div class="agent-name"><h2>Codex</h2><p>OpenAI Responses</p></div>
             </div>
-            <div class="agent-detail"><span>模型</span><b>Hy3 · WorkBuddy</b></div>
+            <div class="agent-detail"><span>接入方式</span><b>自定义提供方</b></div>
             <div class="agent-detail"><span>网关</span><code id="codex-address">127.0.0.1:3426/v1</code></div>
-            <p class="agent-note">写入 Codex Provider 和模型目录。接入后新建会话。</p>
+            <p class="agent-note">写入 Codex Provider 和模型目录，接入后新建会话。<code class="agent-path" id="codex-path"></code></p>
             <div class="card-actions"><button class="primary" id="codex-connect">接入 Codex</button><button class="ghost" id="codex-disconnect">断开</button></div>
           </article>
 
@@ -143,9 +143,9 @@
               <div class="agent-icon claude"><img src="assets/claude-official.svg" alt=""></div>
               <div class="agent-name"><h2>Claude Desktop</h2><p>Anthropic Messages</p></div>
             </div>
-            <div class="agent-detail"><span>模式</span><b>3p Gateway Profile</b></div>
+            <div class="agent-detail"><span>接入方式</span><b>3p 网关配置</b></div>
             <div class="agent-detail"><span>网关</span><code id="claude-address">127.0.0.1:3426</code></div>
-            <p class="agent-note">写入独立的 Lane 3p 配置，不影响其他设置。</p>
+            <p class="agent-note">写入独立的 Lane 3p 配置，并在 Claude 配置中切换部署模式，不影响其他设置。<code class="agent-path" id="claude-path"></code></p>
             <div class="card-actions"><button class="primary" id="claude-connect">接入 Claude</button><button class="ghost" id="claude-disconnect">断开</button></div>
           </article>
 
@@ -156,9 +156,9 @@
               <div class="agent-icon zcode"><img src="assets/zcode-official-256.png" alt=""></div>
               <div class="agent-name"><h2>ZCode</h2><p>Anthropic Messages</p></div>
             </div>
-            <div class="agent-detail"><span>方式</span><b>自定义提供方</b></div>
-            <div class="agent-detail"><span>配置</span><code>~/.zcode/v2/provider_config.json</code></div>
-            <p class="agent-note">写入 lane 提供方并把它的模型清单指向网关，其余提供方与设置保持不变。</p>
+            <div class="agent-detail"><span>接入方式</span><b>自定义提供方</b></div>
+            <div class="agent-detail"><span>网关</span><code id="zcode-address">127.0.0.1:3426</code></div>
+            <p class="agent-note">写入 lane 提供方并把它的模型清单指向网关，其余提供方与设置保持不变。<code class="agent-path" id="zcode-path"></code></p>
             <div class="card-actions"><button class="primary" id="zcode-connect">接入 ZCode</button><button class="ghost" id="zcode-disconnect">断开</button></div>
           </article>
 
@@ -168,9 +168,9 @@
               <div class="agent-icon dsh"><img src="assets/dsh-official-256.png" alt=""></div>
               <div class="agent-name"><h2>DeepSeek Harness</h2><p>OpenAI Chat Completions</p></div>
             </div>
-            <div class="agent-detail"><span>方式</span><b>自定义提供方</b></div>
-            <div class="agent-detail"><span>配置</span><code>~/.dsh/profiles/desktop/cordis.patch.yml</code></div>
-            <p class="agent-note">写入 lane 提供方并带上模型清单，其余提供方与设置保持不变。</p>
+            <div class="agent-detail"><span>接入方式</span><b>自定义提供方</b></div>
+            <div class="agent-detail"><span>网关</span><code id="dsh-address">127.0.0.1:3426</code></div>
+            <p class="agent-note">写入 lane 提供方并带上模型清单，其余提供方与设置保持不变。<code class="agent-path" id="dsh-path"></code></p>
             <div class="card-actions"><button class="primary" id="dsh-connect">接入 DSH</button><button class="ghost" id="dsh-disconnect">断开</button></div>
           </article>
         </div>
@@ -365,7 +365,7 @@
 
         <div class="usage-grid tables">
           <article class="panel usage-table-panel">
-            <div class="panel-head"><div><span class="overline">按模型</span><h3>模型消耗构成</h3></div></div>
+            <div class="panel-head"><div><span class="overline">按模型</span><h3>模型消耗构成</h3></div><span class="soft-label">每行 ✕ 删除该区间记录</span></div>
             <div class="usage-table" id="usage-models"><div class="empty">所选区间内还没有请求。</div></div>
           </article>
 

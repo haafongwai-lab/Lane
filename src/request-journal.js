@@ -510,6 +510,28 @@ export class RequestJournal {
   }
 
   /**
+   * Removes one model's rows inside a time window. The models table is a
+   * per-range aggregate, so deleting from it drops exactly the rows the
+   * summary counted for that range; older rows of the same model stay put for
+   * the wider ranges. `removeByIds` spares running rows and turns the removal
+   * into a compaction, so a deletion cannot erase a live request or leave a
+   * stale line in the log.
+   */
+  removeByModel(model, { since = 0, until = Number.POSITIVE_INFINITY } = {}) {
+    const wanted = String(model ?? "");
+    if (!wanted) return 0;
+    const ids = this.requests
+      .filter((request) =>
+        String(request.model || "unknown") === wanted &&
+        Number.isFinite(request.startedAt) &&
+        request.startedAt >= since &&
+        request.startedAt < until
+      )
+      .map((request) => request.id);
+    return ids.length ? this.removeByIds(ids) : 0;
+  }
+
+  /**
    * How many rows a clear would drop. The status snapshot carries this so
    * the UI's button reflects the whole journal - the recent list only holds
    * the newest rows, and a busy day fills it entirely with today's traffic,

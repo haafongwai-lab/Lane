@@ -459,6 +459,11 @@ async function controlRoute(req, res, url, control) {
       json(res, 200, { removed });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/lane/activity/clear-model") {
+      const body = await readJSONBody(req);
+      json(res, 200, await control.clearModel(String(body?.model || ""), String(body?.range || "today")));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/lane/usage") {
       const range = url.searchParams.get("range") || "today";
       json(res, 200, await control.usage(range));

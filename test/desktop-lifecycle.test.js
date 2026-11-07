@@ -48,7 +48,7 @@ test("every control-center shared-guard write has a matching forward route", () 
   const guarded = [...cc.matchAll(/if \(journal\.shared\) throw new Error/g)].length;
   assert.ok(guarded >= 10, "the shared guards still exist");
   const forwarded = [...MAIN.matchAll(/controlWrite\("(\/lane\/[^"]+)"/g)].map((m) => m[1]);
-  assert.equal(forwarded.length, 10, "one forward per refused write");
+  assert.equal(forwarded.length, guarded, "one forward per refused write");
   for (const route of forwarded) {
     const literal = route.split("/").pop();
     assert.ok(SERVER.includes(`url.pathname === "${route}"`), `no owner route for ${route}`);

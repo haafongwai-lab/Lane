@@ -390,6 +390,13 @@ ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
     removed: control.clearHistory(wanted)
   }));
 });
+ipcMain.handle("lane:clear-model", async (_event, { model, range } = {}) => {
+  await startGateway();
+  const wanted = String(model || "");
+  const key = String(range || "today");
+  return controlWrite("/lane/activity/clear-model", { model: wanted, range: key },
+    () => control.clearModel(wanted, key));
+});
 ipcMain.handle("lane:mcp", async (_event, { server } = {}) => {
   await startGateway();
   if (server) return controlWrite("/lane/mcp", server, () => control.mcpUpsert(server));

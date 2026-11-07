@@ -8,6 +8,7 @@ let signInListener = null;
 contextBridge.exposeInMainWorld("lane", {
   status: () => ipcRenderer.invoke("lane:status"),
   clearHistory: (ids) => ipcRenderer.invoke("lane:clear-history", { ids }),
+  clearModel: (model, range) => ipcRenderer.invoke("lane:clear-model", { model, range }),
   command: (command, options = {}) => ipcRenderer.invoke("lane:command", { command, ...options }),
   signIn: (options) => ipcRenderer.invoke("lane:signin", options),
   account: (action, id, options = {}) => ipcRenderer.invoke("lane:account", { action, id, ...options }),

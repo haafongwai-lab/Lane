@@ -230,6 +230,22 @@ function render() {
   $("#health-address").textContent = address;
   $("#codex-address").textContent = `${address}/v1`;
   $("#claude-address").textContent = address;
+  $("#zcode-address").textContent = address;
+  $("#dsh-address").textContent = address;
+  // The cards name the config file Lane actually writes, read from the status
+  // snapshot. A hard-coded path was wrong as soon as CODEX_HOME / ZCODE_HOME
+  // / DSH_HOME pointed somewhere else, and a hard-coded model name went
+  // stale the moment the account's catalogue changed.
+  const setAgentPath = (id, value) => {
+    const node = $(`#${id}`);
+    if (!node) return;
+    node.textContent = value || "未检测到配置文件";
+    node.title = value || "";
+  };
+  setAgentPath("codex-path", agents?.codex?.configPath);
+  setAgentPath("claude-path", agents?.claudeDesktop?.modeConfig);
+  setAgentPath("zcode-path", agents?.zcode?.configPath);
+  setAgentPath("dsh-path", agents?.dsh?.configPath);
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
   $("#log-name").textContent = snapshot.ownsGateway === false ? "lane.log" : "desktop.log";
@@ -810,7 +826,7 @@ function renderUsageModels(models, totals) {
     <div class="models-split">
       <div class="model-chart">${modelPieSvg(slices, totals)}</div>
       <div class="model-table">
-        <div class="usage-table-head"><span>模型</span><span>请求</span><span>积分</span></div>
+        <div class="usage-table-head"><span>模型</span><span>请求</span><span>积分</span><span class="usage-row-actions" aria-hidden="true"></span></div>
         ${models.map((row) => {
           const color = colorFor(row.model);
           const badge = rateBadge(row.rate);
@@ -819,11 +835,13 @@ function renderUsageModels(models, totals) {
             <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code class="${badge.tone}">${esc(badge.text)}</code></div>
             <span>${row.requests}</span>
             <span class="usage-cost">${credits(row.credits)}${row.credits > 0 ? ` <i class="soft-label">¥${rmb(row.credits)}</i>` : ""}</span>
+            <button type="button" class="model-delete" data-model-delete="${esc(row.model)}" title="删除「${esc(row.model)}」在当前区间的记录" aria-label="删除 ${esc(row.model)} 的使用记录">✕</button>
           </div>`;
         }).join("")}
         <div class="usage-table-foot">
           <span>合计</span><span>${totals.requests}</span>
           <span>${credits(totals.credits)}${totals.credits > 0 ? `（¥${rmb(totals.credits)}）` : ""}</span>
+          <span></span>
         </div>
       </div>
     </div>`;
@@ -999,6 +1017,40 @@ $("#clear-selected").addEventListener("click", async () => {
     toast(error.message || "删除失败", true);
   } finally {
     button.disabled = false;
+  }
+  await refresh();
+  await loadUsage();
+});
+
+// One model's row in the aggregate table: delete the records that fed it.
+// The table is a per-range aggregate, so only that range's rows go — a wider
+// range still tells its own story. The backend spares requests still running.
+let modelDeleteBusy = false;
+$("#usage-models").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-model-delete]");
+  if (!button || modelDeleteBusy) return;
+  const model = button.getAttribute("data-model-delete");
+  const row = (usage?.models || []).find((item) => item.model === model);
+  const count = row?.requests || 0;
+  if (!count) {
+    toast("该模型在当前区间没有可删除的记录", true);
+    return;
+  }
+  // Send the range the table on screen was drawn with, not whichever button
+  // was clicked most recently: a load can still be in flight.
+  const range = usage?.range || usageRange;
+  const label = (usage?.ranges || []).find((item) => item.key === range)?.label || "当前区间";
+  if (!confirm(`删除「${model}」在${label}内的 ${count} 条使用记录？\n其它区间的记录会保留，此操作不可恢复。`)) return;
+  modelDeleteBusy = true;
+  button.disabled = true;
+  try {
+    const result = await window.lane.clearModel(model, range);
+    const removed = result?.removed ?? 0;
+    toast(removed ? `已删除「${model}」的 ${removed} 条记录` : "没有删除记录：请求可能仍在进行中", !removed);
+  } catch (error) {
+    toast(error.message || "删除失败", true);
+  } finally {
+    modelDeleteBusy = false;
   }
   await refresh();
   await loadUsage();

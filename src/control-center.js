@@ -12,7 +12,7 @@ import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./a
 import { connectDsh, disconnectDsh, dshStatus, dshPatchPath } from "./agents/dsh.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
-import { summary as usageSummary, RANGES, billedRates } from "./usage.js";
+import { summary as usageSummary, RANGES, billedRates, rangeStart, rangeEnd } from "./usage.js";
 import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
 import * as skills from "./skills.js";
@@ -478,6 +478,19 @@ export function createControlCenter({
     clearHistory(ids = null) {
       if (journal.shared) throw new Error("只读窗口不能清除历史记录");
       return Array.isArray(ids) ? journal.removeByIds(ids) : journal.clearBeforeToday();
+    },
+
+    // The models table is an aggregate over the selected range, so deleting
+    // one row deletes that model's rows from that range only. The range key
+    // is validated against the same list `usage` uses, so an unknown value
+    // cannot widen the deletion to the whole journal.
+    clearModel(model, range = "today") {
+      if (journal.shared) throw new Error("只读窗口不能清除历史记录");
+      const wanted = String(model || "").trim();
+      const key = RANGES.some((item) => item.key === range) ? range : "today";
+      if (!wanted) return { removed: 0, model: wanted, range: key };
+      const removed = journal.removeByModel(wanted, { since: rangeStart(key), until: rangeEnd() });
+      return { removed, model: wanted, range: key };
     },
 
     // ---- MCP & skills -------------------------------------------------------
