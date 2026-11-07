@@ -1,8 +1,6 @@
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-
-const require = createRequire(import.meta.url);
-const PACKAGE = "@magpie-community/opencode-workbuddy-auth";
+// The plugin is vendored under vendor/ and imported by path, so Lane needs
+// neither the npm registry nor an installed copy to prepare a request.
+const PLUGIN_URL = new URL("../vendor/workbuddy-auth/index.mjs", import.meta.url);
 
 let internals = null;
 
@@ -20,7 +18,7 @@ let internals = null;
  */
 async function loadInternals() {
   if (internals) return internals;
-  const entry = await import(pathToFileURL(require.resolve(PACKAGE)).href);
+  const entry = await import(PLUGIN_URL.href);
   internals = entry?._internal || {};
   return internals;
 }

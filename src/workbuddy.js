@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 import {
   loadAccounts,
   upsertAccount,
@@ -16,8 +14,10 @@ import { prepareChat, restoreToolNames } from "./sanitize.js";
 import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
 
-const require = createRequire(import.meta.url);
-const PACKAGE = "@magpie-community/opencode-workbuddy-auth";
+// The plugin is vendored under vendor/ so a fresh clone builds and runs with
+// no registry access. A .mjs file is always ESM, so resolution goes straight
+// to the file and does not depend on node_modules or a package name.
+const PLUGIN_URL = new URL("../vendor/workbuddy-auth/index.mjs", import.meta.url);
 
 // The plugin's models hook fetches /v3/config live on every call. Lane asks
 // it from the model routes, the journal's rate lookup and the desktop
@@ -520,10 +520,10 @@ const SITE_EXPORTS = {
 async function loadFactory(site = "workbuddy") {
   let entry;
   try {
-    entry = await import(pathToFileURL(require.resolve(PACKAGE)).href);
+    entry = await import(PLUGIN_URL.href);
   } catch (error) {
     throw new Error(
-      `WorkBuddy plugin is not installed. Run npm install. (${error.message})`
+      `WorkBuddy plugin copy is missing or unreadable at vendor/workbuddy-auth/index.mjs. (${error.message})`
     );
   }
   const key = normalizeSite(site);

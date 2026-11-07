@@ -287,11 +287,14 @@ indistinguishable from ordinary failures.
 
 ## WorkBuddy plugin
 
-The WorkBuddy adapter uses
-`@magpie-community/opencode-workbuddy-auth`. The plugin is MIT licensed.
-Its package is kept as a dependency so WorkBuddy-specific sign-in, refresh,
-model discovery, headers, and request fixes stay in one maintained place.
+The WorkBuddy adapter uses a vendored copy of
+`@magpie-community/opencode-workbuddy-auth` `0.2.17` (MIT), kept at
+`vendor/workbuddy-auth/`. WorkBuddy-specific sign-in, refresh, model
+discovery, headers, and request fixes live in that one file; Lane imports it
+directly by path from `src/workbuddy.js` and `src/sanitize.js`.
 
-The plugin is not copied into this repository. If it is missing, Lane still
-reports the missing dependency clearly; `npm install` restores it.
-See `THIRD_PARTY_NOTICES.md`.
+The copy is byte-identical to the published package, so a fresh clone builds
+and runs without the npm registry. The original tarball and its integrity are
+archived in `vendor/originals/`, the upstream MIT license is at
+`vendor/workbuddy-auth/LICENSE`, and any local changes are recorded in
+`vendor/workbuddy-auth/NOTICE.md`. See `THIRD_PARTY_NOTICES.md`.

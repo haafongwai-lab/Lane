@@ -22,9 +22,6 @@
     "icons": "python desktop/make-icons.py",
     "build": "npm run icons && electron-builder --win --x64"
   },
-  "dependencies": {
-    "@magpie-community/opencode-workbuddy-auth": "0.2.17"
-  },
   "devDependencies": {
     "electron": "^45.2.3",
     "electron-builder": "26.15.3"
@@ -37,7 +34,8 @@
       "desktop/**/*",
       "!desktop/**/.mimosa/**",
       "src/**/*",
-      "node_modules/@magpie-community/opencode-workbuddy-auth/**/*",
+      "vendor/**/*",
+      "!vendor/originals/**",
       "package.json"
     ],
     "directories": {

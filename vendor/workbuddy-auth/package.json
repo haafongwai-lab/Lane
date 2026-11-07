@@ -1,0 +1,16 @@
+{
+  "name": "@lane/workbuddy-auth",
+  "version": "0.2.17-lane.1",
+  "private": true,
+  "description": "Vendored copy of @magpie-community/opencode-workbuddy-auth 0.2.17 (MIT). Lane imports this file directly so a fresh clone never needs the npm registry.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": "./index.mjs",
+  "license": "MIT",
+  "files": [
+    "index.mjs",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ]
+}
