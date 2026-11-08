@@ -22,6 +22,7 @@ import { withAliases, resolveModel, nearestEffort, isLaneAlias } from "./aliases
 import { projectOf } from "./project.js";
 import { proxyChat, proxyProtocol, projectFields } from "./relay.js";
 import { redactForLog } from "./redact.js";
+import { isLoopbackHost } from "./config.js";
 
 const require = createRequire(import.meta.url);
 
@@ -50,10 +51,17 @@ function localHosts(req) {
   // a name other than the loopback keeps working; an IPv4-mapped IPv6
   // address (::ffff:127.0.0.1) stands for the IPv4 address it maps.
   const local = String(req.socket.localAddress || "").replace(/^::ffff:/i, "");
+  const loopback = isLoopbackHost(local);
   const locals = local
     ? (local.includes(":") ? [`${local}:${port}`, `[${local}]:${port}`] : [`${local}:${port}`])
     : [];
-  return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...locals];
+  // Loopback aliases are only valid when the connection itself arrived on a
+  // loopback address. If someone binds 0.0.0.0, a remote client must not be
+  // able to paper over its address with `Host: localhost`.
+  const names = loopback
+    ? [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...locals]
+    : locals;
+  return [...new Set(names)];
 }
 
 function hostIsLocal(req) {
@@ -154,6 +162,10 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           errorJSON(res, 400, "messages must be an array");
           return;
         }
+        if (Array.isArray(body.tools) && body.tools.some((tool) => !tool || typeof tool !== "object")) {
+          errorJSON(res, 400, "each tool must be an object");
+          return;
+        }
         const requested = body.model;
         body.model = await mappedModel(provider, requested, "openai");
         // A client that sends a request Lane cannot satisfy in one piece
@@ -204,6 +216,10 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         }
         if (typeof body.input !== "string" && !Array.isArray(body.input)) {
           errorJSON(res, 400, "input must be a string or an array");
+          return;
+        }
+        if (Array.isArray(body.tools) && body.tools.some((tool) => !tool || typeof tool !== "object")) {
+          errorJSON(res, 400, "each tool must be an object");
           return;
         }
         body.model = await mappedModel(provider, requested, "codex");
@@ -261,6 +277,10 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         // must at least be an object for the protocol to make sense of it.
         if (body.messages.some((message) => !message || typeof message !== "object")) {
           errorJSON(res, 400, "each message must be an object");
+          return;
+        }
+        if (Array.isArray(body.tools) && body.tools.some((tool) => !tool || typeof tool !== "object")) {
+          errorJSON(res, 400, "each tool must be an object");
           return;
         }
         const models = withAliases(await provider.listModels(), "claude");
@@ -596,16 +616,20 @@ async function controlRoute(req, res, url, control) {
     }
     if (req.method === "POST" && url.pathname === "/lane/autostart") {
       const body = await readJSONBody(req);
-      if (body.options?.desktopExe) {
+      // Startup options (node/script/desktopExe/env) are desktop-only: they
+      // choose which executable runs at logon. The HTTP API is deliberately
+      // limited to the on/off bit; an empty object is accepted for old callers.
+      const options = body?.options;
+      if (options && (typeof options !== "object" || Array.isArray(options) || Object.keys(options).length)) {
         errorJSON(
           res,
           400,
-          "set autostart from the Lane desktop app, not the HTTP API",
+          "autostart options are set from the Lane desktop app, not the HTTP API",
           "invalid_request_error"
         );
         return;
       }
-      json(res, 200, await control.autostart(Boolean(body.enabled), body.options || {}));
+      json(res, 200, await control.autostart(Boolean(body.enabled)));
       return;
     }
     errorJSON(res, 404, "unknown control route", "not_found");

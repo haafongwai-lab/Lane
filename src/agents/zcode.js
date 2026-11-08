@@ -79,10 +79,23 @@ export async function connectZcode({
   if (!models.length) models = FALLBACK_MODELS;
   const ids = models.map((model) => model.id);
 
-  // The document is ZCode's own; only the paths below are Lane's.
+  // The document is ZCode's own; only the paths below are Lane's. `config`
+  // and its rule bag are part of that document, so a hand-edited null/array
+  // must be rejected before assignment instead of producing a false success.
   document.schemaVersion = document.schemaVersion ?? 1;
-  const config = (document.config ??= {});
-  const rules = (config.providerConfigRules ??= {});
+  const config = document.config ?? {};
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error(`ZCode provider config must have an object "config" (${paths.config})`);
+  }
+  document.config = config;
+  const rules = config.providerConfigRules ?? {};
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) {
+    throw new Error(`ZCode providerConfigRules must be an object (${paths.config})`);
+  }
+  config.providerConfigRules = rules;
+  if (rules.providerRules != null && !Array.isArray(rules.providerRules)) {
+    throw new Error(`ZCode providerRules must be an array (${paths.config})`);
+  }
   const list = (rules.providerRules ??= []);
   const rule = {
     providerId: PROVIDER_ID,

@@ -229,7 +229,9 @@ export async function relayChat(res, upstream, body, options = {}) {
   // those — a stream made only of them answered nothing, and used to be
   // reported as a success with an empty message.
   const usableEvent = (event) => {
-    if (event?.usage) return true;
+    // A usage-only ping is bookkeeping, not an answer. Counting it as usable
+    // made an upstream that sent only `{usage}` look like a successful empty
+    // completion; usage still rides along when a real event carries it.
     const choice = Array.isArray(event?.choices) ? event.choices[0] : null;
     if (!choice) return false;
     const delta = choice.delta || {};

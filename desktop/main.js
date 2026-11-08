@@ -9,13 +9,33 @@ import { WorkBuddyProvider } from "../src/workbuddy.js";
 import { dataDir } from "../src/config.js";
 import { claimOwnership, releaseOwnership } from "../src/owner.js";
 import { readSettings, writeSettings, writeSetting } from "../src/settings.js";
-import { readState } from "../src/agents/store.js";
+import { readState, restrictToOwner } from "../src/agents/store.js";
 import { openableUrl } from "./openable.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
 const startHidden = process.argv.includes("--hidden");
 const DESKTOP_DIR = path.dirname(fileURLToPath(import.meta.url));
+const RENDERER_FILE = path.resolve(DESKTOP_DIR, "index.html");
+
+function isTrustedRenderer(event) {
+  const value = event?.senderFrame?.url || event?.sender?.getURL?.() || "";
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "file:" && path.resolve(fileURLToPath(parsed)) === RENDERER_FILE;
+  } catch {
+    return false;
+  }
+}
+
+// Every IPC handler is registered through this wrapper: a page that manages
+// to navigate the BrowserWindow must not inherit the preload bridge.
+function handleIpc(channel, listener) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedRenderer(event)) throw new Error("IPC request from an untrusted renderer");
+    return listener(event, ...args);
+  });
+}
 
 // The port is a setting: read before the gateway starts, written by the
 // settings page. Cached here because every fetch in this file addresses it.
@@ -109,7 +129,9 @@ async function startGateway() {
     const provider = await new WorkBuddyProvider().init();
     await fs.mkdir(dataDir(), { recursive: true });
     if (!logStream) {
-      logStream = await fs.open(path.join(dataDir(), "desktop.log"), "a");
+      const logFile = path.join(dataDir(), "desktop.log");
+      logStream = await fs.open(logFile, "a", 0o600);
+      await restrictToOwner(logFile).catch(() => {});
     }
     if (!consolePatched) {
       // Patched once: a retry after a failed start used to wrap console
@@ -285,10 +307,31 @@ function createWindow() {
     webPreferences: {
       preload: path.join(DESKTOP_DIR, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
   Menu.setApplicationMenu(null);
+  const sameRenderer = (value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "file:" && path.resolve(fileURLToPath(parsed)) === RENDERER_FILE;
+    } catch {
+      return false;
+    }
+  };
+  // The app never needs to navigate away from its own file. If a future link,
+  // redirect or injected page tries, close the hole before it can inherit the
+  // preload IPC bridge. External URLs use the same allowlist as window.open.
+  const blockNavigation = (event, url) => {
+    if (sameRenderer(url)) return;
+    event.preventDefault();
+    const allowed = openableUrl(url);
+    if (allowed) shell.openExternal(allowed);
+  };
+  window.webContents.on("will-navigate", blockNavigation);
+  window.webContents.on("will-redirect", blockNavigation);
+  window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.loadFile(path.join(DESKTOP_DIR, "index.html"));
   window.on("close", (event) => {
     if (!quitting) {
@@ -347,7 +390,7 @@ function createTray() {
   }
 }
 
-ipcMain.handle("lane:status", async () => {
+handleIpc("lane:status", async () => {
   // A start that failed (port taken, data directory owned elsewhere) must
   // not reject the poll: the renderer swallows quiet errors, and the window
   // would sit on a stale "运行中" forever. fetchExternalStatus answers with
@@ -376,11 +419,11 @@ ipcMain.handle("lane:status", async () => {
   }
   return { ...await fetchExternalStatus(), version: app.getVersion() };
 });
-ipcMain.handle("lane:usage", async (_event, { range } = {}) => {
+handleIpc("lane:usage", async (_event, { range } = {}) => {
   await startGateway();
   return control.usage(range || "today");
 });
-ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
+handleIpc("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   const wanted = Array.isArray(ids) ? ids : null;
   // { removed } rather than the bare number: the renderer reads
@@ -390,55 +433,55 @@ ipcMain.handle("lane:clear-history", async (_event, { ids } = {}) => {
     removed: control.clearHistory(wanted)
   }));
 });
-ipcMain.handle("lane:clear-model", async (_event, { model, range } = {}) => {
+handleIpc("lane:clear-model", async (_event, { model, range } = {}) => {
   await startGateway();
   const wanted = String(model || "");
   const key = String(range || "today");
   return controlWrite("/lane/activity/clear-model", { model: wanted, range: key },
     () => control.clearModel(wanted, key));
 });
-ipcMain.handle("lane:mcp", async (_event, { server } = {}) => {
+handleIpc("lane:mcp", async (_event, { server } = {}) => {
   await startGateway();
   if (server) return controlWrite("/lane/mcp", server, () => control.mcpUpsert(server));
   return { servers: await control.mcpServers(), targets: await control.mcpTargets() };
 });
-ipcMain.handle("lane:mcp-remove", async (_event, { name } = {}) => {
+handleIpc("lane:mcp-remove", async (_event, { name } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   return controlWrite("/lane/mcp/remove", { name: wanted }, () => control.mcpRemove(wanted));
 });
-ipcMain.handle("lane:mcp-toggle", async (_event, { name, off } = {}) => {
+handleIpc("lane:mcp-toggle", async (_event, { name, off } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   const state = Boolean(off);
   return controlWrite("/lane/mcp/toggle", { name: wanted, off: state }, () => control.mcpToggle(wanted, state));
 });
-ipcMain.handle("lane:mcp-agents", async (_event, { name, agents } = {}) => {
+handleIpc("lane:mcp-agents", async (_event, { name, agents } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   const list = Array.isArray(agents) ? agents : [];
   return controlWrite("/lane/mcp/agents", { name: wanted, agents: list }, () => control.mcpSetAgents(wanted, list));
 });
-ipcMain.handle("lane:mcp-test", async (_event, { name } = {}) => {
+handleIpc("lane:mcp-test", async (_event, { name } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   // A live spawn/HTTP handshake can take 30s; the local path has its own
   // timeout, so the forwarded one must not cut it short.
   return controlWrite("/lane/mcp/test", { name: wanted }, () => control.mcpTest(wanted), 40_000);
 });
-ipcMain.handle("lane:skills", async () => {
+handleIpc("lane:skills", async () => {
   await startGateway();
   // The renderer reads result.skills, and the HTTP route /lane/skills wraps
   // the same list the same way. Returning the bare array here made a skill
   // that imported successfully still render as an empty library.
   return { skills: await control.skillsList() };
 });
-ipcMain.handle("lane:skills-import", async (_event, { dir } = {}) => {
+handleIpc("lane:skills-import", async (_event, { dir } = {}) => {
   await startGateway();
   const wanted = String(dir || "");
   return controlWrite("/lane/skills/import", { dir: wanted }, () => control.skillsImport(wanted));
 });
-ipcMain.handle("lane:skills-pick-folder", async () => {
+handleIpc("lane:skills-pick-folder", async () => {
   const result = await dialog.showOpenDialog(window, {
     properties: ["openDirectory"],
     title: "选择技能文件夹"
@@ -446,24 +489,24 @@ ipcMain.handle("lane:skills-pick-folder", async () => {
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];
 });
-ipcMain.handle("lane:skills-remove", async (_event, { name } = {}) => {
+handleIpc("lane:skills-remove", async (_event, { name } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   return controlWrite("/lane/skills/remove", { name: wanted }, () => control.skillsRemove(wanted));
 });
-ipcMain.handle("lane:skills-install", async (_event, { name, agent } = {}) => {
+handleIpc("lane:skills-install", async (_event, { name, agent } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   const target = String(agent || "");
   return controlWrite("/lane/skills/install", { name: wanted, agent: target }, () => control.skillsInstall(wanted, target));
 });
-ipcMain.handle("lane:skills-uninstall", async (_event, { name, agent } = {}) => {
+handleIpc("lane:skills-uninstall", async (_event, { name, agent } = {}) => {
   await startGateway();
   const wanted = String(name || "");
   const target = String(agent || "");
   return controlWrite("/lane/skills/uninstall", { name: wanted, agent: target }, () => control.skillsUninstall(wanted, target));
 });
-ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
+handleIpc("lane:command", async (_event, { command, agent, enabled }) => {
   await startGateway();
   const targetControl = control;
   if (command === "connect" || command === "disconnect") return targetControl[command](agent);
@@ -477,28 +520,28 @@ ipcMain.handle("lane:command", async (_event, { command, agent, enabled }) => {
   }
   throw new Error(`unknown command: ${command}`);
 });
-ipcMain.handle("lane:signin", async (_event, options) => {
+handleIpc("lane:signin", async (_event, options) => {
   await startGateway();
   return control.signIn({ site: options?.site });
 });
 // Account actions run against whichever Lane owns the gateway, so the list
 // stays the same whether this window started it or joined one.
-ipcMain.handle("lane:account", async (_event, { action, id, enabled }) => {
+handleIpc("lane:account", async (_event, { action, id, enabled }) => {
   await startGateway();
   if (action === "activate") return control.activate(id);
   if (action === "enabled") return control.setEnabled(id, Boolean(enabled));
   if (action === "remove") return control.removeAccount(id);
   throw new Error(`unknown account action: ${action}`);
 });
-ipcMain.handle("lane:checkin", async (_event, { id }) => {
+handleIpc("lane:checkin", async (_event, { id }) => {
   await startGateway();
   return control.checkin(id || "");
 });
-ipcMain.handle("lane:checkin-settings", async (_event, patch) => {
+handleIpc("lane:checkin-settings", async (_event, patch) => {
   await startGateway();
   return control.checkinSettings(patch || {});
 });
-ipcMain.handle("lane:gateway-settings", async () => {
+handleIpc("lane:gateway-settings", async () => {
   await startGateway();
   const settings = await readSettings();
   return { ...settings, portInUse: PORT, host: HOST };
@@ -521,12 +564,12 @@ async function autostartOn() {
 
 // The privacy switch is its own call: flipping it must not go through the
 // port validation, and it takes effect on the next request without a restart.
-ipcMain.handle("lane:hide-dsh", async (_event, { hideDsh } = {}) => {
+handleIpc("lane:hide-dsh", async (_event, { hideDsh } = {}) => {
   await startGateway();
   const next = await writeSetting({ hideDsh: Boolean(hideDsh) });
   return { hideDsh: next.hideDsh !== false };
 });
-ipcMain.handle("lane:redact-settings", async (_event, patch = {}) => {
+handleIpc("lane:redact-settings", async (_event, patch = {}) => {
   await startGateway();
   await writeSetting(patch);
   const saved = await readSettings();
@@ -539,7 +582,7 @@ ipcMain.handle("lane:redact-settings", async (_event, patch = {}) => {
   };
 });
 
-ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
+handleIpc("lane:save-gateway-settings", async (_event, patch) => {
   await startGateway();
   const port = Number(patch?.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -621,14 +664,14 @@ ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
 // The page owns the theme preference (localStorage, read before first paint);
 // the main process only mirrors it so Windows' title bar, menus and native
 // scrollbars follow the same side. "system" keeps nativeTheme on the OS.
-ipcMain.handle("lane:set-theme", async (_event, { mode } = {}) => {
+handleIpc("lane:set-theme", async (_event, { mode } = {}) => {
   const next = ["light", "dark", "system"].includes(mode) ? mode : "system";
   nativeTheme.themeSource = next;
   const dark = nativeTheme.shouldUseDarkColors;
   if (window) window.setBackgroundColor(dark ? "#141512" : "#f4f3ef");
   return { mode: next, dark };
 });
-ipcMain.handle("lane:open", async (_event, target) => {
+handleIpc("lane:open", async (_event, target) => {
   if (target === "data") return shell.openPath(dataDir());
   if (target === "log") {
     // The owner writes desktop.log; a node runner writes lane.log. Either
@@ -643,11 +686,11 @@ ipcMain.handle("lane:open", async (_event, target) => {
 // The only pages Lane itself ever opens are WorkBuddy's sign-in hosts; the
 // allowlist and its reasoning live in openable.js, where they can be tested
 // without an Electron runtime.
-ipcMain.handle("lane:open-url", async (_event, url) => {
+handleIpc("lane:open-url", async (_event, url) => {
   const allowed = openableUrl(url);
   if (allowed) await shell.openExternal(allowed);
 });
-ipcMain.handle("lane:test", async () => {
+handleIpc("lane:test", async () => {
   await startGateway();
   // The smoke run clicks #test-route to exercise the renderer, not to spend a
   // live request on the user's account. A real /v1/responses here bills the
@@ -683,7 +726,7 @@ ipcMain.handle("lane:test", async () => {
     return { ok: false, status: 0, elapsed: Date.now() - started, text: error.message };
   }
 });
-ipcMain.handle("lane:view", async (_event, view) => {
+handleIpc("lane:view", async (_event, view) => {
   if (isSmokeTest && /^[a-z]+$/.test(view)) {
     await window.webContents.executeJavaScript(
       `document.querySelector('.nav[data-view="${view}"]')?.click()`
@@ -691,7 +734,7 @@ ipcMain.handle("lane:view", async (_event, view) => {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 });
-ipcMain.handle("lane:quit", async () => {
+handleIpc("lane:quit", async () => {
   quitting = true;
   // A locked file during shutdown must not leave a windowless process
   // behind; the quit proceeds either way.

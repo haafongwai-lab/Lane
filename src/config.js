@@ -4,6 +4,28 @@ import { localAppData } from "./winenv.js";
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 3426;
 
+/**
+ * Lane is a loopback-only gateway: the control API has no separate auth
+ * token, so binding it to a LAN interface would expose account and MCP
+ * operations to the network. Keep the check here so every caller of the
+ * address parser gets the same answer.
+ */
+export function isLoopbackHost(value) {
+  const host = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return false;
+  if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  if (/^::ffff:127(?:\.\d{1,3}){3}$/.test(host)) return true;
+  if (!/^127(?:\.\d{1,3}){3}$/.test(host)) return false;
+  return host.split(".").slice(1).every((part) => Number(part) <= 255);
+}
+
+export function assertLoopbackHost(host, label = "address") {
+  if (!isLoopbackHost(host)) {
+    throw new Error(`Lane only binds loopback (${label}); use 127.0.0.1 or ::1`);
+  }
+  return host;
+}
+
 export function dataDir(env = process.env) {
   if (env.LANE_DATA_DIR) return path.resolve(env.LANE_DATA_DIR);
   return path.join(localAppData(env), "lane");
@@ -23,5 +45,7 @@ export function parseAddress(value) {
 }
 
 export function gatewayBase(host = DEFAULT_HOST, port = DEFAULT_PORT) {
-  return `http://${host}:${port}`;
+  const value = String(host);
+  const bracketed = value.includes(":") && !value.startsWith("[") ? `[${value}]` : value;
+  return `http://${bracketed}:${port}`;
 }

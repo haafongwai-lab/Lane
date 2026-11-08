@@ -131,8 +131,8 @@ test("an owned window still writes locally", async () => {
 // ---------------------------------------------------------------------------
 
 test("a failed client rewrite is reported, not swallowed", () => {
-  const from = MAIN.indexOf('ipcMain.handle("lane:save-gateway-settings"');
-  const to = MAIN.indexOf('ipcMain.handle("lane:open"', from);
+  const from = MAIN.indexOf('handleIpc("lane:save-gateway-settings"');
+  const to = MAIN.indexOf('handleIpc("lane:open"', from);
   const handler = MAIN.slice(from, to);
   assert.match(handler, /failures\.push\(\{ agent, message:/);
   assert.match(handler, /autostartError = error\?\.message/);
@@ -153,8 +153,8 @@ test("smoke mode mounts no check-in scheduler and sends no billable request", ()
   assert.match(MAIN, /checkins: !isSmokeTest/);
   assert.match(MAIN, /checkins: false,\s*shared: true/, "a follower never claims check-ins");
   const testHandler = MAIN.slice(
-    MAIN.indexOf('ipcMain.handle("lane:test"'),
-    MAIN.indexOf('ipcMain.handle("lane:view"')
+    MAIN.indexOf('handleIpc("lane:test"'),
+    MAIN.indexOf('handleIpc("lane:view"')
   );
   assert.match(testHandler, /if \(isSmokeTest\)/);
   assert.match(testHandler, /upstream skipped/);

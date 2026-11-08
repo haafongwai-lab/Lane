@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { readAuth } from "../src/auth-store.js";
 import {
   loadAccounts,
   readAccounts,
@@ -106,7 +107,7 @@ test("removing the active account moves the route and clears the mirror", async 
   assert.equal(result.removed, true);
   assert.equal(result.activeId, "uid-2");
 
-  const legacy = JSON.parse(await fs.readFile(path.join(dir, "workbuddy-auth.json"), "utf8"));
+  const legacy = await readAuth(env);
   assert.equal(legacy.uid, "uid-2", "the mirror follows the active account");
 });
 
@@ -230,8 +231,8 @@ test("a corrupted accounts.json is kept aside, not silently replaced", async () 
     assert.equal(state.accounts.length, 1);
     assert.equal(state.accounts[0].id, "uid-2");
     const kept = await fs.readFile(path.join(dir, "accounts.json.corrupt"), "utf8");
-    assert.ok(kept.includes("uid-1"), "the other account survives in the backup");
-    assert.ok(kept.includes("uid-2"));
+    assert.ok(kept.length > 0, "the broken bytes are preserved for recovery");
+    assert.ok(kept.startsWith("dpapi:") || kept.includes("uid-1"), "the backup keeps the encrypted account payload");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

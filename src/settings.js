@@ -40,6 +40,7 @@ export async function readSettings(env = process.env) {
   } catch (error) {
     if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
   }
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) stored = {};
   // A saved port wins; an env override wins over both, as it always has.
   // Both are normalized here so an out-of-range value never travels all the
   // way to listen() before failing — and "saved" means a valid port was
@@ -114,6 +115,7 @@ async function mergeSettings(patch, env) {
   } catch (error) {
     if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
   }
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) stored = {};
   delete stored.source;
   return { ...stored, ...patch };
 }

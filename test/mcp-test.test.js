@@ -160,6 +160,31 @@ test("a non-Windows ENOENT does not retry through a shell", async () => {
   }
 });
 
+test("a non-shim ENOENT never falls back to a shell", async () => {
+  const calls = [];
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+  try {
+    const result = await testMcpServer(
+      { name: "x", transport: "stdio", command: "C:\\does-not-exist & calc.exe", args: [] },
+      {
+        timeoutMs: 5000,
+        spawnImpl: (_command, _args, opts) => {
+          calls.push(opts.shell === true);
+          const failing = fakeChild([]);
+          queueMicrotask(() => failing.emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" })));
+          return failing;
+        }
+      }
+    );
+    assert.equal(result.ok, false);
+    assert.deepEqual(calls, [false], "no shell retry for an arbitrary command");
+    assert.match(result.error, /ENOENT/);
+  } finally {
+    Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+  }
+});
+
 // ---- remote (streamable HTTP) servers ----
 
 function httpResponse(body, { status = 200, sessionId = "" } = {}) {

@@ -59,7 +59,7 @@ export function responsesToChat(body) {
   if (body.reasoning?.effort) out.reasoning_effort = body.reasoning.effort;
   if (Array.isArray(body.tools) && body.tools.length) {
     out.tools = body.tools
-      .filter((tool) => tool.type === "function" && tool.name)
+      .filter((tool) => tool && typeof tool === "object" && tool.type === "function" && tool.name)
       .map((tool) => ({
         type: "function",
         function: {

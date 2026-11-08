@@ -308,7 +308,7 @@ export class RequestJournal {
       fs.writeFileSync(
         this.file,
         `${deduped.map((row) => `${JSON.stringify(row)}\n`).join("")}`,
-        "utf8"
+        { encoding: "utf8", mode: 0o600 }
       );
       this.migratedStamp = stamp;
       writeStamp(this.stampFile, stamp);
@@ -794,7 +794,7 @@ export class RequestJournal {
       const separator = await this.endsWithoutNewline() ? "\n" : "";
       // `a` is the whole point: one syscall, no rewrite of what is already
       // there, and the previous content survives a crash mid-append.
-      await fsp.appendFile(this.file, `${separator}${body}`, "utf8");
+      await fsp.appendFile(this.file, `${separator}${body}`, { encoding: "utf8", mode: 0o600 });
       this.appends += rows.length;
       // Solved is solved: a failure after a successful write must be
       // reported again, not swallowed by the last outage's flag.

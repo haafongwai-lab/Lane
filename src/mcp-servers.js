@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
-import { writeJSON } from "./agents/store.js";
+import { restrictToOwner, writeJSON } from "./agents/store.js";
 
 /**
  * The registry of MCP servers the user manages once and Lane deploys into
@@ -79,6 +79,7 @@ async function writeServers(rows, env) {
   const target = file(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   await writeJSON(target, rows);
+  await restrictToOwner(target).catch(() => {});
 }
 
 export async function upsertServer(raw, env = process.env) {

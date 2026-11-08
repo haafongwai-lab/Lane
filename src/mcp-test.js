@@ -1,4 +1,15 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
+
+const WINDOWS_SHELL_SHIMS = new Set(["npx", "npm", "pnpm", "yarn", "bun"]);
+
+function isWindowsShim(command) {
+  return WINDOWS_SHELL_SHIMS.has(path.basename(String(command || "")).toLowerCase().replace(/\.cmd$/i, ""));
+}
+
+function shellSafeArgs(args) {
+  return (args || []).every((arg) => !/[&|<>^%!\r\n]/.test(String(arg)));
+}
 
 /**
  * A live connection test for a registered stdio MCP server.
@@ -53,8 +64,13 @@ export function testMcpServer(server, { timeoutMs = 30_000, spawnImpl = spawn, f
       let buffer = "";
       let stderrTail = "";
       childProcess.on("error", (error) => {
-        // Windows only, and only once: a .cmd shim (npx) needs the shell.
-        if (process.platform === "win32" && String(error?.code || "") === "ENOENT") {
+        // Windows only, and only for the known package-manager shims: a
+        // `.cmd` file needs cmd.exe, but a plain missing command must stay a
+        // clean failure instead of becoming an arbitrary shell invocation.
+        if (process.platform === "win32"
+          && String(error?.code || "") === "ENOENT"
+          && isWindowsShim(server.command)
+          && shellSafeArgs(args)) {
           phases.push("直接启动失败（.cmd 垫片需经 shell），改经 shell 启动");
           attempt(true);
           return;
@@ -154,7 +170,10 @@ async function testHttpMcpServer(server, { timeoutMs, fetchImpl }) {
       method: "POST",
       headers,
       body: JSON.stringify(message),
-      signal: controller.signal
+      signal: controller.signal,
+      // Do not let a remote MCP endpoint turn a test into a hop to an
+      // unrelated internal URL; the configured endpoint is the only target.
+      redirect: "manual"
     })).finally(() => clearTimeout(timer));
   };
 

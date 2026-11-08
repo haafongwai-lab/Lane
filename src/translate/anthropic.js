@@ -63,7 +63,7 @@ export function anthropicToChat(body) {
   if (body.stop_sequences?.length) out.stop = body.stop_sequences;
   if (Array.isArray(body.tools) && body.tools.length) {
     out.tools = body.tools
-      .filter((tool) => tool.name)
+      .filter((tool) => tool && typeof tool === "object" && tool.name)
       .map((tool) => ({
         type: "function",
         function: {

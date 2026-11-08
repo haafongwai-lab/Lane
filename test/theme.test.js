@@ -69,7 +69,7 @@ test("the renderer switches live, persists and follows the system", () => {
 
 test("the main process mirrors the choice onto native chrome", () => {
   assert.match(MAIN, /nativeTheme\.themeSource = next/);
-  assert.match(MAIN, /ipcMain\.handle\("lane:set-theme"/);
+  assert.match(MAIN, /handleIpc\("lane:set-theme"/);
   assert.match(MAIN, /nativeTheme\.on\("updated"/);
   assert.match(MAIN, /backgroundColor: nativeTheme\.shouldUseDarkColors/);
 });

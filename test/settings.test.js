@@ -115,3 +115,17 @@ test("individual rules, allowlist and custom terms persist", async () => {
     await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
   }
 });
+
+test("a null settings file falls back to defaults instead of crashing", async () => {
+  const env = await envFor();
+  try {
+    await fs.writeFile(path.join(env.LANE_DATA_DIR, "settings.json"), "null");
+    const settings = await readSettings(env);
+    assert.equal(settings.port, 3426);
+    assert.equal(settings.source, "default");
+    await writeSetting({ hideDsh: false }, env);
+    assert.equal((await readSettings(env)).hideDsh, false);
+  } finally {
+    await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
+  }
+});

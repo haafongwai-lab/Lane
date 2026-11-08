@@ -1,4 +1,4 @@
-import { dataDir } from "./config.js";
+import { assertLoopbackHost, dataDir, gatewayBase } from "./config.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
 import { readState } from "./agents/store.js";
 import { codexConfigPath, claudePaths } from "./agents/paths.js";
@@ -31,9 +31,12 @@ export function createControlCenter({
   // follows the owner's file instead of serving the snapshot from start-up.
   shared = false
 } = {}) {
+  // The control center is reachable over the same loopback socket as the
+  // data plane; never let it be constructed for a LAN address by accident.
+  assertLoopbackHost(host);
   const root = dataDir(env);
   const journal = new RequestJournal({ dir: root, shared });
-  const gateway = `http://${host}:${port}`;
+  const gateway = gatewayBase(host, port);
   let provider;
   // Keyed by site: the two builds sign in independently, and a pending
   // domestic sign-in must not answer an overseas request.
@@ -463,8 +466,13 @@ export function createControlCenter({
     },
 
     async autostart(enabled, options = {}) {
-      if (enabled) await installWindowsTask({ env, port, ...options });
-      else await uninstallWindowsTask({ env });
+      if (!enabled) return uninstallWindowsTask({ env });
+      // Even callers inside Lane only get to change the pieces the UI owns;
+      // node/script/env are not part of the public option shape.
+      const safe = {};
+      if (typeof options.desktopExe === "string" && options.desktopExe) safe.desktopExe = options.desktopExe;
+      if (Number.isInteger(options.port) && options.port >= 1 && options.port <= 65535) safe.port = options.port;
+      await installWindowsTask({ env, port, ...safe });
       return { enabled };
     },
 

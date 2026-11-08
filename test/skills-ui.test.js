@@ -45,8 +45,8 @@ function drive(skillsResult) {
 }
 
 test("the desktop IPC handler wraps the skills list like the HTTP route", () => {
-  const from = MAIN.indexOf('ipcMain.handle("lane:skills"');
-  const to = MAIN.indexOf('ipcMain.handle("lane:skills-import"', from);
+  const from = MAIN.indexOf('handleIpc("lane:skills"');
+  const to = MAIN.indexOf('handleIpc("lane:skills-import"', from);
   assert.ok(from >= 0 && to > from, "lane:skills handler is still in main.js");
   const handler = MAIN.slice(from, to);
   assert.match(handler, /return \{\s*skills:\s*await control\.skillsList\(\)\s*\}/);

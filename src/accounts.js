@@ -3,8 +3,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./config.js";
 import { readAuth, writeAuth } from "./auth-store.js";
+import { protectText, unprotectText } from "./secure-auth.js";
 import { parsePid, processAlive } from "./pid.js";
-import { writeJSON } from "./agents/store.js";
+import { writeTextAtomic } from "./agents/store.js";
 
 /**
  * WorkBuddy keeps several accounts at once: every account that has signed in
@@ -132,7 +133,8 @@ export async function readAccounts(env = process.env) {
     return emptyState();
   }
   try {
-    const parsed = JSON.parse(raw);
+    const decoded = await unprotectText(raw).catch(() => raw);
+    const parsed = JSON.parse(decoded);
     // An account written before sites existed carries no `site`; give it the
     // domestic default on the way in, so every reader sees one and a later
     // write persists it instead of dropping the field again.
@@ -165,12 +167,10 @@ export async function readAccounts(env = process.env) {
 export async function writeAccounts(state, env = process.env) {
   const target = fileOf(env);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  // mode 0o600 keeps other *POSIX* users out; on Windows Node cannot map it
-  // to an ACL, so the file inherits the profile's default permissions. That
-  // is the accepted threat model here — one user's own machine, no other
-  // local accounts to defend against. The shared writer applies the same
-  // mode and the same temp-then-rename.
-  await writeJSON(target, state);
+  // DPAPI encrypts the token-bearing document; writeTextAtomic adds the
+  // temp-file/rename and owner-only permissions.
+  const stored = await protectText(`${JSON.stringify(state, null, 2)}\n`);
+  await writeTextAtomic(target, stored);
   return state;
 }
 

@@ -22,17 +22,32 @@ export function readJSONBody(req, limit = 64 * 1024 * 1024) {
     let size = 0;
     let settled = false;
     const chunks = [];
+    const rejectTooLarge = () => {
+      if (!settled) {
+        settled = true;
+        reject(Object.assign(new Error("request body is too large"), { status: 413 }));
+      }
+      // Drain without retaining: the caller can still send its 413 response.
+      req.resume();
+    };
+    // A declared oversized body can be refused before allocating its chunks.
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > limit) {
+      rejectTooLarge();
+      return;
+    }
     req.on("data", (chunk) => {
+      if (settled) return;
       size += chunk.length;
-      if (size <= limit) chunks.push(chunk);
+      if (size > limit) {
+        rejectTooLarge();
+        return;
+      }
+      chunks.push(chunk);
     });
     req.on("end", () => {
       if (settled) return;
       settled = true;
-      if (size > limit) {
-        reject(Object.assign(new Error("request body is too large"), { status: 413 }));
-        return;
-      }
       try {
         resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {});
       } catch {

@@ -75,7 +75,14 @@ export async function claimOwnership(env = process.env) {
     // liveness check below.
     if (error?.code !== "EEXIST") throw error;
   }
-  const current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+  let current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+  // A winner creates the file with `wx` and only then writes the pid. A
+  // simultaneous loser can observe that tiny empty window; give the winner
+  // one beat to finish instead of renaming its seat out from under it.
+  if (Number.isNaN(current) && await seatAgeMs(file) < 2000) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+  }
   const held = !Number.isNaN(current)
     && current !== process.pid
     && processAlive(current)

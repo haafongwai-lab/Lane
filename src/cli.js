@@ -1,5 +1,5 @@
 import { createServer } from "./server.js";
-import { DEFAULT_HOST, DEFAULT_PORT, parseAddress } from "./config.js";
+import { DEFAULT_HOST, DEFAULT_PORT, assertLoopbackHost, gatewayBase, parseAddress } from "./config.js";
 import { claimOwnership, releaseOwnership } from "./owner.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
@@ -47,12 +47,14 @@ function parseAddrArg(value) {
   if (!/^[\w.[\]:-]+$/.test(raw)) {
     throw new Error(`invalid --addr: ${raw}`);
   }
-  return parseAddress(raw);
+  const parsed = parseAddress(raw);
+  assertLoopbackHost(parsed.host, "--addr");
+  return parsed;
 }
 
 async function serve(args) {
   const { host, port } = parseAddrArg(argValue(args, "--addr"));
-  const address = `http://${host}:${port}`;
+  const address = gatewayBase(host, port);
   // A second Lane on the same port would race the first for the journal and
   // the daily check-in; if one already owns the address, say so instead.
   try {
@@ -259,13 +261,13 @@ async function main() {
   if (command === "serve") return serve(args.slice(1));
   if (command === "doctor") return doctor();
   if (command === "connect" && target === "claude-desktop") {
-    return connectClaudeDesktop({ gateway: `http://${gateway.host}:${gateway.port}` });
+    return connectClaudeDesktop({ gateway: gatewayBase(gateway.host, gateway.port) });
   }
   if (command === "disconnect" && target === "claude-desktop") return disconnectClaudeDesktop();
   if (command === "connect" && target === "codex") {
     const provider = await new WorkBuddyProvider().init();
     const result = await connectCodex({
-      gateway: `http://${gateway.host}:${gateway.port}`,
+      gateway: gatewayBase(gateway.host, gateway.port),
       providerModels: () => provider.listModels()
     });
     console.log(JSON.stringify(result, null, 2));
@@ -275,7 +277,7 @@ async function main() {
   if (command === "connect" && target === "zcode") {
     const provider = await new WorkBuddyProvider().init();
     const result = await connectZcode({
-      gateway: `http://${gateway.host}:${gateway.port}`,
+      gateway: gatewayBase(gateway.host, gateway.port),
       providerModels: () => provider.listModels()
     });
     console.log(JSON.stringify(result, null, 2));

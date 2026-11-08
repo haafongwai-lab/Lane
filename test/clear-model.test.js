@@ -149,7 +149,7 @@ test("the owner route deletes the model's rows end to end", async (t) => {
 });
 
 test("the desktop bridge and the table agree about the delete", () => {
-  assert.match(MAIN, /ipcMain\.handle\("lane:clear-model"/);
+  assert.match(MAIN, /handleIpc\("lane:clear-model"/);
   assert.match(MAIN, /controlWrite\("\/lane\/activity\/clear-model"/, "a follower forwards it");
   assert.match(PRELOAD, /clearModel: \(model, range\)/);
   assert.match(SERVER, /url\.pathname === "\/lane\/activity\/clear-model"/);

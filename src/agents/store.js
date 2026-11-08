@@ -1,17 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { dataDir } from "../config.js";
 
 const file = (env) => path.join(dataDir(env), "wiring.json");
 
 export async function readState(env = process.env) {
-  try {
-    return JSON.parse(await fs.readFile(file(env), "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return {};
-    throw error;
-  }
+  return readJSON(file(env));
 }
 
 export async function writeState(state, env = process.env) {
@@ -55,6 +51,32 @@ export async function writeJSON(filePath, value) {
 export async function writeTextAtomic(filePath, text) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temp = `${filePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(temp, text, "utf8");
+  await fs.writeFile(temp, text, { encoding: "utf8", mode: 0o600 });
   await fs.rename(temp, filePath);
+  await restrictToOwner(filePath).catch(() => {});
+}
+
+/**
+ * Tightens a credential-bearing file to the current user. POSIX honors the
+ * mode bits; Windows needs an ACL because chmod only toggles the read-only
+ * bit there. Best-effort: a failure must not make an otherwise successful
+ * sign-in fail, but it is reported through the normal error path if the
+ * caller awaits it and wants to know.
+ */
+export async function restrictToOwner(filePath) {
+  if (process.platform !== "win32") {
+    await fs.chmod(filePath, 0o600);
+    return;
+  }
+  const user = process.env.USERNAME;
+  if (!user) return;
+  const principal = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user;
+  await new Promise((resolve) => {
+    execFile(
+      "icacls",
+      [filePath, "/inheritance:r", "/grant:r", `${principal}:(F)`],
+      { windowsHide: true, timeout: 5000 },
+      () => resolve()
+    );
+  });
 }

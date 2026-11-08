@@ -95,6 +95,14 @@ function contained(root, dir) {
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
 
+// True when `a` equals `b`, sits inside `b`, or is an ancestor of `b`.
+function overlaps(a, b) {
+  const inside = path.relative(b, a);
+  const ancestor = path.relative(a, b);
+  const isPath = (rel) => rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+  return isPath(inside) || isPath(ancestor);
+}
+
 function libraryRoot(env) {
   return path.join(dataDir(env), "skills");
 }
@@ -187,19 +195,38 @@ export async function listLibrary(env = process.env) {
 /** Imports a folder (with a SKILL.md inside) into the library by copy. */
 export async function importFrom(sourceDir, env = process.env) {
   const source = path.resolve(sourceDir);
+  // A skill import is a local folder picker operation. Never let the HTTP
+  // control plane turn it into an SMB request or a copy of Lane's own data
+  // directory (which contains tokens and the journal).
+  if (/^[\\/]{2}/.test(String(sourceDir)) || /^[\\/]{2}/.test(source)) {
+    throw Object.assign(new Error("技能来源必须是本地文件夹，不能是网络路径"), { status: 400 });
+  }
   const name = checkSkillName(path.basename(source));
   if (!(await isSkillFolder(source))) {
     throw Object.assign(new Error("所选文件夹里没有 SKILL.md，不是技能"), { status: 400 });
   }
   const target = skillDir(env, name);
   // Copying a folder that is already the library copy (or sits inside it)
-  // would recurse into itself; that is a no-op, not an import.
+  // would recurse into itself; that is a no-op, not an import. Ancestors are
+  // rejected too, so pointing at the data directory cannot copy tokens in.
   const root = path.resolve(libraryRoot(env));
-  if (source === target || source.startsWith(root + path.sep)) {
-    throw Object.assign(new Error(`技能「${name}」已在库中`), { status: 400 });
+  if (overlaps(source, root)) {
+    throw Object.assign(new Error(`技能「${name}」已在库中或位于 Lane 数据目录内`), { status: 400 });
   }
   if (await exists(target)) {
     throw Object.assign(new Error(`技能「${name}」已在库中`), { status: 400 });
+  }
+  // Resolve symlinks too: a shortcut to the data directory is still the data
+  // directory when fs.cp starts walking it.
+  try {
+    const [realSource, realRoot] = await Promise.all([fs.realpath(source), fs.realpath(root)]);
+    if (overlaps(realSource, realRoot)) {
+      throw Object.assign(new Error(`技能「${name}」位于 Lane 数据目录内`), { status: 400 });
+    }
+  } catch (error) {
+    if (error?.status) throw error;
+    // The source disappeared or cannot be resolved; let isSkillFolder's
+    // earlier check own the user-facing error if it is about content.
   }
   await fs.cp(source, target, { recursive: true, dereference: false });
   return { name, imported: true };
