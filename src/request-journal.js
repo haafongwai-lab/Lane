@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { processAlive } from "./pid.js";
 import { billedRates } from "./usage.js";
 import { kindFromText } from "./error-kind.js";
+import { redactForLog } from "./redact.js";
 
 const KEEP_DAYS = 120;
 const MAX_ROWS = 6000;
@@ -603,7 +604,12 @@ export class RequestJournal {
   finish(id, values = {}) {
     const request = this.requests.find((entry) => entry.id === id);
     if (!request) return Promise.resolve();
-    Object.assign(request, values, {
+    // The journal is a file on disk. An upstream error can echo the prompt,
+    // so the error text is one-way masked before it is kept or printed.
+    const safe = typeof values.error === "string"
+      ? { ...values, error: redactForLog(values.error) }
+      : values;
+    Object.assign(request, safe, {
       status: values.status || "complete",
       finishedAt: Date.now()
     });
@@ -682,7 +688,10 @@ export class RequestJournal {
   note(id, values = {}) {
     const request = this.requests.find((entry) => entry.id === id);
     if (!request) return;
-    Object.assign(request, values);
+    const safe = typeof values.error === "string"
+      ? { ...values, error: redactForLog(values.error) }
+      : values;
+    Object.assign(request, safe);
     this.dirty(request);
   }
 

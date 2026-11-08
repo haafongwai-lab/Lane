@@ -273,6 +273,34 @@ function render() {
         .catch(() => { hideDshLoaded = false; });
     }
   }
+  // The redaction switches share one settings read: they are two halves of
+  // the same privacy surface.
+  const redactSecretsBox = $("#redact-secrets");
+  const redactPersonalBox = $("#redact-personal");
+  const redactRuleBoxes = $$("#redact-details [data-redact-rule]");
+  if ((redactSecretsBox || redactPersonalBox) && !redactPending) {
+    if (!redactLoaded) {
+      redactLoaded = true;
+      window.lane.gatewaySettings()
+        .then((settings) => {
+          if (redactPending) return;
+          if (redactSecretsBox) redactSecretsBox.checked = settings.redactSecrets !== false;
+          if (redactPersonalBox) redactPersonalBox.checked = settings.redactPersonal !== false;
+          for (const box of redactRuleBoxes) {
+            box.checked = settings.redactRules?.[box.dataset.redactRule] !== false;
+          }
+          const allowlist = $("#redact-allowlist");
+          if (allowlist && document.activeElement !== allowlist) {
+            allowlist.value = (settings.redactAllowlist || []).join("\n");
+          }
+          const custom = $("#redact-custom");
+          if (custom && document.activeElement !== custom) {
+            custom.value = (settings.redactCustom || []).join("\n");
+          }
+        })
+        .catch(() => { redactLoaded = false; });
+    }
+  }
   // Every address shown in the UI derives from the snapshot, so a saved
   // port change is reflected everywhere once the gateway restarts on it.
   // (The sidebar shows none of them: that corner is blank by design.)
@@ -1328,6 +1356,58 @@ $("#hide-dsh").addEventListener("change", async (event) => {
   }
 });
 
+// Request redaction: both switches write the same settings object. The
+// originals never enter settings.json — only these booleans do.
+async function saveRedact(patch) {
+  const secretsBox = $("#redact-secrets");
+  const personalBox = $("#redact-personal");
+  const ruleBoxes = $$("#redact-details [data-redact-rule]");
+  const allowlist = $("#redact-allowlist");
+  const custom = $("#redact-custom");
+  redactPending = true;
+  for (const node of [secretsBox, personalBox, allowlist, custom, ...ruleBoxes]) {
+    if (node) node.disabled = true;
+  }
+  try {
+    const result = await window.lane.redactSettings(patch);
+    if (secretsBox) secretsBox.checked = result.redactSecrets !== false;
+    if (personalBox) personalBox.checked = result.redactPersonal !== false;
+    for (const box of ruleBoxes) {
+      box.checked = result.redactRules?.[box.dataset.redactRule] !== false;
+    }
+    if (allowlist && document.activeElement !== allowlist) {
+      allowlist.value = (result.redactAllowlist || []).join("\n");
+    }
+    if (custom && document.activeElement !== custom) {
+      custom.value = (result.redactCustom || []).join("\n");
+    }
+    toast(patch.redactSecrets === false ? "已关闭请求脱敏" : "请求脱敏设置已更新");
+  } catch (error) {
+    toast(error.message || "设置失败", true);
+  } finally {
+    for (const node of [secretsBox, personalBox, allowlist, custom, ...ruleBoxes]) {
+      if (node) node.disabled = false;
+    }
+    redactPending = false;
+  }
+}
+$("#redact-secrets").addEventListener("change", (event) => saveRedact({ redactSecrets: event.target.checked }));
+$("#redact-personal").addEventListener("change", (event) => saveRedact({ redactPersonal: event.target.checked }));
+for (const box of $$("#redact-details [data-redact-rule]")) {
+  box.addEventListener("change", (event) => {
+    saveRedact({ redactRules: { [event.target.dataset.redactRule]: event.target.checked } });
+  });
+}
+const lines = (value) => value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+for (const field of [$("#redact-allowlist"), $("#redact-custom")]) {
+  field?.addEventListener("change", () => {
+    saveRedact({
+      redactAllowlist: lines($("#redact-allowlist").value),
+      redactCustom: lines($("#redact-custom").value)
+    });
+  });
+}
+
 // The star line opens the repository in the user's browser: the renderer
 // never navigates itself, and the main process allowlist decides whether
 // the URL may open at all.
@@ -1518,6 +1598,8 @@ var extData = { servers: [], targets: [] };
 // user's finger.
 var hideDshLoaded = false;
 var hideDshPending = false;
+var redactLoaded = false;
+var redactPending = false;
 // The short names the MCP lamps and skill pips draw. DeepSeek Harness is
 // absent on purpose: it has no entry in either list, because it manages its
 // own MCP servers and its own skills.

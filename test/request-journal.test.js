@@ -737,3 +737,16 @@ test("an estimated row is never flagged", async (t) => {
   const [row] = journal.list();
   assert.equal(row.anomaly, undefined);
 });
+
+test("an upstream error is masked before it reaches the journal file", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "codex", endpoint: "/v1/responses", model: "hy3" });
+  await journal.finish(record.id, {
+    status: "error",
+    error: "upstream rejected key sk-abcdefghijklmnopqrstuvwx and password=Hunter2!"
+  });
+  const [row] = readLog(dir);
+  assert.doesNotMatch(row.error, /sk-abcdefghijklmnopqrstuvwx|Hunter2!/);
+  assert.match(row.error, /«redacted»/);
+});

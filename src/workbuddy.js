@@ -11,6 +11,7 @@ import {
   normalizeSite
 } from "./accounts.js";
 import { prepareChat, restoreToolNames } from "./sanitize.js";
+import { SecretVault, redactBody, redactForLog, resolveRules, restoreResponse } from "./redact.js";
 import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
 
@@ -56,6 +57,10 @@ export class WorkBuddyProvider {
     this.factories = new Map();
     this.modelCache = new Map();
     this.modelLoads = new Map();
+    // Reversible redaction for this process. The map is memory-only; a
+    // restart leaves old placeholders unresolved rather than inventing a
+    // value, so a secret can never be recovered from disk.
+    this.secrets = new SecretVault();
   }
 
   /**
@@ -339,9 +344,31 @@ export class WorkBuddyProvider {
     // and refuses tool shapes its models cannot take. The plugin knows both
     // lists; this is the same preparation it applies to its own requests.
     // DSH's name is hidden here too unless the user turned that off: a name
-    // WorkBuddy can read back is what got an account banned.
-    const { hideDsh } = await readSettings(this.env).catch(() => ({ hideDsh: true }));
-    const prepared = await prepareChat({ ...body, stream: true }, { hideDsh });
+    // WorkBuddy can read back is what got an account banned. The same read
+    // decides whether credentials are redacted before they leave the machine.
+    const settings = await readSettings(this.env).catch(() => ({
+      hideDsh: true,
+      redactSecrets: true,
+      redactPersonal: true,
+      redactRules: undefined,
+      redactAllowlist: [],
+      redactCustom: []
+    }));
+    const prepared = await prepareChat({ ...body, stream: true }, { hideDsh: settings.hideDsh !== false });
+    // Redact after the plugin's own request preparation: what it writes is
+    // what is actually sent, and every string in it is a possible carrier.
+    const rules = resolveRules(settings.redactRules, {
+      secrets: settings.redactSecrets !== false,
+      personal: settings.redactPersonal !== false
+    });
+    const outgoing = settings.redactSecrets !== false
+      ? redactBody(prepared.body, {
+        vault: this.secrets,
+        rules,
+        allowlist: settings.redactAllowlist,
+        custom: settings.redactCustom
+      })
+      : prepared.body;
     // The plugin's loader takes an absolute URL: from 0.1.33 its baseURL is ""
     // because each model's api.url names where it is served (/v2 for a chat,
     // /v1 for a Messages model). Lane relays chat completions only, so it asks
@@ -374,7 +401,7 @@ export class WorkBuddyProvider {
           "content-type": "application/json",
           accept: body.stream ? "text/event-stream" : "application/json"
         },
-        body: JSON.stringify(prepared.body),
+        body: JSON.stringify(outgoing),
         signal: gate.signal
       });
     } finally {
@@ -388,18 +415,21 @@ export class WorkBuddyProvider {
       const text = await response.clone().text().catch(() => "");
       if (/unapproved channel|illegal api invocation/i.test(text)) {
         if (process.env.LANE_TRACE_REQUEST === "1") {
-          const system = (prepared.body?.messages || [])
+          const system = (outgoing?.messages || [])
             .filter((message) => message?.role === "system")
             .map((message) => typeof message.content === "string"
               ? message.content
               : (message.content || []).map((part) => part?.text || "").join(""))
             .join("\n")
             .slice(0, 600);
-          console.error(`WorkBuddy refused a prompt. System prompt head:\n${system}`);
+          // The body has already been redacted; run the one-way mask over it
+          // once more so even a bug in the vault cannot put a value in a log.
+          console.error(`WorkBuddy refused a prompt. System prompt head:\n${redactForLog(system)}`);
         }
       }
     }
-    return restoreToolNames(response, prepared.names);
+    const named = await restoreToolNames(response, prepared.names);
+    return restoreResponse(named, this.secrets);
   }
 
   async activate(id) {

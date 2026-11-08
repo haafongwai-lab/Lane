@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { withAliases, resolveModel, nearestEffort, isLaneAlias } from "./aliases.js";
 import { projectOf } from "./project.js";
 import { proxyChat, proxyProtocol, projectFields } from "./relay.js";
+import { redactForLog } from "./redact.js";
 
 const require = createRequire(import.meta.url);
 
@@ -159,7 +160,9 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         // (a body over the limit, a shape the upstream refuses) is easier to
         // help when the body that actually arrived is on record.
         if (process.env.LANE_TRACE_REQUEST === "1") {
-          console.error(`chat request from ${req.socket.remoteAddress}: ${JSON.stringify(body).slice(0, 2000)}`);
+          // Trace is a debugging aid, never a copy of the prompt: one-way mask
+          // credentials and personal data before they can reach the log file.
+          console.error(`chat request from ${req.socket.remoteAddress}: ${redactForLog(JSON.stringify(body)).slice(0, 2000)}`);
         }
         const meta = await modelMeta(provider, body.model);
         await proxyChat(res, provider, body, {
@@ -313,7 +316,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
       errorJSON(res, 404, `no route for ${req.method} ${url.pathname}`, "not_found");
     } catch (error) {
       const status = Number(error?.status) || 500;
-      if (status >= 500) console.error(error);
+      if (status >= 500) console.error(redactForLog(error?.stack || error?.message || String(error)));
       // A route that already started streaming has no head left to replace:
       // forcing a JSON error head onto it would throw ERR_HTTP_HEADERS_SENT
       // out of this catch, which nothing catches. The socket goes; the

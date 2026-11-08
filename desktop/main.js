@@ -526,6 +526,18 @@ ipcMain.handle("lane:hide-dsh", async (_event, { hideDsh } = {}) => {
   const next = await writeSetting({ hideDsh: Boolean(hideDsh) });
   return { hideDsh: next.hideDsh !== false };
 });
+ipcMain.handle("lane:redact-settings", async (_event, patch = {}) => {
+  await startGateway();
+  await writeSetting(patch);
+  const saved = await readSettings();
+  return {
+    redactSecrets: saved.redactSecrets !== false,
+    redactPersonal: saved.redactPersonal !== false,
+    redactRules: saved.redactRules,
+    redactAllowlist: saved.redactAllowlist,
+    redactCustom: saved.redactCustom
+  };
+});
 
 ipcMain.handle("lane:save-gateway-settings", async (_event, patch) => {
   await startGateway();

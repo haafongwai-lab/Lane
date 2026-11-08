@@ -76,3 +76,42 @@ test("the switch reads any non-false value as on", async () => {
     await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
   }
 });
+
+// ---- request redaction switches ----------------------------------------
+
+test("request redaction is on by default and survives a port save", async () => {
+  const env = await envFor();
+  try {
+    const first = await readSettings(env);
+    assert.equal(first.redactSecrets, true, "credentials are redacted unless turned off");
+    assert.equal(first.redactPersonal, true, "email/phone redaction is on by default");
+    await writeSettings({ port: 4800 }, env);
+    assert.equal((await readSettings(env)).redactSecrets, true, "saving a port does not disable redaction");
+    await writeSetting({ redactSecrets: false, redactPersonal: false }, env);
+    const off = await readSettings(env);
+    assert.equal(off.redactSecrets, false);
+    assert.equal(off.redactPersonal, false);
+    assert.equal(off.port, 4800, "the port survives the privacy switches");
+  } finally {
+    await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
+  }
+});
+
+test("individual rules, allowlist and custom terms persist", async () => {
+  const env = await envFor();
+  try {
+    await writeSetting({
+      redactRules: { apiKey: false, email: false },
+      redactAllowlist: [" example.com ", ""],
+      redactCustom: ["Project-X"]
+    }, env);
+    const settings = await readSettings(env);
+    assert.equal(settings.redactRules.apiKey, false);
+    assert.equal(settings.redactRules.email, false);
+    assert.equal(settings.redactRules.bankCard, true, "unmentioned rules keep their defaults");
+    assert.deepEqual(settings.redactAllowlist, ["example.com"]);
+    assert.deepEqual(settings.redactCustom, ["Project-X"]);
+  } finally {
+    await fs.rm(env.LANE_DATA_DIR, { recursive: true, force: true });
+  }
+});

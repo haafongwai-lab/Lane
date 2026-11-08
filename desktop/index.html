@@ -430,6 +430,44 @@
               <label class="switch"><input type="checkbox" id="hide-dsh"><span></span></label>
             </div>
             <p class="sheet-note" id="hide-dsh-note" hidden></p>
+            <div class="sheet-row">
+              <div class="sheet-text">
+                <b>请求脱敏</b>
+                <span>发出前把 API Key、密码等换成占位符，云端的回复再由 Lane 本地还原。</span>
+              </div>
+              <label class="switch"><input type="checkbox" id="redact-secrets"><span></span></label>
+            </div>
+            <div class="sheet-row">
+              <div class="sheet-text">
+                <b>邮箱与手机号</b>
+                <span>同时脱敏邮箱和手机号；写邮件、整理联系人时可以先关掉。</span>
+              </div>
+              <label class="switch"><input type="checkbox" id="redact-personal"><span></span></label>
+            </div>
+            <details class="rule-details" id="redact-details">
+              <summary>细项规则<span>按类别开关，也可加白名单/自定义词</span></summary>
+              <div class="rule-grid">
+                <label><input type="checkbox" data-redact-rule="apiKey"> API Key</label>
+                <label><input type="checkbox" data-redact-rule="password"> 密码 / 密钥</label>
+                <label><input type="checkbox" data-redact-rule="bearer"> Bearer</label>
+                <label><input type="checkbox" data-redact-rule="jwt"> JWT</label>
+                <label><input type="checkbox" data-redact-rule="privateKey"> 私钥</label>
+                <label><input type="checkbox" data-redact-rule="email"> 邮箱</label>
+                <label><input type="checkbox" data-redact-rule="phone"> 手机号</label>
+                <label><input type="checkbox" data-redact-rule="idCard"> 身份证</label>
+                <label><input type="checkbox" data-redact-rule="bankCard"> 银行卡</label>
+                <label><input type="checkbox" data-redact-rule="address"> 地址</label>
+              </div>
+              <div class="rule-field">
+                <label for="redact-allowlist">不脱敏内容（每行一条，精确匹配）</label>
+                <textarea id="redact-allowlist" rows="2" spellcheck="false" placeholder="example.com"></textarea>
+              </div>
+              <div class="rule-field">
+                <label for="redact-custom">自定义敏感词（每行一条）</label>
+                <textarea id="redact-custom" rows="2" spellcheck="false" placeholder="内部项目名"></textarea>
+              </div>
+            </details>
+            <p class="sheet-note" id="redact-note" hidden></p>
           </section>
 
           <section class="sheet-group">

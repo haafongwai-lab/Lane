@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("lane", {
   skillsUninstall: (name, agent) => ipcRenderer.invoke("lane:skills-uninstall", { name, agent }),
   gatewaySettings: () => ipcRenderer.invoke("lane:gateway-settings"),
   hideDsh: (hideDsh) => ipcRenderer.invoke("lane:hide-dsh", { hideDsh }),
+  redactSettings: (patch) => ipcRenderer.invoke("lane:redact-settings", patch),
   saveGatewaySettings: (patch) => ipcRenderer.invoke("lane:save-gateway-settings", patch),
   setTheme: (mode) => ipcRenderer.invoke("lane:set-theme", { mode }),
   test: () => ipcRenderer.invoke("lane:test"),
