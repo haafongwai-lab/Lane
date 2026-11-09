@@ -121,6 +121,7 @@ test("the package no longer depends on the registry copy", () => {
   assert.ok(files.includes("!vendor/originals/**"), "the archive is not shipped in the app");
   assert.ok(files.includes("LICENSE"), "the project license ships with the app");
   assert.ok(files.includes("THIRD_PARTY_NOTICES.md"), "the consolidated notice ships with the app");
+  assert.ok(files.includes("DISCLAIMER.md"), "the release disclaimer ships with the app");
   assert.ok(!files.some((entry) => entry.includes("node_modules/@magpie-community")), "no node_modules path left");
 });
 

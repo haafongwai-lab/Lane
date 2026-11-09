@@ -44,7 +44,8 @@
       "!vendor/originals/**",
       "package.json",
       "LICENSE",
-      "THIRD_PARTY_NOTICES.md"
+      "THIRD_PARTY_NOTICES.md",
+      "DISCLAIMER.md"
     ],
     "directories": {
       "output": "dist"

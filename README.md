@@ -314,13 +314,17 @@ integrity records are archived in `vendor/originals/`, the upstream MIT
 licenses are at `vendor/*/LICENSE`, and any local changes are recorded in
 `vendor/*/NOTICE.md`. See `THIRD_PARTY_NOTICES.md` for the consolidated notice.
 
+## Disclaimer
+
+Lane is an independent personal open-source project. It is **not affiliated
+with, endorsed by, sponsored by, or approved by Tencent, ByteDance, Anthropic,
+OpenAI, or any upstream provider**. Product names, logos, and trademarks
+belong to their respective owners; the MIT license does not grant any right to
+use those marks. See [DISCLAIMER.md](DISCLAIMER.md) for the full disclaimer.
+
 ## License
 
 Lane is released under the **MIT License**. See `LICENSE`.
 
-Lane is an independent project and is not affiliated with, endorsed by, or
-sponsored by Tencent, ByteDance, Anthropic, OpenAI, or any upstream provider.
-All product names and logos are trademarks of their respective owners; the
-MIT license does not grant any right to use those marks. If you redistribute
-a build, keep the third-party notices and the included vendor licenses with
-it.
+If you redistribute a build, keep the third-party notices and the included
+vendor licenses with it.
