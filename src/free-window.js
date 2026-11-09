@@ -19,7 +19,10 @@
  *   - freeUsageToday: this machine's requests on the free models, counted
  *     over the local day from the journal. No limit is shown because no
  *     endpoint reports one; when the vendor does exhaust it, it refuses with
- *     a reset time, which surfaces here as `refusedUntil`.
+ *     a reset time, which surfaces here as `refusedUntil`. `rows` is the whole
+ *     journal, not one account's rows: free models are a plan-level allowance,
+ *     every account declares the same `notModels`, and the route changes
+ *     during a day (filtering by one account's id showed 0 requests).
  */
 
 import { creditWindowOf } from "./credit-window.js";

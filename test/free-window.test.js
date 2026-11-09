@@ -75,6 +75,23 @@ test("free-model usage is counted over the local day only", () => {
   assert.equal(a.freeRequestsTotal, 3, "the whole journal's free rows, not just today");
 });
 
+test("free-model traffic counts across every account, not one account only", () => {
+  // The route changes during a day: a domestic account can carry today's
+  // free requests while the Free-plan window was read from the international
+  // account. Counting just the latter's rows showed "0 今日请求".
+  const overseas = "overseas-id";
+  const domestic = "domestic-id";
+  const rows = [
+    { ...row("hy3", { at: NOW - 60_000 }), accountId: overseas },
+    { ...row("hy3", { at: NOW - 40_000 }), accountId: domestic },
+    { ...row("deepseek-v4.1-flash", { at: NOW - 20_000 }), accountId: domestic },
+    { ...row("gpt-6-luna", { at: NOW - 10_000 }), accountId: domestic }
+  ];
+  const a = freeAllowance(usage(), rows, { now: NOW });
+  assert.equal(a.freeRequestsToday, 3, "every account's free models count");
+  assert.equal(a.freeRequestsTotal, 3);
+});
+
 test("an in-force refusal is surfaced with its reset time", () => {
   const reset = "2026-11-02T00:00:00Z";
   const rows = [

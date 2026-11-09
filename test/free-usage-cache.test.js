@@ -82,3 +82,18 @@ test("the per-account read never blocks its caller", () => {
   assert.match(fn, /Promise\.resolve\(freeUsageCache\.get\(key\)\?\.value \?\? null\)/);
   assert.doesNotMatch(fn, /await instance\.usage\(/);
 });
+
+test("the free-model report counts the whole journal, not one account's rows", () => {
+  // Free models are a plan-level allowance and the route changes during a
+  // day. Counting only the international account's rows showed "0 今日请求"
+  // whenever a domestic account carried the traffic.
+  const helper = SOURCE.slice(
+    SOURCE.indexOf("const freeReportFor"),
+    SOURCE.indexOf("const invalidateUsage")
+  );
+  assert.match(helper, /freeAllowance\(usage, rows\)/);
+  assert.doesNotMatch(helper, /accountId/,
+    "the report must not filter rows to one account");
+  assert.match(SOURCE, /report\.freeAllowance = await freeReportFor\(instance, rows\)/);
+  assert.match(SOURCE, /const freeReport = await freeReportFor\(instance, journal\.list\(\), accountList\)/);
+});

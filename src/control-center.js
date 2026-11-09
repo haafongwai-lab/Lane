@@ -147,6 +147,31 @@ export function createControlCenter({
     })));
   };
 
+  /**
+   * The free-model allowance belongs to WorkBuddy's Free plan, not to one
+   * account: every signed-in account declares the same `notModels`, and the
+   * day's traffic is routed through whichever account happens to be active.
+   * Lane used to count only the international account's rows, so the card
+   * showed "0 今日请求" whenever a domestic account was the route — the usual
+   * case. Read the credit window from any account that declares one (the
+   * international build is preferred, as the card was written for its Free
+   * plan), but count free-model traffic over the whole journal, which is what
+   * "今日请求 / 本机累计" means. The same report feeds the model list, so an
+   * exhausted allowance names its real reset time there too.
+   */
+  const freeReportFor = async (instance, rows, accounts = null) => {
+    try {
+      const list = Array.isArray(accounts) ? accounts : await instance.accounts();
+      if (!list.length) return null;
+      const overseas = list.find((item) => String(item.domain || "").includes("workbuddy.ai"));
+      const source = overseas || list[0];
+      const usage = await cachedAccountUsage(instance, source.id);
+      return freeAllowance(usage, rows);
+    } catch {
+      return null;
+    }
+  };
+
   // A finished request spends credits upstream, so the caches are stale the
   // moment it lands. The active account's quota card revalidates behind the
   // next poll, and so does that account's row in the accounts list — but
@@ -271,17 +296,7 @@ export function createControlCenter({
       const accountList = await instance.accounts().catch(() => []);
       // The model page needs the same free-allowance state the usage card
       // shows, so an exhausted free model can name its real reset time there.
-      let freeReport = null;
-      try {
-        const overseas = accountList.find((item) => String(item.domain || "").includes("workbuddy.ai"));
-        if (overseas) {
-          const freeUsage = await cachedAccountUsage(instance, overseas.id);
-          freeReport = freeAllowance(
-            freeUsage,
-            journal.list().filter((row) => row.accountId === overseas.id)
-          );
-        }
-      } catch {}
+      const freeReport = await freeReportFor(instance, journal.list(), accountList);
       let usage = null;
       if (signedIn) {
         try {
@@ -627,24 +642,10 @@ export function createControlCenter({
       // The account's own credits ride along as `quota`, so the page never
       // has to merge two payloads to draw one card.
       report.quota = await cachedUsage(instance).catch(() => null);
-      // The Free plan's allowance belongs to the international account even
-      // while a domestic one is the route, so it is read from that account's
-      // own report and counted over that account's rows only.
-      report.freeAllowance = null;
-      try {
-        const overseas = (await instance.accounts()).find((a) =>
-          String(a.domain || "").includes("workbuddy.ai")
-        );
-        if (overseas) {
-          const freeUsage = await cachedAccountUsage(instance, overseas.id);
-          report.freeAllowance = freeAllowance(
-            freeUsage,
-            rows.filter((row) => row.accountId === overseas.id)
-          );
-        }
-      } catch {
-        report.freeAllowance = null;
-      }
+      // The free-model card and the model list share one report. Its counts
+      // cover this machine's whole journal, not one account's rows: free
+      // models are a plan-level allowance and the route changes during a day.
+      report.freeAllowance = await freeReportFor(instance, rows);
       return report;
     },
 
