@@ -16,15 +16,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const VENDOR = path.join(ROOT, "vendor/workbuddy-auth");
+const TRAE_VENDOR = path.join(ROOT, "vendor/trae-auth");
 const ORIGINALS = path.join(ROOT, "vendor/originals");
 const read = (p) => fs.readFileSync(p, "utf8");
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
 const APP = read(path.join(ROOT, "src/workbuddy.js"));
 const SANITIZE = read(path.join(ROOT, "src/sanitize.js"));
+const TRAE = read(path.join(ROOT, "src/trae.js"));
 const PKG = JSON.parse(read(path.join(ROOT, "package.json")));
 const LOCK = JSON.parse(read(path.join(ROOT, "package-lock.json")));
 const INTEGRITY = "sha512-KrZu96wyvFCeKQVApZvwTX7okL7pz9wyJ5C6bAa+aF67GfkegCEfythMBO2chqFDC8ztxkQIPGgFTjaoqO05Rg==";
+const TRAE_INTEGRITY = "sha512-/qifTc/65BRpHqBNv0UwxM1AUBv01Ax9gQB5fyYd9FnSCtcTCSRzRlsCaogv/60GOXaazpEIDul1fIy31LqB/w==";
 
 /** Pull one file out of a gzip tarball without a tar dependency. */
 function untarOne(gz, wanted) {
@@ -70,6 +73,22 @@ test("the copy is traceable, and any local change is recorded", () => {
   }
 });
 
+test("the Trae copy is traceable, and any local change is recorded", () => {
+  const copy = fs.readFileSync(path.join(TRAE_VENDOR, "index.mjs"));
+  const tgz = fs.readFileSync(path.join(ORIGINALS, "opencode-trae-auth-0.2.33.tgz"));
+  assert.equal(
+    "sha512-" + crypto.createHash("sha512").update(tgz).digest("base64"),
+    TRAE_INTEGRITY,
+    "the archived Trae tarball matches its npm integrity"
+  );
+  const fromTarball = untarOne(tgz, "package/index.mjs");
+  assert.ok(fromTarball, "package/index.mjs is in the Trae tarball");
+  assert.equal(sha256(copy), sha256(fromTarball), "the vendored Trae copy is byte-identical");
+  const notice = read(path.join(TRAE_VENDOR, "NOTICE.md"));
+  assert.match(notice, /Local modifications/);
+  assert.match(notice, /None\./);
+});
+
 test("the vendored module still exposes what Lane consumes", async () => {
   const mod = await import(pathToFileURL(path.join(VENDOR, "index.mjs")).href);
   for (const name of ["WorkBuddyAuthPlugin", "WorkBuddyAIAuthPlugin", "_internal"]) {
@@ -88,6 +107,9 @@ test("Lane loads the copy by path, with no npm package lookup", () => {
     assert.doesNotMatch(source, /createRequire/, name);
     assert.doesNotMatch(source, /@magpie-community\/opencode-workbuddy-auth/, name);
   }
+  assert.match(TRAE, /new URL\("\.\.\/vendor\/trae-auth\/index\.mjs", import\.meta\.url\)/);
+  assert.match(TRAE, /await import\(PLUGIN_URL\.href\)/);
+  assert.doesNotMatch(TRAE, /@magpie-community\/opencode-trae-auth/);
 });
 
 test("the package no longer depends on the registry copy", () => {
@@ -97,6 +119,8 @@ test("the package no longer depends on the registry copy", () => {
   const files = PKG.build.files;
   assert.ok(files.includes("vendor/**/*"), "the copy ships in the asar");
   assert.ok(files.includes("!vendor/originals/**"), "the archive is not shipped in the app");
+  assert.ok(files.includes("LICENSE"), "the project license ships with the app");
+  assert.ok(files.includes("THIRD_PARTY_NOTICES.md"), "the consolidated notice ships with the app");
   assert.ok(!files.some((entry) => entry.includes("node_modules/@magpie-community")), "no node_modules path left");
 });
 
@@ -107,6 +131,10 @@ test("MIT notice and provenance travel with the copy", () => {
   assert.match(license, /Permission is hereby granted/);
   assert.match(read(path.join(VENDOR, "NOTICE.md")), /Local modifications/);
   assert.ok(read(path.join(ORIGINALS, "README.md")).includes(INTEGRITY.slice(0, 24)));
+  assert.match(read(path.join(TRAE_VENDOR, "LICENSE")), /MIT License/);
+  assert.match(read(path.join(TRAE_VENDOR, "NOTICE.md")), /Local modifications/);
+  assert.ok(read(path.join(ORIGINALS, "README.md")).includes(TRAE_INTEGRITY.slice(0, 24)));
   assert.match(read(path.join(ROOT, "THIRD_PARTY_NOTICES.md")), /vendored/);
   assert.match(read(path.join(ROOT, "README.md")), /vendored copy/);
+  assert.match(read(path.join(ROOT, "LICENSE")), /MIT License/);
 });

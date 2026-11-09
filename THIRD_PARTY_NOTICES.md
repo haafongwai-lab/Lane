@@ -1,5 +1,9 @@
 # Third-party notices
 
+Lane itself is licensed under the MIT License (see `LICENSE`). This file lists
+the separate third-party components Lane vendors and the notices that travel
+with them.
+
 ## @magpie-community/opencode-workbuddy-auth (vendored)
 
 Lane uses a copy of `@magpie-community/opencode-workbuddy-auth` for WorkBuddy
@@ -33,4 +37,11 @@ Trae Global sign-in, model discovery, usage and chat requests.
 - Local copy: `vendor/trae-auth/` (`index.mjs`, `README.md`, `LICENSE`, `NOTICE.md`)
 - Loaded directly by `src/trae.js`; the MIT notice and permission text ship
   in the built application through the same `vendor/**/*` rule.
+
+## Trademarks
+
+Lane is an independent project and is not affiliated with, endorsed by, or
+sponsored by Tencent, ByteDance, Anthropic, OpenAI, or any upstream provider.
+All product names and logos remain the trademarks of their respective owners;
+the MIT license does not grant any right to use those marks.
 

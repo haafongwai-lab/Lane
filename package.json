@@ -2,6 +2,12 @@
   "name": "lane",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
+  "author": "haafongwai-lab",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haafongwai-lab/Lane.git"
+  },
   "description": "A small Windows-local gateway for WorkBuddy, Claude Desktop, and Codex.",
   "main": "desktop/main.js",
   "type": "module",
@@ -36,7 +42,9 @@
       "src/**/*",
       "vendor/**/*",
       "!vendor/originals/**",
-      "package.json"
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
     ],
     "directories": {
       "output": "dist"

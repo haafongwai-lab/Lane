@@ -294,7 +294,7 @@ indistinguishable from ordinary failures.
 - Autostart runs only after the user signs in. Lane does not install a
   system-wide Windows service.
 
-## WorkBuddy plugin
+## Upstream plugins
 
 The WorkBuddy adapter uses a vendored copy of
 `@magpie-community/opencode-workbuddy-auth` `0.2.17` (MIT), kept at
@@ -302,8 +302,25 @@ The WorkBuddy adapter uses a vendored copy of
 discovery, headers, and request fixes live in that one file; Lane imports it
 directly by path from `src/workbuddy.js` and `src/sanitize.js`.
 
-The copy is byte-identical to the published package, so a fresh clone builds
-and runs without the npm registry. The original tarball and its integrity are
-archived in `vendor/originals/`, the upstream MIT license is at
-`vendor/workbuddy-auth/LICENSE`, and any local changes are recorded in
-`vendor/workbuddy-auth/NOTICE.md`. See `THIRD_PARTY_NOTICES.md`.
+The Trae adapter uses a vendored copy of
+`@magpie-community/opencode-trae-auth` `0.2.33` (MIT), kept at
+`vendor/trae-auth/`. Trae-specific sign-in, model discovery, usage and request
+handling live in that file; Lane imports it directly by path from
+`src/trae.js`.
+
+Both copies are byte-identical to their published packages, so a fresh clone
+builds and runs without the npm registry. Their original tarballs and
+integrity records are archived in `vendor/originals/`, the upstream MIT
+licenses are at `vendor/*/LICENSE`, and any local changes are recorded in
+`vendor/*/NOTICE.md`. See `THIRD_PARTY_NOTICES.md` for the consolidated notice.
+
+## License
+
+Lane is released under the **MIT License**. See `LICENSE`.
+
+Lane is an independent project and is not affiliated with, endorsed by, or
+sponsored by Tencent, ByteDance, Anthropic, OpenAI, or any upstream provider.
+All product names and logos are trademarks of their respective owners; the
+MIT license does not grant any right to use those marks. If you redistribute
+a build, keep the third-party notices and the included vendor licenses with
+it.
