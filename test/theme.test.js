@@ -79,8 +79,12 @@ test("the palette defines dark values for every base surface token", () => {
   for (const token of ["--canvas", "--sidebar", "--surface", "--surface-raised", "--ink", "--ink-soft", "--muted", "--faint", "--line", "--line-soft", "--green", "--red", "--blue", "--panel-bg", "--glass", "--recess", "--shadow"]) {
     assert.ok(block.includes(`${token}:`), `dark palette carries ${token}`);
   }
-  assert.match(block, /--canvas: #141512/);
-  assert.match(block, /--ink: #eceee8/);
+  assert.match(block, /--canvas: #151517/);
+  assert.match(block, /--sidebar-bg: #1b1b1c/);
+  assert.match(block, /--surface-raised: #353638/);
+  assert.match(block, /--ink: #f9fafb/);
+  assert.match(block, /--green: #22c55e/);
+  assert.match(block, /--link: #7aaaff/);
 });
 
 test("component surfaces use the tokens instead of literal light colours", () => {

@@ -268,6 +268,20 @@ export function createControlCenter({
         signedIn = await instance.signedIn();
       } catch {}
       const account = await activeAccount(instance);
+      const accountList = await instance.accounts().catch(() => []);
+      // The model page needs the same free-allowance state the usage card
+      // shows, so an exhausted free model can name its real reset time there.
+      let freeReport = null;
+      try {
+        const overseas = accountList.find((item) => String(item.domain || "").includes("workbuddy.ai"));
+        if (overseas) {
+          const freeUsage = await cachedAccountUsage(instance, overseas.id);
+          freeReport = freeAllowance(
+            freeUsage,
+            journal.list().filter((row) => row.accountId === overseas.id)
+          );
+        }
+      } catch {}
       let usage = null;
       if (signedIn) {
         try {
@@ -293,10 +307,11 @@ export function createControlCenter({
         accountId: account?.id || "",
         domain: account?.domain || "",
         expiresAt: account?.expiresAt || null,
-        accounts: await withCredits(instance, await instance.accounts()),
+        accounts: await withCredits(instance, accountList),
         activeId: await instance.activeId(),
         checkin: await checkinOverview(instance, env).catch(() => null),
         usage,
+        freeAllowance: freeReport,
         models,
         agents: {
           codex: {

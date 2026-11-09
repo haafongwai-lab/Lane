@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, creditView, creditWindowOf } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, creditView, creditWindowOf } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -335,7 +335,7 @@ function render() {
   // flip.
   if (!autostartPending) $("#autostart").checked = Boolean(snapshot.autostart);
 
-  renderModels(models || []);
+  renderModels(models || [], snapshot.freeAllowance || null);
   renderUsageRecent();
   renderAccounts();
   renderCheckin();
@@ -584,20 +584,23 @@ function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn }) {
   $("#client-state").previousElementSibling.classList.toggle("off", none);
 }
 
-function renderModels(models) {
+function renderModels(models, freeAllowance = null) {
   const list = $("#model-list");
   if (!models.length) {
     list.innerHTML = '<div class="empty">登录 WorkBuddy 后可读取模型目录。</div>';
     return;
   }
-  list.innerHTML = models.map((model) => `
+  list.innerHTML = models.map((model) => {
+    const status = modelStatus(model, freeAllowance);
+    return `
     <div class="model-row">
       <div class="model-name">${esc(model.name || model.id)}</div>
       <span>${model.context ? `${compact(model.context)} tokens` : "—"}</span>
       <span class="credit-rate">${creditRate(model)}</span>
       <code>${esc(model.owned_by || "workbuddy")}</code>
-      <span class="soft-label">可用</span>
-    </div>`).join("");
+      <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` title="${esc(status.title)}"` : ""}>${esc(status.text)}</span>
+    </div>`;
+  }).join("");
 }
 
 // ---- usage ----------------------------------------------------------------

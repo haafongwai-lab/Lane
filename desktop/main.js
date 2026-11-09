@@ -301,7 +301,7 @@ function createWindow() {
     height: 920,
     minWidth: 1040,
     minHeight: 680,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#141512" : "#f4f3ef",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151517" : "#f4f3ef",
     title: "Lane",
     icon: path.join(DESKTOP_DIR, "assets", "lane.ico"),
     webPreferences: {
@@ -347,15 +347,30 @@ function createWindow() {
       window.hide();
     }
   });
-  // Every window opens maximized. The four-column route canvas and the usage
-  // grids are laid out for a wide surface, and the fixed 1440x920 start
-  // stacked two of them on a normal monitor. `maximize()` rather than
-  // `fullscreen`: fullscreen drops the title bar the window controls live in.
-  // The size is not locked - restoring or resizing stays the user's call.
+  // Open at the designed 1440x920 size. It is a normal resizable window:
+  // maximizing is the user's choice, not something Lane forces on every start.
   window.once("ready-to-show", () => {
     if (startHidden) return;
-    window.maximize();
     window.show();
+  });
+  // Windows can turn a drag-to-resize whose pointer reaches the top edge into
+  // an Aero Snap maximize on release. That is not a user choosing Maximize;
+  // keep the resize and undo the snap. A real Maximize button/gesture does not
+  // fire will-resize, so it is still allowed.
+  let resizing = false;
+  let resizeEnd;
+  window.on("will-resize", () => {
+    resizing = true;
+    clearTimeout(resizeEnd);
+  });
+  window.on("resized", () => {
+    clearTimeout(resizeEnd);
+    resizeEnd = setTimeout(() => {
+      resizing = false;
+    }, 200);
+  });
+  window.on("maximize", () => {
+    if (resizing) window.unmaximize();
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
     const allowed = openableUrl(url);
@@ -668,7 +683,7 @@ handleIpc("lane:set-theme", async (_event, { mode } = {}) => {
   const next = ["light", "dark", "system"].includes(mode) ? mode : "system";
   nativeTheme.themeSource = next;
   const dark = nativeTheme.shouldUseDarkColors;
-  if (window) window.setBackgroundColor(dark ? "#141512" : "#f4f3ef");
+  if (window) window.setBackgroundColor(dark ? "#151517" : "#f4f3ef");
   return { mode: next, dark };
 });
 handleIpc("lane:open", async (_event, target) => {
@@ -747,7 +762,7 @@ app.whenReady().then(async () => {
   // The OS switching light/dark while the page follows "system" changes the
   // native chrome too; keep the window's own base colour in step.
   nativeTheme.on("updated", () => {
-    if (window) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#141512" : "#f4f3ef");
+    if (window) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#151517" : "#f4f3ef");
   });
   // The tray exists before the gateway starts: a start that fails leaves a
   // window whose close button hides it, and without a tray the process

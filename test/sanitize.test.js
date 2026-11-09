@@ -189,6 +189,28 @@ test("the switch turns name-hiding off", async () => {
   assert.match(String(off.body.messages[0].content), /DeepSeek Harness/);
 });
 
+test("0.2.25: a user's path and bare name stay; DSH lines and system prose hide", async () => {
+  const asked = "Bash 绝对路径: /root/DSH/Work/OC-182.92.66.95/ 请原样复述这个路径";
+  const { body } = await prepareChat({
+    model: "deepseek-v4.1-flash",
+    messages: [
+      { role: "system", content: "You are an AI agent, powered by DeepSeek Harness.\nWorking directory: /root/DSH/Work/OC-182.92.66.95/" },
+      { role: "user", content: [{ type: "text", text: asked }, { type: "text", text: "I like DSH and DeepSeek Harness" }] },
+      { role: "assistant", content: "/root/DSH/Work/OC-182.92.66.95/ — DSH says hi" }
+    ],
+    tools: [{ type: "function", function: { name: "run", description: "Runs through DeepSeek Harness" } }]
+  });
+  const system = String(body.messages.find((m) => m.role === "system").content);
+  const user = body.messages.find((m) => m.role === "user");
+  const assistant = body.messages.find((m) => m.role === "assistant");
+  assert.match(system, /^You are an AI agent\./);
+  assert.match(system, /Working directory: \/root\/DSH\/Work\/OC-182\.92\.66\.95\//);
+  assert.equal(user.content[0].text, asked);
+  assert.equal(user.content[1].text, "I like DSH and DeepSeek Harness");
+  assert.equal(assistant.content, "/root/DSH/Work/OC-182.92.66.95/ — DSH says hi");
+  assert.match(body.tools[0].function.description, /the agent harness/);
+});
+
 test("a tool result keeps its own words", async () => {
   // A tool's result is what a file or command said; rewriting it would
   // change what the agent reads back.
@@ -209,7 +231,7 @@ test("a tool result keeps its own words", async () => {
   assert.equal(result.content, "DeepSeek Harness again");
 });
 
-test("a text part is rewritten while a non-text part is not", async () => {
+test("a user's own text is left while a non-text part is untouched", async () => {
   const { body } = await prepareChat({
     messages: [{
       role: "user",
@@ -221,7 +243,7 @@ test("a text part is rewritten while a non-text part is not", async () => {
   });
   const parts = body.messages.find((m) => Array.isArray(m.content) && m.content.some((p) => p.type === "text")).content;
   const textPart = parts.find((p) => p.type === "text");
-  assert.equal(textPart.text, "the agent harness is running");
+  assert.equal(textPart.text, "DeepSeek Harness is running", "the user's own words stay as written");
   assert.equal(parts.find((p) => p.type === "image").source.data, "DeepSeek Harness in a filename");
 });
 

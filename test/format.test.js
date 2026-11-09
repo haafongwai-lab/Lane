@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { esc, credits, rmb, percent, requestState, rateBadge, parseMcpJson, CREDITS_PER_YUAN, creditView, creditWindowOf } from "../desktop/format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, CREDITS_PER_YUAN, creditView, creditWindowOf } from "../desktop/format.js";
 
 /**
  * esc() is the only thing between a model name or a filesystem path and
@@ -282,4 +282,18 @@ test("the renderer's credit window rule matches the gateway's", async () => {
   for (const usage of payloads) {
     assert.deepEqual(creditWindowOf(usage), gateway(usage), JSON.stringify(usage));
   }
+});
+
+test("modelStatus shows the real free-model recovery time only when exhausted", () => {
+  const allowance = {
+    freeModels: ["free-model"],
+    refusedUntil: "2026-11-10T00:00:00.000Z"
+  };
+  assert.deepEqual(modelStatus({ id: "paid-model" }, allowance), { text: "可用", tone: "" });
+  const status = modelStatus({ id: "free-model", free: true }, allowance);
+  assert.equal(status.tone, "exhausted");
+  assert.match(status.text, /额度用尽/);
+  assert.match(status.text, /恢复/);
+  assert.match(status.title, /额度恢复时间/);
+  assert.deepEqual(modelStatus({ id: "free-model", free: true }, { freeModels: ["free-model"] }), { text: "可用", tone: "" });
 });

@@ -60,7 +60,10 @@ const UNPROTECT_SCRIPT = [
   "Add-Type -AssemblyName System.Security;",
   "$bytes=[Convert]::FromBase64String($env:LANE_SECRET_INPUT);",
   "$plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);",
-  "[Text.Encoding]::UTF8.GetString($plain)"
+  // Emit base64, not the raw string: Windows PowerShell's stdout encoding is
+  // a console code page, which would turn Chinese account names into mojibake
+  // before Node's UTF-8 decoder ever sees them.
+  "[Convert]::ToBase64String($plain)"
 ].join(" ");
 
 export async function protectText(text) {
@@ -79,5 +82,6 @@ export async function unprotectText(value) {
   if (!text.startsWith(PREFIX)) return text;
   if (plainCache.has(text)) return plainCache.get(text);
   if (process.platform !== "win32") return text.slice(PREFIX.length);
-  return remember(text, await runPowerShell(UNPROTECT_SCRIPT, text.slice(PREFIX.length)));
+  const encoded = await runPowerShell(UNPROTECT_SCRIPT, text.slice(PREFIX.length));
+  return remember(text, Buffer.from(encoded, "base64").toString("utf8"));
 }

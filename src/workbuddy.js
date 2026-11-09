@@ -2,6 +2,7 @@ import {
   loadAccounts,
   upsertAccount,
   updateAccountAuth,
+  updateAccountLabel,
   activateAccount,
   setAccountEnabled,
   removeAccount,
@@ -61,6 +62,8 @@ export class WorkBuddyProvider {
     // restart leaves old placeholders unresolved rather than inventing a
     // value, so a secret can never be recovered from disk.
     this.secrets = new SecretVault();
+    // One best-effort repair of names imported as "?" by old sign-in code.
+    this.labelRefresh = null;
   }
 
   /**
@@ -97,7 +100,47 @@ export class WorkBuddyProvider {
     // second Lane may have signed an account in or switched the route since
     // this process last looked, and a refresh must show what is there now.
     this.state = await loadAccounts(this.env);
+    if (!this.labelRefresh) {
+      this.labelRefresh = this.repairLabels().catch(() => {});
+    }
     return this.state.accounts.map(publicAccount);
+  }
+
+  /**
+   * Older sign-in imports could persist a Chinese nickname as literal "?".
+   * Ask WorkBuddy's own account list once per process and repair those labels;
+   * ids and tokens are not touched. A failed lookup leaves the existing label.
+   */
+  async repairLabels() {
+    for (const account of this.state.accounts) {
+      if (!account.label || !(/^\?+$/.test(String(account.label)) || String(account.label).includes("\uFFFD"))) continue;
+      try {
+        const session = await this.session(account.id);
+        if (!session?.auth) continue;
+        await this.refreshIfNeeded(session).catch(() => {});
+        const base = await this.baseURL(account.id);
+        if (!base) continue;
+        const response = await fetch(`${base}/plugin/accounts`, {
+          headers: {
+            authorization: `Bearer ${session.auth.access}`,
+            "x-domain": account.domain || (account.site === "workbuddy-ai" ? "www.workbuddy.ai" : "www.workbuddy.cn"),
+            "x-product": "SaaS",
+            "x-ide-type": "WorkBuddy",
+            "x-ide-name": "WorkBuddy"
+          },
+          signal: AbortSignal.timeout(8000)
+        });
+        if (!response.ok) continue;
+        const payload = await response.json().catch(() => null);
+        const rows = Array.isArray(payload?.data?.accounts) ? payload.data.accounts : [];
+        const found = rows.find((row) => row?.uid === account.uid || row?.uid === account.id);
+        const nickname = String(found?.nickname || "").trim();
+        if (!nickname) continue;
+        await updateAccountLabel(account.id, nickname, this.env);
+        account.label = nickname;
+        if (account.auth) account.auth.accountId = nickname;
+      } catch {}
+    }
   }
 
   async activeId() {
@@ -299,13 +342,13 @@ export class WorkBuddyProvider {
     if (!auth) {
       return Object.entries(provider.models || {}).map(([modelId, value]) => ({
         id: modelId,
-        ...modelDetails(modelId, value)
+        ...modelDetails(modelId, value, site)
       }));
     }
     const models = await hooks.provider.models(structuredClone(provider), { auth });
     return Object.entries(models || {}).map(([modelId, value]) => ({
       id: modelId,
-      ...modelDetails(modelId, value)
+      ...modelDetails(modelId, value, site)
     }));
   }
 
@@ -565,12 +608,37 @@ async function loadFactory(site = "workbuddy") {
   return factory;
 }
 
-function modelDetails(id, value = {}) {
+function modelDetails(id, value = {}, site = "") {
   const details = {
     name: value.name || id,
     context: value.limit?.context || 0,
     owned_by: "workbuddy"
   };
+  // The plugin's live /v3/config carries the real reply cap; keep it with
+  // the model instead of dropping it, so a client that reads a model's
+  // output limit is not left to models.dev's guess (the 0.2.26 issue).
+  // The declared catalogue is used when the config cannot be read; these
+  // are the values WorkBuddy's own config names for it.
+  const declaredOutput = {
+    workbuddy: {
+      "deepseek-v4.1-flash": 128000,
+      "deepseek-v4-pro": 128000,
+      "glm-5.3-flash": 131072
+    },
+    "workbuddy-ai": {
+      "default-model": 24000,
+      "fast-model": 32000,
+      "primary-model": 72000,
+      hy3: 64000,
+      "gemini-3.5-flash": 65536,
+      "glm-5.2": 48000,
+      "kimi-k3": 32000
+    }
+  };
+  const output = Number(value.limit?.output) > 0
+    ? Number(value.limit.output)
+    : (declaredOutput[site]?.[id] || 0);
+  if (output > 0) details.output = output;
   const efforts = modelEfforts(value);
   if (efforts.length) {
     details.reasoning = true;

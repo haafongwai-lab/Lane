@@ -61,8 +61,18 @@ test("model discovery keeps WorkBuddy credit rates", async () => {
   ]);
 });
 
-test("model discovery keeps WorkBuddy reasoning levels", async () => {
+test("model discovery carries the real output limit", async () => {
   const provider = providerWith(modelHooks({
+    "deepseek-v4.1-flash": { name: "Deepseek-V4.1-Flash", limit: { context: 1000000, output: 128000 } }
+  }));
+  assert.equal((await provider.listModels())[0].output, 128000);
+  const fallback = providerWith(modelHooks({
+    "deepseek-v4.1-flash": { name: "Deepseek-V4.1-Flash", limit: { context: 1000000 } }
+  }));
+  assert.equal((await fallback.listModels())[0].output, 128000, "declared catalogue has the config's value");
+});
+
+test("model discovery keeps WorkBuddy reasoning levels", async () => {  const provider = providerWith(modelHooks({
     hy3: {
       name: "Hy3",
       reasoning: true,

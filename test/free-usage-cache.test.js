@@ -52,7 +52,7 @@ test("the accounts list reads credits through the same cache", () => {
     SOURCE.indexOf("async status()"),
     SOURCE.indexOf("async accounts()")
   );
-  assert.match(status, /withCredits\(instance, await instance\.accounts\(\)\)/);
+  assert.match(status, /withCredits\(instance, accountList\)/);
   const withCredits = SOURCE.slice(
     SOURCE.indexOf("const withCredits"),
     SOURCE.indexOf("const activeAccount")

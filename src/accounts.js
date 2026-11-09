@@ -254,6 +254,26 @@ export async function upsertAccount(auth, env = process.env, { activate = false,
 }
 
 /**
+ * Repairs a display name that an older import stored as question marks. The
+ * auth token and ids are untouched; only the label (and the auth mirror's
+ * accountId) is refreshed from WorkBuddy's own account list.
+ */
+export async function updateAccountLabel(id, label, env = process.env) {
+  const name = String(label || "").trim();
+  if (!id || !name) return null;
+  return serial(env, async () => {
+    const state = await readAccounts(env);
+    const account = state.accounts.find((item) => item.id === id);
+    if (!account) return null;
+    account.label = name;
+    if (account.auth) account.auth.accountId = name;
+    await writeAccounts(state, env);
+    await mirror(state, env);
+    return account;
+  });
+}
+
+/**
  * The plugin renews a token and hands the new fields back; they land on the
  * account that asked, never on whichever account happens to be active.
  */

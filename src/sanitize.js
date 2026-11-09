@@ -118,42 +118,52 @@ function unflagRefusedOpenings(value) {
  * name behind a switch (`hide_dsh`, on by default); Lane's pinned plugin
  * predates it, so the table lives here.
  *
- * Only the name in prose goes. Lower-case `dsh` names paths (~/.dsh), commands
- * and URIs, and a tool's result is whatever a file or command said — those
- * stay. Case counts, so `DSH_HOME` is an identifier and is left alone.
+ * The bare name is taken out only where DSH wrote it: system/developer
+ * messages and tool descriptions (`DSH_PROSE`). User and assistant text get
+ * DSH's own lines alone (`DSH_LINES`: its opener, checkout, Web GUI and
+ * "DSH itself" lines), so a user's path such as `/root/DSH/Work/` or a
+ * sentence naming DSH is sent as written. Paths, file names and identifiers
+ * are protected even in prose by `IN_PATH_BEFORE`/`IN_PATH_AFTER`.
  */
-const DSH_NAMED = [
+const DSH_LINES = [
   [/You are an AI agent,? powered by DeepSeek Harness\.?/g, "You are an AI agent."],
   [/DeepSeek Harness (Web GUI)/g, "$1"],
   [/DeepSeek Harness (implementation checkout)/g, "agent $1"],
-  [/\bDSH itself\b/g, "the agent itself"],
-  [/\b([Tt]he )?DeepSeek Harness\b/g, (_, the) => (the ?? "the ") + "agent harness"],
-  [/\bDSH\b(?!_)/g, "the agent harness"]
+  [/\bDSH itself\b/g, "the agent itself"]
+];
+const IN_PATH_BEFORE = String.raw`(?<![\w/\\.~:@-])`;
+const IN_PATH_AFTER = String.raw`(?![\w/\\@-]|\.\w)`;
+const DSH_PROSE = [
+  ...DSH_LINES,
+  [new RegExp(IN_PATH_BEFORE + "([Tt]he )?DeepSeek Harness" + IN_PATH_AFTER, "g"), (_, the) => (the ?? "the ") + "agent harness"],
+  [new RegExp(IN_PATH_BEFORE + "DSH" + IN_PATH_AFTER, "g"), "the agent harness"]
 ];
 
-function hideDshName(text) {
-  for (const [pattern, replacement] of DSH_NAMED) text = text.replace(pattern, replacement);
+function hideDshName(text, said = false) {
+  for (const [pattern, replacement] of said ? DSH_LINES : DSH_PROSE) text = text.replace(pattern, replacement);
   return text;
 }
 
 /**
  * Applies `hideDshName` to the text of a chat body: message text and
- * Messages' `system`, plus tool descriptions. A tool's result (role `tool`,
- * or a non-text part such as `tool_result`) is left as it came — that is the
- * client's own data, and rewriting it would change what the agent reads back.
+ * Messages' `system`, plus tool descriptions. User and assistant text is
+ * "said": only DSH's own lines are rewritten there. A tool's result (role
+ * `tool`, or a non-text part such as `tool_result`) is left as it came — that
+ * is the client's own data, and rewriting it would change what the agent reads
+ * back.
  */
 function concealDshName(body) {
   let changed = false;
-  const parts = (content) => {
+  const parts = (content, said = false) => {
     if (typeof content === "string") {
-      const next = hideDshName(content);
+      const next = hideDshName(content, said);
       if (next !== content) changed = true;
       return next;
     }
     if (!Array.isArray(content)) return content;
     return content.map((part) => {
       if (!part || typeof part.text !== "string" || (part.type !== undefined && part.type !== "text")) return part;
-      const next = hideDshName(part.text);
+      const next = hideDshName(part.text, said);
       if (next === part.text) return part;
       changed = true;
       return { ...part, text: next };
@@ -163,10 +173,11 @@ function concealDshName(body) {
   if (Array.isArray(out.messages)) {
     out.messages = out.messages.map((message) => {
       if (!message || typeof message !== "object" || message.role === "tool") return message;
-      return { ...message, content: parts(message.content) };
+      const said = message.role !== "system" && message.role !== "developer";
+      return { ...message, content: parts(message.content, said) };
     });
   }
-  if (out.system !== undefined) out.system = parts(out.system);
+  if (out.system !== undefined) out.system = parts(out.system, false);
   const described = (value) => {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -175,7 +186,7 @@ function concealDshName(body) {
     }
     for (const key of Object.keys(value)) {
       if (key === "description" && typeof value[key] === "string") {
-        const next = hideDshName(value[key]);
+        const next = hideDshName(value[key], false);
         if (next !== value[key]) {
           value[key] = next;
           changed = true;

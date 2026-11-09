@@ -215,6 +215,24 @@ export function rateBadge(rate) {
 }
 
 /**
+ * The model list's last column. A free model whose daily allowance has been
+ * exhausted must not keep saying "可用"; it names the upstream's own reset
+ * time instead, without inventing one when no reset was reported.
+ */
+export function modelStatus(model, allowance) {
+  const free = model?.free === true
+    || (Array.isArray(allowance?.freeModels) && allowance.freeModels.includes(model?.id));
+  if (!free || !allowance?.refusedUntil) return { text: "可用", tone: "" };
+  const date = new Date(allowance.refusedUntil);
+  if (!Number.isFinite(date.getTime())) return { text: "额度已用尽", tone: "exhausted" };
+  const when = date.toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  });
+  return { text: `额度用尽 · ${when} 恢复`, tone: "exhausted", title: `额度恢复时间：${when}` };
+}
+
+/**
  * Parses an MCP server out of the JSON snippets servers publish.
  *
  * Every source uses a slightly different wrapper for the same information:

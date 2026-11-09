@@ -9,6 +9,7 @@ import {
   loadAccounts,
   readAccounts,
   upsertAccount,
+  updateAccountLabel,
   activateAccount,
   setAccountEnabled,
   removeAccount,
@@ -47,6 +48,15 @@ test("the single account Lane had before is imported once", async () => {
   await upsertAccount(authFor("uid-2", "second"), env);
   const again = await loadAccounts(env);
   assert.equal(again.accounts.length, 2);
+});
+
+test("a damaged display name can be repaired from the real account name", async () => {
+  const { env } = await tempEnv();
+  await upsertAccount(authFor("uid-1", "???????????"), env);
+  await updateAccountLabel("uid-1", "眼中尽繁星、", env);
+  const state = await readAccounts(env);
+  assert.equal(state.accounts[0].label, "眼中尽繁星、");
+  assert.equal(state.accounts[0].auth.accountId, "眼中尽繁星、");
 });
 
 test("several accounts stay signed in at once, one of them active", async () => {

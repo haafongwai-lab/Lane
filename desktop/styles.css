@@ -51,52 +51,54 @@
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
 }
 
-/* The dark palette. Warm charcoal rather than pure black, so the app still
-   reads as paper at night; accents lift a stop or two to stay legible. The
-   attribute is set on <html> by theme.js before the stylesheet loads, and the
-   settings page switches it together with the native window chrome. */
+/* The dark palette mirrors DeepSeek Harness's dark theme exactly.
+   Source: @deepseek-ai/dsh-client-ui-theme — base #151517, sidebar #1b1b1c,
+   layers #232324 / #2c2c2e / #353638, labels #f9fafb / #cfd3d6 / #adb2b8 /
+   #81858c, borders #ffffff0f / #ffffff1f / #ffffff29, and the deepseek blue
+   #7aaaff. The attribute is set on <html> by theme.js before the stylesheet
+   loads, and the settings page switches it together with native chrome. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #141512;
-  --sidebar: #191a16;
-  --surface: #1d1e1a;
-  --surface-raised: #242521;
-  --ink: #eceee8;
-  --ink-soft: #c9ccc3;
-  --muted: #969a90;
-  --faint: #71766c;
-  --line: #353730;
-  --line-soft: #2a2c26;
-  --green: #82c79c;
-  --green-bg: #1f3227;
-  --red: #e09180;
-  --red-bg: #382421;
-  --blue: #7db6e6;
-  --panel-bg: rgba(29, 30, 26, .94);
-  --glass: rgba(255, 255, 255, .045);
-  --glass-soft: rgba(255, 255, 255, .07);
-  --hover-bg: #2b2d27;
-  --line-strong: #4a4d44;
-  --sidebar-bg: rgba(25, 26, 22, .86);
-  --sidebar-line: rgba(255, 255, 255, .06);
-  --wordmark: #f0f1eb;
-  --nav-text: #b9bdb3;
-  --nav-icon: #8d9287;
-  --code: #a8aca1;
-  --link: #8fc7a5;
-  --primary-bg: #e6e9e1;
-  --primary-ink: #181a16;
-  --primary-hover: #f2f4ee;
-  --primary-sub: #4d5147;
-  --switch-track: #4a4d44;
-  --switch-knob: #f3f4ee;
-  --chip-bg: #2b2d28;
-  --track: #30322c;
-  --recess: rgba(255, 255, 255, .035);
-  --canvas-glow: rgba(110, 140, 118, .10);
-  --boot-bg: #141512;
-  --shadow: 0 1px 1px rgba(0, 0, 0, .35), 0 18px 44px rgba(0, 0, 0, .35);
-  --shadow-strong: 0 8px 24px rgba(0, 0, 0, .45);
+  --canvas: #151517;
+  --sidebar: #1b1b1c;
+  --surface: #43454a;
+  --surface-raised: #353638;
+  --ink: #f9fafb;
+  --ink-soft: #cfd3d6;
+  --muted: #adb2b8;
+  --faint: #81858c;
+  --line: #ffffff1f;
+  --line-soft: #ffffff0f;
+  --green: #22c55e;
+  --green-bg: #233c2c;
+  --red: #f25a5a;
+  --red-bg: #3c1f1b;
+  --blue: #7aaaff;
+  --panel-bg: #2c2c2e;
+  --glass: #ffffff14;
+  --glass-soft: #ffffff1f;
+  --hover-bg: #ffffff14;
+  --line-strong: #ffffff29;
+  --sidebar-bg: #1b1b1c;
+  --sidebar-line: #ffffff0f;
+  --wordmark: #f9fafb;
+  --nav-text: #cfd3d6;
+  --nav-icon: #adb2b8;
+  --code: #cfd3d6;
+  --link: #7aaaff;
+  --primary-bg: #f9fafb;
+  --primary-ink: #0f1115;
+  --primary-hover: #ebeef2;
+  --primary-sub: #81858c;
+  --switch-track: #43454a;
+  --switch-knob: #adb2b8;
+  --chip-bg: #2c2c2e;
+  --track: #353638;
+  --recess: #ffffff0f;
+  --canvas-glow: transparent;
+  --boot-bg: #151517;
+  --shadow: 0 0 1px 0 #0003, 0 0 4px 0 #00000005, 0 12px 32px 0 #00000014;
+  --shadow-strong: 0 0 0 .5px #ffffff29, 0 12px 32px #00000033;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
@@ -680,6 +682,8 @@ h1 {
 .credit-rate s { color: var(--faint); font-size: 10px; }
 .model-row code { color: var(--muted); }
 .model-row .soft-label { justify-self: start; }
+.model-status { justify-self: start; color: var(--muted); font-size: 10.5px; line-height: 1.5; white-space: nowrap; }
+.model-status.exhausted { color: var(--red); }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
 /* One sheet, one card: every setting lives in a single panel divided by
@@ -1601,9 +1605,10 @@ h1 {
 
 /* A quiet text card below the daily check-in: the verse and the GitHub star
    link, with no illustration. The panel's own padding frames the text. */
+.welcome-card { padding: 24px 26px; }
 .welcome-body h3 { margin-top: 5px; font: 600 15px/1.4 var(--font-display); letter-spacing: -.2px; }
 .welcome-verse {
-  margin: 9px 0 14px;
+  margin: 10px 0 18px;
   color: var(--ink-soft);
   font: 13px/1.8 var(--font-display);
   letter-spacing: .6px;
@@ -1615,7 +1620,7 @@ h1 {
   font: 10.5px/1.5 var(--font-sans);
   letter-spacing: 0;
 }
-.welcome-card .checkin-star { margin-top: 0; }
+.welcome-card .checkin-star { margin-top: 0; gap: 10px; padding: 10px 12px; }
 
 @media (max-width: 1200px) {
   .accounts-grid { grid-template-columns: 1fr; }
@@ -1885,25 +1890,29 @@ h1 {
    (canvas dots, brand plates, chart strokes) so the dark page stays coherent
    without rewriting the whole stylesheet in this pass. */
 :root[data-theme="dark"] .route-canvas {
-  background-image: radial-gradient(circle at center, rgba(255, 255, 255, .055) .7px, transparent .8px);
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, .06) .7px, transparent .8px);
 }
-:root[data-theme="dark"] .flow-rail { background: linear-gradient(90deg, transparent, #3a3d35 9%, #4d5a4f 91%, transparent); }
-:root[data-theme="dark"] .route-canvas.busy .flow-rail { background: linear-gradient(90deg, #3a3d35, #4f7d60 30%, #3f6285 70%, #3a3d35); }
+:root[data-theme="dark"] .flow-rail { background: linear-gradient(90deg, transparent, #43454a 9%, #61666b 91%, transparent); }
+:root[data-theme="dark"] .route-canvas.busy .flow-rail { background: linear-gradient(90deg, #43454a, #22c55e 30%, #7aaaff 70%, #43454a); }
 :root[data-theme="dark"] .health-grid div { border-left-color: var(--line); }
-:root[data-theme="dark"] .model-row { background: rgba(255, 255, 255, .03); }
-:root[data-theme="dark"] .account-row.active { background: linear-gradient(90deg, rgba(130, 199, 156, .10), rgba(130, 199, 156, 0) 62%); }
-:root[data-theme="dark"] .recent-row:has(.recent-pick:checked) { background: rgba(130, 199, 156, .08); }
+:root[data-theme="dark"] .model-row { background: #ffffff14; }
+:root[data-theme="dark"] .account-row.active { background: linear-gradient(90deg, #22c55e1f, #22c55e00 62%); }
+:root[data-theme="dark"] .recent-row:has(.recent-pick:checked) { background: #22c55e14; }
 :root[data-theme="dark"] .mcp-lamp i { background: var(--switch-track); }
 :root[data-theme="dark"] .mcp-lamp.blocked i { background: var(--red-bg); }
 :root[data-theme="dark"] .accounts-error { border-color: var(--red-bg); color: var(--red); background: var(--red-bg); }
 :root[data-theme="dark"] .sheet-note.error { color: var(--red); }
-:root[data-theme="dark"] .toast { background: #2a2d27; }
+:root[data-theme="dark"] .toast { background: #43454a; }
 :root[data-theme="dark"] .boot-emblem,
 :root[data-theme="dark"] .lane-emblem img { filter: invert(1); }
 :root[data-theme="dark"] .model-chart .seg,
 :root[data-theme="dark"] .model-dot { filter: brightness(1.4) saturate(1.1); }
 :root[data-theme="dark"] .trend-line,
 :root[data-theme="dark"] .trend-dot,
-:root[data-theme="dark"] .trend-single { stroke: #8fc7a5; }
+:root[data-theme="dark"] .trend-single { stroke: #22c55e; }
 :root[data-theme="dark"] .trend-dot { fill: var(--surface-raised); }
-:root[data-theme="dark"] #usageTrendFill stop { stop-color: #8fc7a5; }
+:root[data-theme="dark"] #usageTrendFill stop { stop-color: #22c55e; }
+:root[data-theme="dark"] .dot.ok,
+:root[data-theme="dark"] .node-state i,
+:root[data-theme="dark"] .mcp-lamp.on i { background: #22c55e; }
+:root[data-theme="dark"] .quota-meter i { background: linear-gradient(90deg, #4ed17e, #22c55e); }
