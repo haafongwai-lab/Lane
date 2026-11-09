@@ -31,7 +31,7 @@
           <div>
             <div class="eyebrow">本地链路</div>
             <h1>一条链路，清晰好用</h1>
-            <p class="sub">Codex、Claude Desktop、ZCode 与 DSH 共用一个 WorkBuddy 出口。</p>
+            <p class="sub">Codex、Claude Desktop、ZCode 与 DSH 共用一个本地出口。</p>
           </div>
           <div class="heading-actions">
             <button class="ghost" id="test-route">测试链路</button>
@@ -95,8 +95,8 @@
 
             <div class="route-node provider-node">
               <span class="node-label">PROVIDER</span>
-              <div class="node-logo wb-logo"><img src="assets/workbuddy-official.svg" alt=""></div>
-              <strong id="account-name">WorkBuddy</strong>
+              <div class="node-logo upstream-logo"><img id="provider-logo" src="assets/workbuddy-official.svg" alt=""></div>
+              <strong id="account-name">上游账号</strong>
               <span id="account-plan">本地账号</span>
               <span class="node-credits" id="account-credits">积分 —</span>
               <div class="node-state"><i></i><span id="provider-state">未登录</span></div>
@@ -109,12 +109,12 @@
             <div class="panel-head"><div><span class="overline">运行状态</span><h3>本机服务</h3></div><span class="health-badge">运行正常</span></div>
             <div class="health-grid">
               <div><span>网关</span><strong id="health-address">127.0.0.1:3426</strong><small>HTTP Responses</small></div>
-              <div><span>账号</span><strong id="health-account">—</strong><small id="health-domain">WorkBuddy</small></div>
+              <div><span>账号</span><strong id="health-account">—</strong><small id="health-domain">—</small></div>
               <div><span>Codex</span><strong id="health-codex">未接入</strong><small>自动写入配置</small></div>
               <div><span>Claude</span><strong id="health-claude">未接入</strong><small>独立 3p 配置</small></div>
               <div><span>ZCode</span><strong id="health-zcode">未接入</strong><small>provider 规则</small></div>
             </div>
-            <button class="outline signin-btn" id="quick-signin">登录 WorkBuddy</button>
+            <button class="outline signin-btn" id="quick-signin">登录上游账号</button>
           </article>
         </div>
       </section>
@@ -180,13 +180,15 @@
 
       <section class="view" id="view-accounts">
         <div class="heading-row">
-          <div><div class="eyebrow">WORKBUDDY 账号</div><h1>多个账号，一个出口</h1><p class="sub">所有账号同时保持登录，只有当前账号承载请求；关掉的账号保留登录，不再参与路由与签到。</p></div>
+          <div><div class="eyebrow">账号与上游</div><h1>多个账号，一个出口</h1><p class="sub">所有账号同时保持登录，只有当前账号承载请求；关掉的账号保留登录，不再参与路由与签到。</p></div>
           <div class="heading-actions">
             <div class="add-account">
               <button class="primary" id="add-account">添加账号</button>
               <div class="add-menu" id="add-menu" hidden>
-                <button data-site="workbuddy"><b>WorkBuddy</b><small>国内版 · copilot.tencent.com</small></button>
-                <button data-site="workbuddy-ai"><b>WorkBuddy AI</b><small>海外版 · www.workbuddy.ai</small></button>
+                <button data-site="workbuddy"><img src="assets/workbuddy-official.svg" alt=""><span><b>WorkBuddy</b><small>国内版 · copilot.tencent.com</small></span></button>
+                <button data-site="workbuddy-ai"><img src="assets/workbuddy-official.svg" alt=""><span><b>WorkBuddy AI</b><small>海外版 · www.workbuddy.ai</small></span></button>
+                <button data-site="trae-cn"><img src="assets/trae-official-256.png" alt=""><span><b>Trae CN</b><small>国内版 · trae.cn</small></span></button>
+                <button data-site="trae-global"><img src="assets/trae-official-256.png" alt=""><span><b>Trae Global</b><small>国际版 · trae.ai</small></span></button>
               </div>
             </div>
             <button class="ghost" id="refresh-accounts">↻ 刷新</button>
@@ -197,7 +199,7 @@
           <article class="panel accounts-panel">
             <div class="panel-head"><div><span class="overline">账号列表</span><h3>已登录账号</h3></div><div class="account-tools"><button type="button" class="text-button" id="account-mask" aria-pressed="false" title="隐藏账号名称与 ID">打码</button><span class="soft-label" id="account-count">0 个</span></div></div>
             <p class="accounts-error" id="accounts-error" hidden></p>
-            <div class="account-list" id="account-list"><div class="empty">还没有账号。点「添加账号」登录 WorkBuddy。</div></div>
+            <div class="account-list" id="account-list"><div class="empty">还没有账号。点「添加账号」登录上游。</div></div>
             <p class="accounts-foot" id="accounts-foot"></p>
           </article>
 
@@ -247,12 +249,17 @@
 
       <section class="view" id="view-models">
         <div class="heading-row">
-          <div><div class="eyebrow">模型目录</div><h1>WorkBuddy 可用模型</h1><p class="sub">模型随账号更新，自动读取。</p></div>
+          <div><div class="eyebrow">模型目录</div><h1>上游可用模型</h1><p class="sub">模型随账号更新，自动读取。</p></div>
           <button class="ghost" id="refresh-models">↻ 刷新</button>
         </div>
         <article class="panel models-panel">
-          <div class="model-head"><span>模型</span><span>上下文</span><span>积分倍率</span><span>来源</span><span>状态</span></div>
+          <div class="models-tools">
+            <input type="search" class="model-search" id="model-search" placeholder="搜索模型名称或 ID…" aria-label="搜索模型">
+            <span class="model-count" id="model-count"></span>
+          </div>
+          <div class="model-head"><span>模型</span><span>上下文</span><span>积分倍率</span><span>来源</span><span>状态</span><span>给 Agent 用</span></div>
           <div id="model-list"><div class="empty">正在读取模型…</div></div>
+          <p class="models-hint">默认全部关闭：只有打开开关的模型才会出现在 Agent 的模型列表中，其余模型不会被读取。</p>
         </article>
       </section>
 
@@ -340,7 +347,7 @@
 
       <section class="view" id="view-activity">
         <div class="heading-row">
-          <div><div class="eyebrow">用量信息</div><h1>积分与花费</h1><p class="sub">按 WorkBuddy 实扣积分记账，数据只存本机。</p></div>
+          <div><div class="eyebrow">用量信息</div><h1>额度与花费</h1><p class="sub">按上游实扣额度记账，数据只存本机。</p></div>
           <div class="heading-actions">
             <span class="usage-updated" id="usage-updated"></span>
             <div class="segmented" id="usage-range" role="tablist">
@@ -366,8 +373,8 @@
           </article>
 
           <article class="panel usage-quota-panel">
-            <div class="panel-head"><div><span class="overline">账户额度</span><h3>WorkBuddy 周期积分</h3></div><span class="soft-label" id="usage-plan">—</span></div>
-            <p class="setting-copy">WorkBuddy 按周期统计整个账户的积分，无法拆分到单次请求，因此与左侧的本机记账分开显示。</p>
+            <div class="panel-head"><div><span class="overline">账户额度</span><h3>账户周期额度</h3></div><span class="soft-label" id="usage-plan">—</span></div>
+            <p class="setting-copy">上游按周期统计整个账户的额度，无法拆分到单次请求，因此与左侧的本机记账分开显示。</p>
             <div class="usage-quota" id="usage-quota"><div class="empty">登录后显示账户额度。</div></div>
             <div class="usage-free" id="usage-free" hidden></div>
           </article>
@@ -491,7 +498,7 @@
           <footer class="sheet-foot">
             <div class="sheet-foot-main">
               <span class="overline">LANE DESKTOP</span>
-              <p>WorkBuddy、Codex、Claude Desktop、ZCode 与 DeepSeek Harness 的本地路由。</p>
+              <p>WorkBuddy、Trae、Codex、Claude Desktop、ZCode 与 DeepSeek Harness 的本地路由。</p>
             </div>
             <div class="about-side">
               <span class="about-version" id="app-version">—</span>

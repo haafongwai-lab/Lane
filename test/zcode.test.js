@@ -155,6 +155,31 @@ test("a connect with no readable model list still declares Lane's own catalogue"
   assert.ok(rule.config.personalModelIds.length > 0, "the fallback catalogue is written");
 });
 
+test("an empty allowlist writes an empty model list, not the built-in fallback", async () => {
+  // "No model added" is a real answer from the gateway, not an unreadable
+  // catalogue; writing auto/hy3 here would make ZCode offer models the
+  // gateway is about to reject.
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => [] });
+  const doc = await readConfig(env);
+  const rule = doc.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  assert.deepEqual(rule.config.personalModelIds, []);
+  assert.deepEqual(rule.config.modelOrder, []);
+});
+
+test("a sync to an empty allowlist clears the ids ZCode still shows", async () => {
+  const { env } = await temp();
+  await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });
+  const result = await syncZcodeCatalog({ env, models: [] });
+  assert.equal(result.changed, true);
+  const doc = await readConfig(env);
+  const rule = doc.config.providerConfigRules.providerRules
+    .find((item) => item.providerId === "lane");
+  assert.deepEqual(rule.config.personalModelIds, []);
+  assert.deepEqual(rule.config.modelOrder, []);
+});
+
 test("a catalogue from another account replaces the stale one, keeping the user's order", async () => {
   const { env } = await temp();
   await connectZcode({ env, gateway: "http://127.0.0.1:3426", providerModels: async () => MODELS });

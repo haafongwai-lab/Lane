@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createControlCenter } from "../src/control-center.js";
 import { createServer } from "../src/server.js";
-import { WorkBuddyProvider } from "../src/workbuddy.js";
+import { ProviderRouter } from "../src/provider-router.js";
 import { dataDir } from "../src/config.js";
 import { claimOwnership, releaseOwnership } from "../src/owner.js";
 import { readSettings, writeSettings, writeSetting } from "../src/settings.js";
@@ -126,7 +126,7 @@ async function startGateway() {
         `另一个 Lane 进程（pid ${seat.owner}）已拥有数据目录，请先退出它再启动`
       );
     }
-    const provider = await new WorkBuddyProvider().init();
+    const provider = await new ProviderRouter().init();
     await fs.mkdir(dataDir(), { recursive: true });
     if (!logStream) {
       const logFile = path.join(dataDir(), "desktop.log");
@@ -235,7 +235,30 @@ async function healthy() {
 async function fetchExternalStatus() {
   try {
     const response = await fetch(`${GATEWAY}/lane/status`, { signal: AbortSignal.timeout(4000) });
-    if (response.ok) return { ...await response.json(), ownsGateway: false };
+    if (response.ok) {
+      const status = await response.json();
+      // A follower can attach to an older `lane serve` whose status predates
+      // the model gate. Merge the shapes here so the page still renders its
+      // model rows (and shows the old gateway's all-enabled state) instead of
+      // looking like an empty, broken catalogue.
+      const models = Array.isArray(status.models) ? status.models : [];
+      const catalogue = Array.isArray(status.catalogue) ? status.catalogue : models;
+      const enabledKeys = Array.isArray(status.modelGate?.enabledKeys)
+        ? status.modelGate.enabledKeys
+        : models.map((model) => {
+          const provider = model?.owned_by || model?.provider || "workbuddy";
+          return `${provider}:${model?.id}`;
+        });
+      return {
+        ...status,
+        models,
+        catalogue,
+        modelGate: status.modelGate
+          ? { ...status.modelGate, enabledKeys }
+          : { gated: false, enabledIds: models.map((model) => model?.id), enabledKeys, corrupt: false },
+        ownsGateway: false
+      };
+    }
   } catch {}
   // startGateway may still be bringing the server up; answer with a
   // neutral status rather than throwing "网关连接失败" at the UI.
@@ -245,6 +268,8 @@ async function fetchExternalStatus() {
       account: "",
       domain: "",
       models: [],
+      catalogue: [],
+      modelGate: { gated: true, enabledIds: [], enabledKeys: [], corrupt: false },
       agents: {},
       recent: [],
       usage: null,
@@ -382,7 +407,7 @@ function createWindow() {
 function createTray() {
   try {
     tray = new Tray(path.join(DESKTOP_DIR, "assets", "tray.ico"));
-    tray.setToolTip("Lane · WorkBuddy 本地网关");
+    tray.setToolTip("Lane · 本地网关");
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: "打开 Lane", click: showWindow },
       { type: "separator" },
@@ -437,6 +462,10 @@ handleIpc("lane:status", async () => {
 handleIpc("lane:usage", async (_event, { range } = {}) => {
   await startGateway();
   return control.usage(range || "today");
+});
+handleIpc("lane:set-model", async (_event, { id, enabled, provider } = {}) => {
+  await startGateway();
+  return control.setModelEnabled(id, Boolean(enabled), typeof provider === "string" ? provider : "");
 });
 handleIpc("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
@@ -698,7 +727,7 @@ handleIpc("lane:open", async (_event, target) => {
   }
   return "";
 });
-// The only pages Lane itself ever opens are WorkBuddy's sign-in hosts; the
+// The only pages Lane itself ever opens are the upstreams' sign-in hosts; the
 // allowlist and its reasoning live in openable.js, where they can be tested
 // without an Electron runtime.
 handleIpc("lane:open-url", async (_event, url) => {

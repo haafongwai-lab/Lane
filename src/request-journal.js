@@ -576,6 +576,10 @@ export class RequestJournal {
       outputTokens: 0,
       totalTokens: 0,
       cachedTokens: 0,
+      // Unknown until a usage report names a cache figure. A row that never
+      // receives one (a failed request, or Trae, which reports no cache
+      // fields) must render "—", not a fabricated 0% hit rate.
+      cacheUnknown: true,
       // Null until the upstream reports a cost: 0 would claim the request was
       // free, which is a different thing from "not billed yet".
       credits: null,
@@ -659,6 +663,17 @@ export class RequestJournal {
       || usage.cache_read_input_tokens
       || usage.cached_tokens
       || 0;
+    // An upstream that reports no cache figure at all (Trae answers a bare
+    // prompt/completion count, and its plugin flags that as
+    // `magpie_cache_unknown`) is not the same as a 0% hit rate. Recording the
+    // 0 as fact told every Trae request it had a full miss.
+    const namedCache = usage.input_tokens_details?.cached_tokens != null
+      || usage.prompt_tokens_details?.cached_tokens != null
+      || usage.prompt_cache_hit_tokens != null
+      || usage.cache_read_input_tokens != null
+      || usage.cached_tokens != null;
+    request.cacheUnknown = usage.magpie_cache_unknown === true
+      || (!namedCache && !(Number(cached) > 0));
     // A hit can never exceed the input it came from; the field that says so
     // outranks a stale one left from an earlier chunk.
     request.cachedTokens = Math.min(cached, request.inputTokens || cached);

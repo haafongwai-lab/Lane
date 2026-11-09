@@ -1,0 +1,24 @@
+{
+  "name": "@lane/trae-auth",
+  "version": "0.2.33",
+  "description": "Vendored copy of @magpie-community/opencode-trae-auth 0.2.33 (MIT) for Trae CN and Trae Global",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "opencode.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "magpie",
+    "trae",
+    "trae-cn",
+    "trae-global",
+    "bytedance"
+  ],
+  "license": "MIT"
+}

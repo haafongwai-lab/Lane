@@ -84,6 +84,23 @@ async function writeCheckin(state, env = process.env) {
   return state;
 }
 
+/**
+ * Drops one account's check-in record. A successful sign-in replaces the
+ * token a failed record was written with, so keeping that record (and its
+ * 30-minute retry time) left a newly signed-in account showing the old
+ * "sign-in expired" failure until the timer ran out.
+ */
+export async function forgetCheckinAccount(id, env = process.env) {
+  const accountId = String(id || "");
+  if (!accountId) return;
+  return serial(env, async () => {
+    const state = await readCheckin(env);
+    if (!state.accounts?.[accountId]) return state;
+    delete state.accounts[accountId];
+    return writeCheckin(state, env);
+  });
+}
+
 export async function updateSettings(patch, env = process.env) {
   // Through the same queue as a claim round: a save that races a round in
   // flight would be overwritten when the round writes back the state it read

@@ -75,10 +75,10 @@ test("free-model usage is counted over the local day only", () => {
   assert.equal(a.freeRequestsTotal, 3, "the whole journal's free rows, not just today");
 });
 
-test("free-model traffic counts across every account, not one account only", () => {
-  // The route changes during a day: a domestic account can carry today's
-  // free requests while the Free-plan window was read from the international
-  // account. Counting just the latter's rows showed "0 今日请求".
+test("free-model traffic counts across every account when no account is named", () => {
+  // The usage page reads the allowance without a route: there the whole
+  // journal is the machine's traffic. The model list passes an account id
+  // and is scoped to it instead (next test).
   const overseas = "overseas-id";
   const domestic = "domestic-id";
   const rows = [
@@ -90,6 +90,31 @@ test("free-model traffic counts across every account, not one account only", () 
   const a = freeAllowance(usage(), rows, { now: NOW });
   assert.equal(a.freeRequestsToday, 3, "every account's free models count");
   assert.equal(a.freeRequestsTotal, 3);
+});
+
+test("an account-scoped allowance ignores another account's refusal", () => {
+  // A 429 naming a reset on the overseas account must not mark the domestic
+  // account's free models exhausted: that was the bug that made switching
+  // accounts leave the model list unchanged.
+  const overseas = "overseas-id";
+  const domestic = "domestic-id";
+  const rows = [
+    {
+      ...row("hy3", {
+        at: NOW - 60_000,
+        status: "error",
+        error: "allowance exhausted, reset at 2026-11-02 08:00:00 UTC+8"
+      }),
+      accountId: overseas
+    },
+    { ...row("hy3", { at: NOW - 30_000 }), accountId: domestic }
+  ];
+  const domesticView = freeAllowance(usage(), rows, { now: NOW, accountId: domestic });
+  assert.equal(domesticView.refusedUntil, "", "the other account's refusal is not ours");
+  assert.equal(domesticView.freeRequestsToday, 1, "today's machine-wide traffic still counts");
+  const overseasView = freeAllowance(usage(), rows, { now: NOW, accountId: overseas });
+  assert.equal(overseasView.refusedUntil, "2026-11-02T00:00:00.000Z");
+  assert.equal(overseasView.freeRequestsToday, 1, "the traffic total is machine-wide, not per account");
 });
 
 test("an in-force refusal is surfaced with its reset time", () => {

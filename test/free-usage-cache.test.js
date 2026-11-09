@@ -91,9 +91,29 @@ test("the free-model report counts the whole journal, not one account's rows", (
     SOURCE.indexOf("const freeReportFor"),
     SOURCE.indexOf("const invalidateUsage")
   );
-  assert.match(helper, /freeAllowance\(usage, rows\)/);
-  assert.doesNotMatch(helper, /accountId/,
-    "the report must not filter rows to one account");
-  assert.match(SOURCE, /report\.freeAllowance = await freeReportFor\(instance, rows\)/);
-  assert.match(SOURCE, /const freeReport = await freeReportFor\(instance, journal\.list\(\), accountList\)/);
+  assert.match(helper, /freeAllowance\(usage, rows, \{ accountId: source\.id \}\)/);
+  // The helper picks one account for the allowance, but the journal it reads
+  // is scoped to that account inside freeAllowance, not filtered here.
+  assert.match(SOURCE, /report\.freeAllowance = await freeReportFor\(instance, rows, null, routeAccount\?\.id\)/);
+  assert.match(SOURCE, /const freeReport = await freeReportFor\(instance, journal\.list\(\), accountList, account\?\.id\)/);
+});
+
+test("the model list's allowance follows the route account, not one fixed account", () => {
+  // The model status used one global freeAllowance read from the overseas
+  // account, so switching accounts kept showing the same exhausted models.
+  // The route account now decides which allowance the model list reflects,
+  // and a Trae route returns null instead of leaking a WorkBuddy account's
+  // state into the model list.
+  const helper = SOURCE.slice(
+    SOURCE.indexOf("const freeReportFor"),
+    SOURCE.indexOf("const invalidateUsage")
+  );
+  assert.match(helper, /routeId = null/);
+  assert.match(helper, /const route = routeId \? list\.find\(\(item\) => item\.id === routeId\) : null/);
+  assert.match(helper, /if \(routeId && !route\) return null/);
+  // The route account alone decides; no overseas fallback may leak a
+  // WorkBuddy state into a Trae route.
+  assert.match(helper, /const candidates = route\s*\? \[route\]\s*: list\.filter\(\(item\) => item\.provider !== "trae"\)/);
+  assert.doesNotMatch(helper, /overseas/,
+    "a Trae route must not show a WorkBuddy account's allowance");
 });

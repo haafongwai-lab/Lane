@@ -3,7 +3,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, assertLoopbackHost, gatewayBase, parseAddre
 import { claimOwnership, releaseOwnership } from "./owner.js";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
-import { WorkBuddyProvider } from "./workbuddy.js";
+import { ProviderRouter } from "./provider-router.js";
 import { connectZcode, disconnectZcode } from "./agents/zcode.js";
 import { codexConfigPath } from "./agents/paths.js";
 import { claudePaths } from "./agents/paths.js";
@@ -23,7 +23,7 @@ function usage() {
   lane disconnect zcode
   lane autostart install [--addr 127.0.0.1:3426]
   lane autostart uninstall
-  lane login [--site workbuddy|workbuddy-ai]
+  lane login [--site workbuddy|workbuddy-ai|trae-cn|trae-global]
   lane logout
   lane accounts
   lane use <account>
@@ -75,7 +75,7 @@ async function serve(args) {
     process.exitCode = 1;
     return;
   }
-  const provider = new WorkBuddyProvider();
+  const provider = new ProviderRouter();
   // Registered from the moment the seat is ours: Ctrl+C during the network
   // init below used to take the default kill, leaving a stale seat and no
   // final flush. The stop itself guards on what exists so far.
@@ -115,11 +115,11 @@ async function serve(args) {
     throw error;
   }
   console.log(`lane listening on ${address}`);
-  console.log("provider: workbuddy");
+  console.log("provider: lane");
 }
 
 async function doctor() {
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const claude = claudePaths();
   console.log(JSON.stringify({
     ok: true,
@@ -141,8 +141,8 @@ async function doctor() {
 }
 
 async function login(options = {}) {
-  const site = options.site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
-  const provider = new WorkBuddyProvider();
+  const site = ["workbuddy-ai", "trae-cn", "trae-global"].includes(options.site) ? options.site : "workbuddy";
+  const provider = new ProviderRouter();
   await provider.init();
   const result = await provider.authorize(site);
   console.log(`Open this URL and sign in:\n${result.url}\n`);
@@ -158,7 +158,7 @@ async function login(options = {}) {
 }
 
 async function logout() {
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const id = await provider.activeId();
   if (!id) {
     console.log(JSON.stringify({ ok: true, signedOut: false, reason: "no account" }, null, 2));
@@ -174,7 +174,7 @@ async function logout() {
 }
 
 async function accounts() {
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const list = await provider.accounts();
   const activeId = await provider.activeId();
   const checkin = await checkinOverview(provider);
@@ -190,14 +190,14 @@ async function accounts() {
 
 async function use(id) {
   if (!id) throw new Error("lane use <account>");
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const account = await provider.activate(matchAccount(await provider.accounts(), id));
   console.log(JSON.stringify({ ok: true, activeId: account.id, label: account.label }, null, 2));
 }
 
 async function toggle(id, enabled) {
   if (!id) throw new Error(`lane ${enabled ? "enable" : "disable"} <account>`);
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const account = await provider.setEnabled(matchAccount(await provider.accounts(), id), enabled);
   console.log(JSON.stringify({
     ok: true,
@@ -210,7 +210,7 @@ async function toggle(id, enabled) {
 
 async function forget(id) {
   if (!id) throw new Error("lane forget <account>");
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const result = await provider.forget(matchAccount(await provider.accounts(), id));
   console.log(JSON.stringify({ ok: true, ...result }, null, 2));
 }
@@ -232,7 +232,7 @@ function matchAccount(list, needle) {
 }
 
 async function checkin(args) {
-  const provider = await new WorkBuddyProvider().init();
+  const provider = await new ProviderRouter().init();
   const [action, value] = args;
   if (action === "on" || action === "off") {
     console.log(JSON.stringify(await updateSettings({ enabled: action === "on" }), null, 2));
@@ -265,7 +265,7 @@ async function main() {
   }
   if (command === "disconnect" && target === "claude-desktop") return disconnectClaudeDesktop();
   if (command === "connect" && target === "codex") {
-    const provider = await new WorkBuddyProvider().init();
+    const provider = await new ProviderRouter().init();
     const result = await connectCodex({
       gateway: gatewayBase(gateway.host, gateway.port),
       providerModels: () => provider.listModels()
@@ -275,7 +275,7 @@ async function main() {
   }
   if (command === "disconnect" && target === "codex") return disconnectCodex();
   if (command === "connect" && target === "zcode") {
-    const provider = await new WorkBuddyProvider().init();
+    const provider = await new ProviderRouter().init();
     const result = await connectZcode({
       gateway: gatewayBase(gateway.host, gateway.port),
       providerModels: () => provider.listModels()

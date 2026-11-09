@@ -44,6 +44,8 @@ test("a range covers whole local days, including days with no traffic", () => {
     billableTokens: 0,
     credits: 0,
     estimatedCredits: 0,
+    unbilledRequests: 0,
+    unbilledTokens: 0,
     failed: 0
   });
 });
@@ -91,6 +93,27 @@ test("an uncostable request counts its tokens but adds no credits", () => {
   assert.equal(report.totals.totalTokens, 1_000_000);
   assert.equal(report.totals.credits, 0);
   assert.equal(report.totals.estimatedCredits, 0);
+});
+
+test("a cycle-billed upstream's rows are counted as unbilled traffic", () => {
+  // Trae reports token counts but no per-request charge. Those rows must be
+  // visible in the spend view as real traffic, not folded into a silent 0.
+  const rows = [
+    request({ id: "a", model: "DeepSeek-V4-Flash-Official-max", credits: null, creditsSource: "estimate", rate: 0.2 }),
+    request({ id: "b", model: "DeepSeek-V4-Flash-Official-max", credits: null, creditsSource: "estimate", rate: 0.2, totalTokens: 400, inputTokens: 200, outputTokens: 200 }),
+    request({ id: "c", model: "hy4free", credits: 0, creditsSource: "upstream" })
+  ];
+  const report = summary(rows, { range: "today", now: NOW });
+  assert.equal(report.totals.requests, 3);
+  assert.equal(report.totals.credits, 0);
+  assert.equal(report.totals.unbilledRequests, 2);
+  assert.equal(report.totals.unbilledTokens, 1_000_400);
+  const trae = report.models.find((row) => row.model === "DeepSeek-V4-Flash-Official-max");
+  assert.equal(trae.unbilledRequests, 2);
+  assert.equal(trae.requests, 2);
+  assert.equal(trae.credits, 0);
+  assert.equal(report.series.at(-1).unbilledRequests, 2);
+  assert.equal(report.previous.unbilledRequests, 0);
 });
 
 test("billed and estimated credits are never added", () => {
@@ -145,7 +168,7 @@ test("the previous period is the same length immediately before", () => {
     request({ id: "older", startedAt: at("2026-10-20T12:00:00"), credits: 0.5, totalTokens: 5000 })
   ];
   const report = summary(rows, { range: "today", now: NOW });
-  assert.deepEqual(report.previous, { requests: 1, credits: 0.09, estimatedCredits: 0, totalTokens: 3000 });
+  assert.deepEqual(report.previous, { requests: 1, credits: 0.09, estimatedCredits: 0, totalTokens: 3000, unbilledRequests: 0, unbilledTokens: 0 });
 });
 
 test("agents are grouped and failed requests counted", () => {
@@ -165,6 +188,8 @@ test("agents are grouped and failed requests counted", () => {
     billableTokens: 2_000_000,
     credits: 0.05,
     estimatedCredits: 0,
+    unbilledRequests: 0,
+    unbilledTokens: 0,
     failed: 1
   }]);
 });

@@ -231,6 +231,14 @@ test("a plan-only window beside an extra one is not doubled", () => {
   assert.equal(w.name, "Credits", "an empty extra window leaves the plan's own figures alone");
 });
 
+test("Trae Global's dollar entitlement is a usage window, not a credit window", () => {
+  const usage = windows([{ name: "Dollar Usage", amount: 2.5, limit: 10, used: 25, unit: "usd" }]);
+  const w = creditWindowOf(usage);
+  assert.equal(w.name, "Dollar Usage");
+  assert.equal(w.unit, "usd");
+  assert.equal(creditView(usage).unit, "usd");
+});
+
 test("a token window is never read as a credit allowance", () => {
   // 0.2.0+ reports "Free model tokens" beside the credit windows. Shown as
   // credits it printed "176,000,000 / 200,000,000" with "积分" beside it.
@@ -292,8 +300,11 @@ test("modelStatus shows the real free-model recovery time only when exhausted", 
   assert.deepEqual(modelStatus({ id: "paid-model" }, allowance), { text: "可用", tone: "" });
   const status = modelStatus({ id: "free-model", free: true }, allowance);
   assert.equal(status.tone, "exhausted");
-  assert.match(status.text, /额度用尽/);
-  assert.match(status.text, /恢复/);
+  assert.equal(status.text, "额度用尽");
+  // The recovery time rides on its own line so the status column keeps the
+  // same width as the "可用" rows.
+  assert.match(status.hint, /恢复/);
+  assert.match(status.hint, /11\/10|11-10|10/);
   assert.match(status.title, /额度恢复时间/);
   assert.deepEqual(modelStatus({ id: "free-model", free: true }, { freeModels: ["free-model"] }), { text: "可用", tone: "" });
 });

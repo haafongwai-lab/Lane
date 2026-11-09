@@ -71,12 +71,22 @@ export async function connectZcode({
   }
 
   let models = [];
+  let modelsKnown = typeof providerModels !== "function";
   try {
-    models = typeof providerModels === "function" ? await providerModels() : [];
+    if (typeof providerModels === "function") {
+      models = await providerModels();
+      modelsKnown = Array.isArray(models);
+      if (!modelsKnown) models = [];
+    }
   } catch {
     models = [];
+    modelsKnown = false;
   }
-  if (!models.length) models = FALLBACK_MODELS;
+  // An empty list is a real answer once the user has added no models (the
+  // gateway would reject every one), not a reason to write the two fallback
+  // ids that happen to be built into Lane. Fall back only when the catalogue
+  // could not be read at all.
+  if (!modelsKnown) models = FALLBACK_MODELS;
   const ids = models.map((model) => model.id);
 
   // The document is ZCode's own; only the paths below are Lane's. `config`
@@ -165,7 +175,10 @@ export async function connectZcode({
  * after it on every account switch.
  */
 export async function syncZcodeCatalog({ env = process.env, models = [] } = {}) {
-  if (!models.length) return { changed: false };
+  // An empty list is meaningful: every model has been removed from the
+  // allowlist, and ZCode must stop offering the old ids. Only a catalogue
+  // that was not an array is left alone.
+  if (!Array.isArray(models)) return { changed: false };
   const state = await readState(env);
   const saved = state.zcode;
   if (!saved?.connected) return { changed: false };

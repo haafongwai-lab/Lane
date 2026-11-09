@@ -72,7 +72,9 @@
   --green: #22c55e;
   --green-bg: #233c2c;
   --red: #f25a5a;
-  --red-bg: #3c1f1b;
+  /* A red that reads as red, not as black with a red label: the old #3c1f1b
+     was so dark the badge looked like a hole in the panel. */
+  --red-bg: #5a2a24;
   --blue: #7aaaff;
   --panel-bg: #2c2c2e;
   --glass: #ffffff14;
@@ -515,8 +517,8 @@ h1 {
   display: block;
   object-fit: cover;
 }
-.wb-logo { overflow: hidden; background: transparent; }
-.wb-logo img {
+.upstream-logo { overflow: hidden; background: transparent; }
+.upstream-logo img {
   width: 100%;
   height: 100%;
   display: block;
@@ -650,13 +652,15 @@ h1 {
 .card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 11px; box-shadow: none; }
 .models-panel { overflow: hidden; padding: 0; }
 /* Head and rows share one track definition, so the columns always line up.
-   Widths follow content: the name takes what is left and ellipsizes, and
-   the status badge is only as wide as the badge itself - an equal split
-   left the last column mostly blank. */
+   Every track is a fixed proportion of the row, never max-content: each row
+   is its own grid, so a long "额度用尽 · <恢复时间>" used to widen that row's
+   last column and squeeze the others, leaving the exhausted rows visibly
+   misaligned with the "可用" ones. The final track is the per-model 添加
+   switch. */
 .model-head, .model-row {
-  grid-template-columns: minmax(0, 1fr) minmax(90px, .8fr) minmax(80px, .7fr) minmax(90px, .8fr) max-content;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, .8fr) minmax(80px, .7fr) minmax(90px, .8fr) minmax(150px, 1.05fr) 76px;
 }
-.model-head > :last-child, .model-row > :last-child { justify-self: start; }
+.model-head > :last-child, .model-row > :last-child { justify-self: end; }
 .model-head {
   display: grid;
   gap: 12px;
@@ -682,8 +686,79 @@ h1 {
 .credit-rate s { color: var(--faint); font-size: 10px; }
 .model-row code { color: var(--muted); }
 .model-row .soft-label { justify-self: start; }
-.model-status { justify-self: start; color: var(--muted); font-size: 10.5px; line-height: 1.5; white-space: nowrap; }
+.model-status {
+  justify-self: start;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+  /* The real recovery time is long; wrap it inside the track instead of
+     forcing the row wider than its neighbours. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .model-status.exhausted { color: var(--red); }
+.model-status small {
+  display: block;
+  margin-top: 1px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+/* The status column keeps the two-line layout inside a fixed track; a single
+   "可用" must not sit taller than its neighbours, so it is centred like the
+   rest of the row's cells. */
+.model-row { align-items: center; }
+.model-switch { justify-self: end; display: flex; align-items: center; }
+.model-switch input { display: none; }
+.model-switch span {
+  position: relative;
+  display: block;
+  width: 35px;
+  height: 20px;
+  border-radius: 20px;
+  background: var(--switch-track);
+  transition: .18s;
+}
+.model-switch span:after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 3px rgba(0,0,0,.14);
+  transition: .18s;
+}
+/* The same muted green the account switches use: the model list is a list of
+   preferences, not a call to action, so it must not shout brighter than the
+   rest of the page. */
+.model-switch input:checked + span { background: #2d6f4a; }
+.model-switch input:checked + span:after { left: 18px; }
+.models-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 22px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.model-search {
+  width: min(320px, 60%);
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 12px/1.4 var(--font-sans);
+}
+.model-search:focus { outline: 2px solid var(--green); outline-offset: 1px; border-color: transparent; }
+.model-search::placeholder { color: var(--faint); }
+.model-count { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.models-hint { margin: 10px 22px 14px; color: var(--faint); font-size: 11px; line-height: 1.5; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
 /* One sheet, one card: every setting lives in a single panel divided by
@@ -1129,7 +1204,7 @@ h1 {
   font: 12px/1 var(--font-sans); cursor: pointer;
   transition: color .15s, background .15s, border-color .15s;
 }
-.model-delete:hover { border-color: var(--line); background: rgba(160, 40, 40, .07); color: var(--red); }
+.model-delete:hover { border-color: var(--line); background: var(--red-bg); color: var(--red); }
 .model-delete:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
 .model-delete:disabled { opacity: .4; cursor: default; }
 @media (max-width: 930px) {
@@ -1395,13 +1470,17 @@ h1 {
 .add-menu[hidden] { display: none; }
 .add-menu button {
   width: 100%;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 8px 10px;
   border: 0;
   border-radius: 7px;
   background: transparent;
   text-align: left;
 }
+.add-menu button img { width: 20px; height: 20px; flex: 0 0 20px; object-fit: contain; border-radius: 5px; }
+.add-menu button span { min-width: 0; }
 .add-menu button:hover { background: var(--hover-bg); }
 .add-menu b { display: block; color: var(--ink); font-size: 12px; font-weight: 650; }
 .add-menu small { display: block; margin-top: 2px; color: var(--faint); font-size: 11px; }
@@ -1895,7 +1974,11 @@ h1 {
 :root[data-theme="dark"] .flow-rail { background: linear-gradient(90deg, transparent, #43454a 9%, #61666b 91%, transparent); }
 :root[data-theme="dark"] .route-canvas.busy .flow-rail { background: linear-gradient(90deg, #43454a, #22c55e 30%, #7aaaff 70%, #43454a); }
 :root[data-theme="dark"] .health-grid div { border-left-color: var(--line); }
-:root[data-theme="dark"] .model-row { background: #ffffff14; }
+/* The model rows sit inside a panel, so they need the same quiet surface the
+   usage and account rows have in dark mode — not the bare panel behind them,
+   which read brighter than every other list. */
+:root[data-theme="dark"] .models-panel .model-row { background: transparent; }
+:root[data-theme="dark"] .models-panel .model-row:hover { background: #ffffff14; }
 :root[data-theme="dark"] .account-row.active { background: linear-gradient(90deg, #22c55e1f, #22c55e00 62%); }
 :root[data-theme="dark"] .recent-row:has(.recent-pick:checked) { background: #22c55e14; }
 :root[data-theme="dark"] .mcp-lamp i { background: var(--switch-track); }

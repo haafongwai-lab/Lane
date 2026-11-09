@@ -374,13 +374,13 @@ export function publicAccount(account) {
 }
 
 /**
- * WorkBuddy ships as two builds with separate endpoints and catalogues: the
- * domestic one (copilot.tencent.com) and the international one
- * (www.workbuddy.ai). Accounts remember which one they signed in to; anything
- * written before this existed is domestic.
+ * Each provider keeps its realm in the site field. WorkBuddy ships as two
+ * builds (domestic and international); Trae likewise has trae-cn and
+ * trae-global. Anything written before this existed is domestic WorkBuddy.
  */
-export const SITES = ["workbuddy", "workbuddy-ai"];
+export const SITES = ["workbuddy", "workbuddy-ai", "trae-cn", "trae-global"];
 
 export function normalizeSite(site) {
-  return site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
+  if (site === "workbuddy-ai" || site === "trae-cn" || site === "trae-global") return site;
+  return "workbuddy";
 }

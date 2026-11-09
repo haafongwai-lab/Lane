@@ -19,10 +19,9 @@
  *   - freeUsageToday: this machine's requests on the free models, counted
  *     over the local day from the journal. No limit is shown because no
  *     endpoint reports one; when the vendor does exhaust it, it refuses with
- *     a reset time, which surfaces here as `refusedUntil`. `rows` is the whole
- *     journal, not one account's rows: free models are a plan-level allowance,
- *     every account declares the same `notModels`, and the route changes
- *     during a day (filtering by one account's id showed 0 requests).
+ *     a reset time, which surfaces here as `refusedUntil`. The refusal is
+ *     scoped to the account it belongs to; the traffic totals stay
+ *     machine-wide, because the route changes during a day.
  */
 
 import { creditWindowOf } from "./credit-window.js";
@@ -32,9 +31,18 @@ import { creditWindowOf } from "./credit-window.js";
 // (#337: the bare word beside the account read as the model being free).
 const FREE_PLAN = /^free(?:\s+plan)?$/i;
 
-export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
+export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = "" } = {}) {
   if (!usage || usage.error) return null;
   if (!FREE_PLAN.test(String(usage.plan || "").trim())) return null;
+
+  // `accountId` scopes the refusal state, not the traffic totals. A 429 on
+  // one account must not mark another account's free models exhausted, but
+  // "今日请求 / 本机累计" still describes this machine's traffic: scoping the
+  // counts too made them show 0 whenever the route account was not the one
+  // that had carried today's requests.
+  const statusRows = accountId
+    ? rows.filter((row) => String(row?.accountId || "") === String(accountId))
+    : rows;
 
   const windows = Array.isArray(usage.windows) ? usage.windows : [];
   const window = creditWindowOf(usage);
@@ -82,7 +90,7 @@ export function freeAllowance(usage, rows = [], { now = Date.now() } = {}) {
   // is applied: reading "08:00 UTC+8" as 08:00Z would put the reset eight
   // hours late.
   let refusedUntil = "";
-  for (const row of rows) {
+  for (const row of statusRows) {
     if (row?.status !== "error" || !isFreeModel(row?.model)) continue;
     const message = String(row?.error || "");
     const at = /reset at (\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/i.exec(message);

@@ -1,13 +1,20 @@
 # Lane
 
-Lane is a small, Windows-local desktop gateway for one provider and three agents:
+Lane is a small, Windows-local desktop gateway for multiple upstreams and three agents:
 
-- Provider: WorkBuddy — the domestic build (copilot.tencent.com) and the
-  international build (www.workbuddy.ai), signed in side by side
+- Upstreams: WorkBuddy — the domestic build (copilot.tencent.com) and the
+  international build (www.workbuddy.ai), signed in side by side; Trae CN
+  (trae.cn) and Trae Global (trae.ai) as a second upstream via the community
+  Trae auth plugin
 - Agents: Claude Desktop, Codex and ZCode
 
 It is intentionally independent from magpie. It does not read magpie's data
 directory, use its port, or control its processes.
+
+Trae support is experimental, following the upstream community plugin's own
+status: Trae CN has not been exercised against a real account here, and Trae
+Global has been tried only with a single SG Free account. Paid-plan and
+enterprise behavior follows the plugin's protocol shapes, not a live account.
 
 ## What is implemented
 
@@ -21,6 +28,8 @@ directory, use its port, or control its processes.
 - Stable Claude-facing aliases for WorkBuddy model ids
 - WorkBuddy sign-in, token persistence, refresh, model discovery and request
   handling through the community plugin
+- Trae CN / Trae Global sign-in, model discovery, token refresh and chat
+  through the vendored Trae community plugin
 - Reversible Claude Desktop, Codex and ZCode wiring
 
 The desktop app keeps the scope intentionally small. It does not implement a

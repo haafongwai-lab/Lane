@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   runCheckins,
   readCheckin,
+  forgetCheckinAccount,
   updateSettings,
   localDateKey,
   signHeaders
@@ -70,6 +71,37 @@ test("each enabled account claims its daily check-in once", async () => {
   const state = await readCheckin(env);
   assert.equal(state.accounts["uid-1"].status, "done");
   assert.equal(state.accounts["uid-1"].date, localDateKey(at("2026-10-22T10:00:00")));
+});
+
+test("a fresh sign-in clears the old failed check-in record and its retry timer", async () => {
+  // A "sign-in expired" failure writes a 30-minute retry time. After the user
+  // signs in again that record is about a token that no longer exists, and
+  // keeping it makes the account look broken until the timer runs out.
+  const { env, dir } = await tempEnv();
+  await fs.writeFile(path.join(dir, "checkin.json"), JSON.stringify({
+    settings: { enabled: true, hour: 0, minute: 0 },
+    accounts: {
+      "trae-1": {
+        date: "2026-11-10",
+        at: "2026-11-09T16:04:00.856Z",
+        status: "failed",
+        message: "Trae CN's sign-in has expired",
+        error: "Trae CN's sign-in has expired",
+        nextTryAt: "2026-11-09T16:33:48.640Z"
+      },
+      "other-1": { date: "2026-11-10", status: "done", reward: "100" }
+    }
+  }), "utf8");
+  await forgetCheckinAccount("trae-1", env);
+  const state = await readCheckin(env);
+  assert.equal(state.accounts["trae-1"], undefined, "the stale failure is gone");
+  assert.equal(state.accounts["other-1"].status, "done", "other accounts keep their record");
+});
+
+test("a successful sign-in re-runs that account's check-in instead of waiting for the retry timer", async () => {
+  const source = await fs.readFile(new URL("../src/control-center.js", import.meta.url), "utf8");
+  assert.match(source, /forgetCheckinAccount\(account\.id, env\)/);
+  assert.match(source, /runCheckins\(\{ provider: instance, env, only: \[account\.id\] \}\)/);
 });
 
 test("a second run the same day makes no request at all", async () => {

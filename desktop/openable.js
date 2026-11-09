@@ -14,7 +14,14 @@
  * is the one security decision in the desktop shell that a unit test can
  * hold, and it is exactly the kind that decays silently.
  */
-const OPENABLE_HOSTS = new Set(["www.workbuddy.cn", "www.workbuddy.ai", "copilot.tencent.com", "github.com"]);
+const OPENABLE_HOSTS = new Set([
+  "www.workbuddy.cn",
+  "www.workbuddy.ai",
+  "copilot.tencent.com",
+  "www.trae.cn",
+  "www.trae.ai",
+  "github.com"
+]);
 
 export function openableUrl(url) {
   if (typeof url !== "string") return null;

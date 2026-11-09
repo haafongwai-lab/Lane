@@ -62,6 +62,7 @@ export class WorkBuddyProvider {
     // restart leaves old placeholders unresolved rather than inventing a
     // value, so a secret can never be recovered from disk.
     this.secrets = new SecretVault();
+    this.ownedBy = "workbuddy";
     // One best-effort repair of names imported as "?" by old sign-in code.
     this.labelRefresh = null;
   }
@@ -342,13 +343,13 @@ export class WorkBuddyProvider {
     if (!auth) {
       return Object.entries(provider.models || {}).map(([modelId, value]) => ({
         id: modelId,
-        ...modelDetails(modelId, value, site)
+        ...modelDetails(modelId, value, site, this.ownedBy)
       }));
     }
     const models = await hooks.provider.models(structuredClone(provider), { auth });
     return Object.entries(models || {}).map(([modelId, value]) => ({
       id: modelId,
-      ...modelDetails(modelId, value, site)
+      ...modelDetails(modelId, value, site, this.ownedBy)
     }));
   }
 
@@ -608,11 +609,11 @@ async function loadFactory(site = "workbuddy") {
   return factory;
 }
 
-function modelDetails(id, value = {}, site = "") {
+function modelDetails(id, value = {}, site = "", ownedBy = "workbuddy") {
   const details = {
     name: value.name || id,
     context: value.limit?.context || 0,
-    owned_by: "workbuddy"
+    owned_by: ownedBy
   };
   // The plugin's live /v3/config carries the real reply cap; keep it with
   // the model instead of dropping it, so a client that reads a model's

@@ -14,6 +14,8 @@ async function tempEnv() {
 test("a site is either the domestic build or the international one", () => {
   assert.equal(normalizeSite("workbuddy"), "workbuddy");
   assert.equal(normalizeSite("workbuddy-ai"), "workbuddy-ai");
+  assert.equal(normalizeSite("trae-cn"), "trae-cn");
+  assert.equal(normalizeSite("trae-global"), "trae-global");
   assert.equal(normalizeSite(""), "workbuddy");
   assert.equal(normalizeSite(undefined), "workbuddy");
   assert.equal(normalizeSite("something-else"), "workbuddy");

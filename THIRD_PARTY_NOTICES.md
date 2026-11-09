@@ -19,3 +19,18 @@ without reaching the registry. No modifications have been made yet —
 `vendor/workbuddy-auth/NOTICE.md` records any future change. The MIT copyright
 notice and permission notice are shipped inside the built application because
 `vendor/**/*` is listed in `build.files`.
+
+## @magpie-community/opencode-trae-auth (vendored)
+
+Lane uses a copy of `@magpie-community/opencode-trae-auth` for Trae CN and
+Trae Global sign-in, model discovery, usage and chat requests.
+
+- Version: `0.2.33`. `index.mjs` SHA-256:
+  `51869480EDF1AD07FDB021599873E6690D882FF281698D08914EE3000D19906C`
+- License: MIT — see `vendor/trae-auth/LICENSE`
+  (Copyright (c) 2026 magpie-community contributors)
+- Upstream: <https://github.com/magpie-community/plugins/tree/main/packages/trae>
+- Local copy: `vendor/trae-auth/` (`index.mjs`, `README.md`, `LICENSE`, `NOTICE.md`)
+- Loaded directly by `src/trae.js`; the MIT notice and permission text ship
+  in the built application through the same `vendor/**/*` rule.
+

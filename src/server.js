@@ -167,7 +167,20 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           return;
         }
         const requested = body.model;
-        body.model = await mappedModel(provider, requested, "openai");
+        // The allowlist lives in the provider's listModels(), so a model the
+        // user has not added is absent here; refuse it instead of forwarding
+        // a request the gate was meant to stop.
+        const mapped = await servedModel(provider, requested, "openai");
+        if (!mapped.known) {
+          errorJSON(
+            res,
+            400,
+            `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
+            "invalid_request_error"
+          );
+          return;
+        }
+        body.model = mapped.id;
         // A client that sends a request Lane cannot satisfy in one piece
         // (a body over the limit, a shape the upstream refuses) is easier to
         // help when the body that actually arrived is on record.
@@ -222,7 +235,17 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           errorJSON(res, 400, "each tool must be an object");
           return;
         }
-        body.model = await mappedModel(provider, requested, "codex");
+        const mappedCodex = await servedModel(provider, requested, "codex");
+        if (!mappedCodex.known) {
+          errorJSON(
+            res,
+            400,
+            `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
+            "invalid_request_error"
+          );
+          return;
+        }
+        body.model = mappedCodex.id;
         const chat = responsesToChat(body);
         const id = randomUUID().replaceAll("-", "");
         const meta = await modelMeta(provider, body.model);
@@ -300,6 +323,17 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           );
           return;
         }
+        // A model the user has not added is not in the served list; refuse it
+        // here rather than forwarding a request the allowlist meant to stop.
+        if (!models.some((model) => model.id === body.model)) {
+          errorJSON(
+            res,
+            400,
+            `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
+            "invalid_request_error"
+          );
+          return;
+        }
         fitEffort(body, models.find((model) => model.id === body.model));
         const chat = anthropicToChat(body);
         const id = randomUUID().replaceAll("-", "");
@@ -353,6 +387,22 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
 async function mappedModel(provider, requested, agent) {
   const models = withAliases(await provider.listModels(), agent);
   return resolveModel(requested, models, agent);
+}
+
+/**
+ * Whether the provider actually serves this model.
+ *
+ * The model allowlist is applied inside the provider's own `listModels()`, so
+ * a model the user has not added is simply absent from that list. Checking
+ * membership here therefore enforces the allowlist without this file knowing
+ * anything about where the allowlist lives — and a provider that serves its
+ * whole catalogue (the fallback, the tests) keeps working unchanged.
+ */
+async function servedModel(provider, requested, agent) {
+  const models = withAliases(await provider.listModels(), agent);
+  const id = resolveModel(requested, models, agent);
+  const known = models.some((model) => model.id === id);
+  return { id, known };
 }
 
 // The credit multiple WorkBuddy charges for this model and the context

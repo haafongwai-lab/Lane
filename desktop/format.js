@@ -64,6 +64,9 @@ export function creditWindowOf(usage) {
     }
   }
   if (plan) return plan;
+  // Trae Global reports a dollar entitlement window rather than credits.
+  const dollar = windows.find((item) => item?.unit === "usd" || item?.name === "Dollar Usage");
+  if (dollar) return dollar;
   // A balance with no cycle limit: real credits, just not a meter.
   const prepaid = byName("Prepaid credits");
   if (prepaid && Number(prepaid.balance) > 0) return prepaid;
@@ -86,6 +89,9 @@ export function creditView(usage) {
       left: balance,
       percent: 0,
       prepaid: true,
+      // A prepaid balance can still be denominated in dollars (Trae
+      // Global); keep the unit so the chip does not print it as credits.
+      unit: window.unit || "",
       runsOutAt: "",
       runsOut: 0
     };
@@ -102,6 +108,7 @@ export function creditView(usage) {
     limit,
     left: Math.max(0, limit - used),
     percent,
+    unit: window.unit || "",
     // Two different dates, not one: the cycle starts the allowance over
     // (resetsAt), while runsOutAt is when credits left would lapse. The old
     // card called both "重置", which told the user their credits return on
@@ -226,10 +233,17 @@ export function modelStatus(model, allowance) {
   const date = new Date(allowance.refusedUntil);
   if (!Number.isFinite(date.getTime())) return { text: "额度已用尽", tone: "exhausted" };
   const when = date.toLocaleString("zh-CN", {
+    month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  });
+  const full = date.toLocaleString("zh-CN", {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hour12: false
   });
-  return { text: `额度用尽 · ${when} 恢复`, tone: "exhausted", title: `额度恢复时间：${when}` };
+  // Two short lines instead of one long one: the status column must stay the
+  // same width as every other row, so the recovery time goes on its own line.
+  // The tooltip keeps the full date (year included) that the short line omits.
+  return { text: "额度用尽", hint: `${when} 恢复`, tone: "exhausted", title: `额度恢复时间：${full}` };
 }
 
 /**

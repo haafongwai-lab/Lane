@@ -91,11 +91,15 @@ function renderCredits(usage) {
   // The meter reports what the cycle has spent; the card answers the question
   // the account page does — how much is left — so it shows the remainder.
   // A prepaid balance has no cycle total: it is all left, and saying "42.5 /
-  // 42.5" would claim a ceiling the account never had.
+  // 42.5" would claim a ceiling the account never had. Trae Global reports its
+  // entitlement in dollars, so the label says that rather than "积分".
+  const money = credits?.unit === "usd";
+  const prefix = money ? "$" : "";
+  const label = money ? "剩余额度" : "剩余积分";
   $("#account-credits").textContent = credits
     ? credits.prepaid
-      ? `剩余积分 ${creditNumber(credits.left)}`
-      : `剩余积分 ${creditNumber(credits.left)} / ${creditNumber(credits.limit)}`
+      ? `${label} ${prefix}${creditNumber(credits.left)}`
+      : `${label} ${prefix}${creditNumber(credits.left)} / ${prefix}${creditNumber(credits.limit)}`
     : usage?.error
       ? usage.signIn === "expired" ? "需重新登录" : "积分不可用"
       : "积分 —";
@@ -237,10 +241,19 @@ function render() {
   $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
   $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
   $("#provider-state").previousElementSibling.classList.toggle("off", !signedIn);
-  $("#account-name").textContent = account || "WorkBuddy";
-  $("#account-plan").textContent = snapshot.domain || "本地账号";
+  // The route node names whichever upstream currently carries requests; the
+  // icon follows that upstream so a Trae route is not drawn with WorkBuddy's.
+  const carrier = (snapshot.accounts || []).find((item) => item.id === snapshot.activeId);
+  const upstreamName = carrier?.provider === "trae"
+    ? (carrier.site === "trae-global" ? "Trae Global" : "Trae CN")
+    : "WorkBuddy";
+  $("#provider-logo").src = carrier?.provider === "trae"
+    ? "assets/trae-official-256.png"
+    : "assets/workbuddy-official.svg";
+  $("#account-name").textContent = account || "上游账号";
+  $("#account-plan").textContent = snapshot.domain || upstreamName;
   $("#health-account").textContent = account || "未登录";
-  $("#health-domain").textContent = snapshot.domain || "WorkBuddy";
+  $("#health-domain").textContent = snapshot.domain || upstreamName;
   $("#health-codex").textContent = codexOn ? "已接入" : "未接入";
   $("#health-claude").textContent = claudeOn ? "已接入" : "未接入";
   $("#codex-connect-state").textContent = codexOn ? "已接入" : "未接入";
@@ -335,7 +348,7 @@ function render() {
   // flip.
   if (!autostartPending) $("#autostart").checked = Boolean(snapshot.autostart);
 
-  renderModels(models || [], snapshot.freeAllowance || null);
+  renderModels(snapshot.catalogue || models || [], snapshot.freeAllowance || null, snapshot.modelGate || null);
   renderUsageRecent();
   renderAccounts();
   renderCheckin();
@@ -368,7 +381,7 @@ function renderAccounts() {
     maskButton.classList.toggle("on", accountMasked);
   }
   if (!accounts.length) {
-    list.innerHTML = '<div class="empty">还没有账号。点「添加账号」登录 WorkBuddy。</div>';
+    list.innerHTML = '<div class="empty">还没有账号。点「添加账号」登录上游。</div>';
     foot.textContent = "";
     return;
   }
@@ -388,15 +401,16 @@ function renderAccounts() {
     const tags = [
       active ? '<em class="tag-on">当前</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
-      account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : ""
+      account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : "",
+      account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : ""
     ].filter(Boolean).join("");
     return `
     <div class="account-row${active ? " active" : ""}${enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
-      <div class="account-avatar"><img src="assets/workbuddy-official.svg" alt=""></div>
+      <div class="account-avatar"><img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
         <div class="account-meta">
-          <span class="account-host">${esc(account.domain || "WorkBuddy")}</span>
+          <span class="account-host">${esc(account.domain || (account.provider === "trae" ? "Trae" : "WorkBuddy"))}</span>
           <i>·</i>
           <code>${esc(accountMasked ? maskId(account.id) : account.id.slice(0, 8))}</code>
           ${checkinChip(checkin.get(account.id), { ...account, enabled })}
@@ -437,7 +451,7 @@ function creditsChip(account) {
   const view = creditView(account.credits);
   if (!view) {
     if (account.credits?.error) {
-      // A sign-in WorkBuddy refused is not a billing glitch: the chip says
+      // A sign-in the upstream refused is not a billing glitch: the chip says
       // which it is, because this row is where the account is managed.
       const expired = account.credits?.signIn === "expired";
       return `<span class="account-chip ${expired ? "warn" : "idle"}" data-tip="${esc(account.credits.error)}">${expired ? "需重新登录" : "积分不可用"}</span>`;
@@ -446,15 +460,17 @@ function creditsChip(account) {
   }
   // A prepaid balance only falls: there is no cycle percent to warn about.
   if (view.prepaid) {
-    return `<span class="account-chip" data-tip="${esc("预付积分余额")}">剩余 ${creditNumber(view.left)}</span>`;
+    const prefix = view.unit === "usd" ? "$" : "";
+    return `<span class="account-chip" data-tip="${esc("预付积分余额")}">剩余 ${prefix}${creditNumber(view.left)}</span>`;
   }
   // Ninety percent gone is the point where the next long task may not fit;
   // below that the plain chip keeps the list calm.
   const tone = view.percent >= 90 ? " warn" : "";
+  const prefix = view.unit === "usd" ? "$" : "";
   const tip = [`本周期已用 ${creditNumber(view.used)} / ${creditNumber(view.limit)}（${Math.round(view.percent)}%）`];
   if (view.resetsAt) tip.push(`${new Date(view.resetsAt).toLocaleDateString("zh-CN")} 重置`);
   if (view.runsOutAt) tip.push(`${new Date(view.runsOutAt).toLocaleDateString("zh-CN")} 未用额度过期`);
-  return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${creditNumber(view.left)}</span>`;
+  return `<span class="account-chip${tone}" data-tip="${esc(tip.join(" · "))}">剩余 ${prefix}${creditNumber(view.left)}</span>`;
 }
 
 // The next time the scheduler will fire, as "今天 09:00" / "明天 21:30".
@@ -509,7 +525,7 @@ function renderCheckin() {
   const retryNote = failed ? `${failed} 个失败，稍后自动重试` : "";
   if (!total) {
     state.textContent = accounts.length ? "暂无可签到的账号" : "还没有账号";
-    sub.textContent = accounts.length ? "开启的账号到点自动签到" : "登录 WorkBuddy 后每天自动领取积分";
+    sub.textContent = accounts.length ? "开启的账号到点自动签到" : "登录账号后每天自动领取积分";
   } else if (settings.enabled === false) {
     state.textContent = "自动签到已关闭";
     sub.textContent = `打开开关后每天 ${hhmm} 定时领取`;
@@ -584,24 +600,80 @@ function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn }) {
   $("#client-state").previousElementSibling.classList.toggle("off", none);
 }
 
-function renderModels(models, freeAllowance = null) {
+function renderModels(models, freeAllowance = null, gate = null) {
   const list = $("#model-list");
-  if (!models.length) {
-    list.innerHTML = '<div class="empty">登录 WorkBuddy 后可读取模型目录。</div>';
+  // The page shows the FULL upstream catalogue so every model can be added
+  // or removed; `models` is the agent-facing subset the gateway serves.
+  const rowsData = Array.isArray(models) && models.length ? models : [];
+  if (!rowsData.length) {
+    list.innerHTML = '<div class="empty">登录账号后可读取模型目录。</div>';
     return;
   }
-  list.innerHTML = models.map((model) => {
+  // A live search narrows what the page shows without touching the allowlist.
+  const modelSearchEl = $("#model-search");
+  const search = String((modelSearchEl?.value || "").trim()).toLowerCase();
+  // New entries are `provider:id`; a legacy bare id still matches every
+  // provider, which is exactly how models.json behaves before migration.
+  const enabled = new Set([
+    ...(Array.isArray(gate?.enabledKeys) ? gate.enabledKeys : []),
+    ...(Array.isArray(gate?.enabledIds) ? gate.enabledIds : [])
+  ]);
+  const visible = search
+    ? rowsData.filter((model) =>
+      String(model.name || model.id).toLowerCase().includes(search)
+      || String(model.id).toLowerCase().includes(search))
+    : rowsData;
+  const count = $("#model-count");
+  if (count) count.textContent = gate?.corrupt
+    ? "模型配置损坏，暂按未添加处理"
+    : search ? `${visible.length} / ${rowsData.length}` : `${rowsData.length} 个模型`;
+  list.innerHTML = visible.map((model) => {
     const status = modelStatus(model, freeAllowance);
+    const provider = String(model.owned_by || model.provider || "workbuddy");
+    const on = enabled.has(String(model.id)) || enabled.has(`${provider}:${model.id}`);
     return `
     <div class="model-row">
       <div class="model-name">${esc(model.name || model.id)}</div>
       <span>${model.context ? `${compact(model.context)} tokens` : "—"}</span>
       <span class="credit-rate">${creditRate(model)}</span>
-      <code>${esc(model.owned_by || "workbuddy")}</code>
-      <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` title="${esc(status.title)}"` : ""}>${esc(status.text)}</span>
+      <code>${esc(model.owned_by || "upstream")}</code>
+      <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` title="${esc(status.title)}"` : ""}>${esc(status.text)}${status.hint ? `<small>${esc(status.hint)}</small>` : ""}</span>
+      <label class="model-switch" data-tip="${on ? "移除后 Agent 不再读取该模型" : "添加后 Agent 才能读取该模型"}">
+        <input type="checkbox" data-model-add="${esc(model.id)}" data-model-provider="${esc(provider)}"${on ? " checked" : ""}>
+        <span></span>
+      </label>
     </div>`;
   }).join("");
+  if (!visible.length) {
+    list.innerHTML = '<div class="empty">没有匹配「' + esc(search) + '」的模型。</div>';
+  }
 }
+
+// The per-model 添加/移除 switch: only added models are served to agents.
+$("#model-list").addEventListener("change", async (event) => {
+  const box = event.target.closest("input[data-model-add]");
+  if (!box) return;
+  box.disabled = true;
+  try {
+    await window.lane.setModel(box.dataset.modelAdd, box.checked, box.dataset.modelProvider || "");
+    toast(box.checked ? `已添加 ${box.dataset.modelAdd}，Agent 可以读取` : `已移除 ${box.dataset.modelAdd}，Agent 不再读取`);
+  } catch (error) {
+    toast(`操作失败：${error.message}`, true);
+    box.checked = !box.checked;
+  } finally {
+    box.disabled = false;
+    refresh({ quiet: true });
+  }
+});
+
+// The search box narrows the page's model rows; the allowlist is untouched.
+const modelSearchEl = $("#model-search");
+modelSearchEl.addEventListener("input", () => {
+  // The status snapshot from a follower attached to an older gateway may not
+  // carry `catalogue`; fall back to the models list it did send instead of
+  // making a search keystroke blank the page.
+  renderModels(snapshot?.catalogue || snapshot?.models || [], snapshot?.freeAllowance || null, snapshot?.modelGate || null);
+});
 
 // ---- usage ----------------------------------------------------------------
 
@@ -657,17 +729,28 @@ function renderUsage() {
 
   // One line of headline figures replaces the four metric cards: the totals
   // still read at a glance, and the chart below carries the detail. The
-  // credits figure is what WorkBuddy charged (its own `credit` report); the
+  // credits figure is what the upstream charged (its own `credit` report); the
   // money line under it converts that same figure at the plan's rate.
   $("#usage-summary").innerHTML = [
     `<b>${credits(totals.credits)}</b> 积分`,
     `<b>${totals.requests}</b> 次请求`
   ].join(" · ");
   const money = $("#usage-estimate");
-  money.hidden = !(totals.credits > 0);
-  money.textContent = totals.credits > 0
-    ? `折合 ¥${rmb(totals.credits)} · 按 10 元 = 200 积分换算`
-    : "";
+  // Trae and other cycle-billed upstreams report token counts but no
+  // per-request charge, so their rows carry credits: null. Saying nothing
+  // made those requests look untracked; name the upstream's billing model
+  // and show the tokens Lane did count, and point at the cycle quota card.
+  const unbilled = Number(totals.unbilledRequests) || 0;
+  const unbilledTokens = Number(totals.unbilledTokens) || 0;
+  if (unbilled > 0) {
+    money.hidden = false;
+    money.textContent = `其中 ${unbilled} 次请求上游未逐请求计费（按周期额度结算），本机统计 ${compact(unbilledTokens)} tokens；周期额度见右侧卡片`;
+  } else {
+    money.hidden = !(totals.credits > 0);
+    money.textContent = totals.credits > 0
+      ? `折合 ¥${rmb(totals.credits)} · 按 10 元 = 200 积分换算`
+      : "";
+  }
 
   // The range control comes back with the report, so a stale tab can't
   // leave the page showing one range and offering another.
@@ -746,6 +829,17 @@ function renderUsageChart(series) {
   const active = series.filter((item) => (item.requests || 0) > 0);
   if (!active.length) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
+    return;
+  }
+  // An upstream that bills by cycle (Trae) reports tokens, not a per-request
+  // charge. A flat zero line would look like nothing happened; say what the
+  // chart cannot draw and point at the token figures that do exist.
+  const billedPeak = Math.max(...series.map((item) => Number(item.credits) || 0), 0);
+  const estimatedPeak = Math.max(...series.map((item) => Number(item.estimatedCredits) || 0), 0);
+  if (!(billedPeak > 0)) {
+    node.innerHTML = estimatedPeak > 0
+      ? '<div class="empty">本区间只有按 token 估算的积分，没有上游逐请求扣费；token 用量见模型与请求列表。</div>'
+      : '<div class="empty">本区间上游按周期额度结算，未逐请求返回扣费，积分趋势无数据；token 用量见模型与请求列表。</div>';
     return;
   }
   const W = 720;
@@ -891,7 +985,7 @@ function renderUsageQuota(quota) {
   if (!quota || quota.error) {
     plan.textContent = "—";
     node.innerHTML = quota?.signIn === "expired"
-      ? '<div class="empty">WorkBuddy 已拒绝这个账号的登录，请在「账号」页重新登录。</div>'
+      ? '<div class="empty">上游已拒绝这个账号的登录，请在「账号」页重新登录。</div>'
       : `<div class="empty">${esc(quota?.error && quota.error !== "not signed in" ? quota.error : "登录后显示账户额度。")}</div>`;
     return;
   }
@@ -934,11 +1028,15 @@ function renderUsageQuota(quota) {
   const lapsesAt = view.runsOutAt
     ? new Date(view.runsOutAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
+  // Trae Global's entitlement window is in dollars, not credits; say the
+  // unit rather than printing "$12" under a "剩余积分" heading.
+  const money = view.unit === "usd";
+  const prefix = money ? "$" : "";
   node.innerHTML = `
     <div class="quota-hero">
       <div class="quota-figure">
-        <span class="quota-label">剩余积分</span>
-        <div class="quota-amount"><b>${creditNumber(left)}</b><span>/ 共 ${creditNumber(limit)}</span></div>
+        <span class="quota-label">${money ? "剩余额度" : "剩余积分"}</span>
+        <div class="quota-amount"><b>${prefix}${creditNumber(left)}</b><span>/ 共 ${prefix}${creditNumber(limit)}</span></div>
       </div>
       <span class="quota-badge${share >= 90 ? " warn" : ""}">剩余 ${percent((100 - share) / 100)}</span>
     </div>
@@ -1003,7 +1101,7 @@ function renderUsageModels(models, totals) {
     node.innerHTML = '<div class="empty">所选区间内还没有请求。</div>';
     return;
   }
-  // The donut shares out billed credits only — rows without a WorkBuddy
+  // The donut shares out billed credits only — rows without an upstream
   // charge have no proportion to draw.
   const ranked = models.filter((row) => row.credits > 0).sort((a, b) => b.credits - a.credits);
   const kept = ranked.slice(0, PIE_MAX_SLICES);
@@ -1035,7 +1133,7 @@ function renderUsageModels(models, totals) {
           <div class="usage-table-row">
             <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code class="${badge.tone}">${esc(badge.text)}</code></div>
             <span>${row.requests}</span>
-            <span class="usage-cost">${credits(row.credits)}${row.credits > 0 ? ` <i class="soft-label">¥${rmb(row.credits)}</i>` : ""}</span>
+            <span class="usage-cost"${row.credits > 0 ? "" : ` title="上游按周期额度结算，未逐请求返回扣费；本机统计 ${compact(row.totalTokens || 0)} tokens"`}>${row.credits > 0 ? `${credits(row.credits)} <i class="soft-label">¥${rmb(row.credits)}</i>` : (row.unbilledRequests > 0 ? "—" : credits(0))}</span>
             <button type="button" class="model-delete" data-model-delete="${esc(row.model)}" title="删除「${esc(row.model)}」在当前区间的记录" aria-label="删除 ${esc(row.model)} 的使用记录">✕</button>
           </div>`;
         }).join("")}
@@ -1094,14 +1192,21 @@ function renderUsageRecent() {
   node.innerHTML = head + rows.map((item) => {
     const when = new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
     // Rows written before the journal kept cachedTokens have no figure to
-    // show: a missing value is unknown, not a zero percent.
-    const cacheKnown = item.cachedTokens != null;
+    // show: a missing value is unknown, not a zero percent. An upstream that
+    // never reports a cache figure (Trae) is unknown too — showing 0% there
+    // claimed a full miss the upstream never said.
+    const cacheKnown = item.cachedTokens != null && item.cacheUnknown !== true;
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = requestState(item);
-    // A billed credit is WorkBuddy's own number and the only one shown; a
-    // row it did not cost stays uncosted — the token-formula estimate proved
-    // untrustworthy and no longer displays.
-    const cost = item.creditsSource === "upstream" ? credits(item.credits ?? 0) : "—";
+    // A billed credit is the upstream's own number and the only one shown. An
+    // upstream that bills by cycle (Trae) returns no per-request charge, but
+    // its token count is real: show that instead of a bare dash so the row
+    // does not read as untracked.
+    const cost = item.creditsSource === "upstream"
+      ? credits(item.credits ?? 0)
+      : (item.totalTokens || item.inputTokens + item.outputTokens || 0
+        ? `${compact(item.totalTokens || item.inputTokens + item.outputTokens)} tk`
+        : "—");
     // A live request cannot be deleted; its box says so by being disabled.
     const running = item.status === "running";
     return `<div class="recent-row" data-id="${esc(item.id)}">
@@ -1154,10 +1259,11 @@ async function command(command, options = {}, success = "操作完成") {
 }
 
 async function signIn(site = "workbuddy") {
+  const siteNames = { "workbuddy": "WorkBuddy", "workbuddy-ai": "WorkBuddy AI", "trae-cn": "Trae CN", "trae-global": "Trae Global" };
   try {
     const result = await window.lane.signIn({ site });
     if (result.url) await window.lane.openURL(result.url);
-    toast(`已打开 ${site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"} 登录页，完成后会自动更新状态`);
+    toast(`已打开 ${siteNames[site] || site} 登录页，完成后会自动更新状态`);
   } catch (error) {
     toast(`登录失败：${error.message}`, true);
   }
@@ -1272,7 +1378,12 @@ $("#zcode-connect").addEventListener("click", () => command("connect", { agent: 
 $("#dsh-connect").addEventListener("click", () => command("connect", { agent: "dsh" }, "DeepSeek Harness 已接入，请重启客户端"));
 $("#zcode-disconnect").addEventListener("click", () => command("disconnect", { agent: "zcode" }, "ZCode 已断开"));
 $("#dsh-disconnect").addEventListener("click", () => command("disconnect", { agent: "dsh" }, "DeepSeek Harness 已断开"));
-$("#quick-signin").addEventListener("click", () => signIn());
+$("#quick-signin").addEventListener("click", () => {
+  // More than one upstream can sign in now: take the user to the account page
+  // and let them pick which one, rather than silently starting WorkBuddy's.
+  go("accounts");
+  $("#add-menu").hidden = false;
+});
 // Two builds, two sign-in pages: the menu picks which one this account joins.
 $("#add-account").addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1559,8 +1670,8 @@ $("#quit-app").addEventListener("click", async () => {
 window.lane.onSignIn(async ({ error } = {}) => {
   // The event only ever arrives when a sign-in finished: it failed if it
   // carries an error, otherwise the account landed and the window refreshes.
-  if (error) toast(`WorkBuddy 登录失败：${error}`, true);
-  else toast("WorkBuddy 登录成功");
+  if (error) toast(`登录失败：${error}`, true);
+  else toast("登录成功");
   await refresh({ quiet: true });
 });
 

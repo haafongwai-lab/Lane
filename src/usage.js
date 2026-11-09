@@ -88,11 +88,17 @@ const newCounter = () => ({
   billableTokens: 0,
   credits: 0,
   estimatedCredits: 0,
+  // Trae (and any other upstream that bills by cycle rather than by
+  // request) reports token counts but no per-request charge. Those rows are
+  // real traffic with a real cost to the account, yet `credits` stays 0;
+  // keeping them visible here stops the spend page from reading as empty.
+  unbilledRequests: 0,
+  unbilledTokens: 0,
   failed: 0
 });
 
 // A running total's view of one request.
-function accumulate(row, { input, output, total, cached, credits, estimatedCredits, failed }) {
+function accumulate(row, { input, output, total, cached, credits, estimatedCredits, failed, unbilled }) {
   row.requests += 1;
   row.inputTokens += input;
   row.outputTokens += output;
@@ -101,6 +107,10 @@ function accumulate(row, { input, output, total, cached, credits, estimatedCredi
   row.billableTokens += input - cached + output;
   row.credits += credits;
   row.estimatedCredits += estimatedCredits;
+  if (unbilled) {
+    row.unbilledRequests += 1;
+    row.unbilledTokens += total;
+  }
   if (failed) row.failed += 1;
 }
 
@@ -187,7 +197,13 @@ export function summary(requests = [], { range = "today", now = Date.now(), rate
     // A cache hit can never exceed the input it came from.
     const cached = Math.min(request.cachedTokens || 0, input);
     const failed = request.status === "error";
-    const piece = { input, output, total, cached, credits, estimatedCredits, failed };
+    // "estimate" is a row whose upstream returned tokens but no per-request
+    // charge (Trae, or a build that omits the credit field). A legacy row
+    // with no source at all is still costed by the token formula, but it is
+    // not evidence of cycle billing; only explicit estimate rows are counted
+    // as unbilled traffic.
+    const unbilled = request.creditsSource === "estimate";
+    const piece = { input, output, total, cached, credits, estimatedCredits, failed, unbilled };
 
     accumulate(totals, piece);
     const column = byDay.get(day);
@@ -246,15 +262,20 @@ function previousTotals(requests, { keys, startAt, rateFor }) {
   firstPrevious.setDate(firstPrevious.getDate() - keys.length);
   const from = firstPrevious.getTime();
   const until = startAt;
-  const seen = { requests: 0, credits: 0, estimatedCredits: 0, totalTokens: 0 };
+  const seen = { requests: 0, credits: 0, estimatedCredits: 0, totalTokens: 0, unbilledRequests: 0, unbilledTokens: 0 };
   for (const request of requests) {
     if (!Number.isFinite(request?.startedAt)) continue;
     if (request.startedAt < from || request.startedAt >= until) continue;
     const { credits, estimatedCredits } = creditSplit(request, rateFor);
     seen.requests += 1;
-    seen.totalTokens += request.totalTokens || (request.inputTokens || 0) + (request.outputTokens || 0);
+    const tokens = request.totalTokens || (request.inputTokens || 0) + (request.outputTokens || 0);
+    seen.totalTokens += tokens;
     seen.credits += credits;
     seen.estimatedCredits += estimatedCredits;
+    if (request.creditsSource === "estimate") {
+      seen.unbilledRequests += 1;
+      seen.unbilledTokens += tokens;
+    }
   }
   return round(seen);
 }

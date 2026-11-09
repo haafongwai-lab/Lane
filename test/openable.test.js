@@ -5,19 +5,20 @@ import { openableUrl, openableHosts } from "../desktop/openable.js";
 /**
  * The shell's one security decision, held by a test.
  *
- * The hosts below are measured, not guessed: the plugin's
- * authorize() returns `https://www.workbuddy.cn/login?...` for the domestic
- * build and `https://www.workbuddy.ai/login?...` for the international one,
- * and API traffic goes to copilot.tencent.com. A host added here without a
+ * The hosts below are measured, not guessed: the plugins' authorize() calls
+ * return WorkBuddy's two sign-in pages and Trae's two authorization pages,
+ * while API traffic goes to copilot.tencent.com. A host added here without a
  * reason, or a loosened comparison, would widen what a compromised renderer
  * can make the shell open.
  */
 
-test("the sign-in pages the plugin actually returns are openable", () => {
-  // Shapes taken from a live authorize() call, trimmed to the host part.
+test("the sign-in pages the plugins actually return are openable", () => {
+  // Shapes taken from live authorize() calls, trimmed to the host part.
   for (const url of [
     "https://www.workbuddy.cn/login?platform=workbuddy&state=abc",
     "https://www.workbuddy.ai/login?platform=workbuddy-ai&state=abc",
+    "https://www.trae.cn/authorization?login_version=1",
+    "https://www.trae.ai/authorization?login_version=1",
     "https://copilot.tencent.com/"
   ]) {
     assert.equal(openableUrl(url), new URL(url).href, url);
@@ -67,9 +68,9 @@ test("junk input is refused rather than thrown on", () => {
   }
 });
 
-test("the allowlist is exactly the four hosts", () => {
+test("the allowlist is exactly the six hosts", () => {
   assert.deepEqual(
     [...openableHosts].sort(),
-    ["copilot.tencent.com", "github.com", "www.workbuddy.ai", "www.workbuddy.cn"]
+    ["copilot.tencent.com", "github.com", "www.trae.ai", "www.trae.cn", "www.workbuddy.ai", "www.workbuddy.cn"]
   );
 });

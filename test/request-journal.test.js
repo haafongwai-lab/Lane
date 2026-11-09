@@ -204,8 +204,39 @@ test("cache hits are read from the field the upstream actually fills", async (t)
   await journal.flush();
 });
 
-test("a cache hit larger than its input is clamped to the input", async (t) => {
+test("an upstream that names no cache figure is unknown, not a 0% hit", async (t) => {
+  // Trae answers a bare prompt/completion count and its plugin marks that
+  // `magpie_cache_unknown`. Recording it as 0 told every Trae request it had
+  // a full cache miss, which is a claim the upstream never made.
   const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "dsh", endpoint: "/v1/chat/completions", model: "DeepSeek-V4-Flash-Official-max", rate: 0.2 });
+  journal.usage(record.id, {
+    prompt_tokens: 48_914,
+    completion_tokens: 135,
+    total_tokens: 49_049,
+    magpie_cache_unknown: true
+  });
+  const [row] = journal.list();
+  assert.equal(row.cachedTokens, 0);
+  assert.equal(row.cacheUnknown, true, "the page shows — instead of 0%");
+  await journal.flush();
+});
+
+test("a cache figure the upstream did name is not unknown", async (t) => {
+  const dir = tempDir(t);
+  const journal = new RequestJournal({ dir });
+  const record = journal.start({ agent: "claude-desktop", endpoint: "/v1/messages", model: "hy3", rate: 0 });
+  journal.usage(record.id, {
+    prompt_tokens: 1000,
+    completion_tokens: 10,
+    prompt_tokens_details: { cached_tokens: 0 }
+  });
+  assert.equal(journal.list()[0].cacheUnknown, false, "a named 0 is a real miss");
+  await journal.flush();
+});
+
+test("a cache hit larger than its input is clamped to the input", async (t) => {  const dir = tempDir(t);
   const journal = new RequestJournal({ dir });
   const record = journal.start({ agent: "claude-desktop", endpoint: "/v1/messages", model: "hy3", rate: 0 });
   journal.usage(record.id, { prompt_tokens: 1000, completion_tokens: 0, prompt_cache_hit_tokens: 5000 });

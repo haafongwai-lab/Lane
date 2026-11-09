@@ -53,6 +53,9 @@ export function creditWindowOf(usage) {
     }
   }
   if (plan) return plan;
+  // Trae Global reports a dollar entitlement window rather than credits.
+  const dollar = windows.find((item) => item?.unit === "usd" || item?.name === "Dollar Usage");
+  if (dollar) return dollar;
   // A balance with no cycle limit: real credits, just not a meter.
   const prepaid = byName("Prepaid credits");
   if (prepaid && Number(prepaid.balance) > 0) return prepaid;

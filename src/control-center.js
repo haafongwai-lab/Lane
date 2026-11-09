@@ -1,5 +1,6 @@
 import { assertLoopbackHost, dataDir, gatewayBase } from "./config.js";
-import { WorkBuddyProvider } from "./workbuddy.js";
+import { ProviderRouter } from "./provider-router.js";
+import { allowedModels, modelGateCorrupt, restrictModels, setModelEnabled } from "./model-gate.js";
 import { readState } from "./agents/store.js";
 import { codexConfigPath, claudePaths } from "./agents/paths.js";
 import { RequestJournal } from "./request-journal.js";
@@ -11,7 +12,7 @@ import {
 import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./agents/zcode.js";
 import { connectDsh, disconnectDsh, dshStatus, dshPatchPath } from "./agents/dsh.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
-import { checkinOverview, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
+import { checkinOverview, forgetCheckinAccount, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
 import { summary as usageSummary, RANGES, billedRates, rangeStart, rangeEnd } from "./usage.js";
 import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
@@ -55,7 +56,7 @@ export function createControlCenter({
   let providerLoading = null;
   const getProvider = () => {
     if (provider) return Promise.resolve(provider);
-    providerLoading ??= new WorkBuddyProvider({ env }).init()
+    providerLoading ??= new ProviderRouter({ env }).init()
       .then((instance) => {
         provider = instance;
         return instance;
@@ -86,7 +87,11 @@ export function createControlCenter({
     if (hit && now - hit.at < hit.ttl) return hit.value;
     let value;
     try {
-      value = await instance.usage();
+      // accountUsage() so a Trae billing-page "expired" does not light the
+      // whole route account as logged out while its chat keeps working.
+      value = typeof instance.accountUsage === "function"
+        ? await instance.accountUsage()
+        : await instance.usage();
     } catch (error) {
       value = { error: error?.message || "usage is unknown" };
     }
@@ -124,7 +129,13 @@ export function createControlCenter({
     if (entry && now - entry.at < FREE_TTL_MS) return Promise.resolve(entry.value);
     if (!entry?.refreshing) {
       freeUsageCache.set(key, { at: entry?.at ?? 0, value: entry?.value ?? null, refreshing: true });
-      instance.usage(id)
+      // A Trae account's billing read can say "expired" while its chat keeps
+      // working; the chip must not claim the whole account is logged out
+      // over a billing-page hiccup, so the read goes through accountUsage().
+      const read = typeof instance.accountUsage === "function"
+        ? instance.accountUsage(id)
+        : instance.usage(id);
+      read
         .then((value) => {
           freeUsageCache.set(key, { at: Date.now(), value });
         })
@@ -158,15 +169,36 @@ export function createControlCenter({
    * plan), but count free-model traffic over the whole journal, which is what
    * "今日请求 / 本机累计" means. The same report feeds the model list, so an
    * exhausted allowance names its real reset time there too.
+   *
+   * `routeId` is the account carrying requests, and it decides which
+   * allowance the model list reflects: the state must follow the route
+   * account and nothing else. Each account's model list shows THAT account's
+   * allowance; a Trae account has no free-model allowance, so it gets null
+   * (the model list then reads "可用" for everything) rather than leaking a
+   * WorkBuddy account's exhausted state into it.
    */
-  const freeReportFor = async (instance, rows, accounts = null) => {
+  const freeReportFor = async (instance, rows, accounts = null, routeId = null) => {
     try {
       const list = Array.isArray(accounts) ? accounts : await instance.accounts();
       if (!list.length) return null;
-      const overseas = list.find((item) => String(item.domain || "").includes("workbuddy.ai"));
-      const source = overseas || list[0];
-      const usage = await cachedAccountUsage(instance, source.id);
-      return freeAllowance(usage, rows);
+      const route = routeId ? list.find((item) => item.id === routeId) : null;
+      // A route id that no longer names an account must not silently fall
+      // back to another account: that is how a switched-away account's
+      // exhausted free models kept showing on the new account.
+      if (routeId && !route) return null;
+      // The route account alone decides. Without an explicit route (the usage
+      // page calling for the whole journal) try each WorkBuddy account until
+      // one actually declares a Free plan; picking the first non-Trae account
+      // could hide the free card whenever that account was paid.
+      const candidates = route
+        ? [route]
+        : list.filter((item) => item.provider !== "trae");
+      for (const source of candidates) {
+        const usage = await cachedAccountUsage(instance, source.id);
+        const report = freeAllowance(usage, rows, { accountId: source.id });
+        if (report) return report;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -274,7 +306,31 @@ export function createControlCenter({
       // must not take those down with it — and must not take the catalogue
       // Codex already has down either: syncing an empty list would wipe
       // lane-models.json for as long as the outage lasts.
-      const models = await instance.listModels().catch(() => null);
+      //
+      // The page renders the FULL catalogue with a per-row 添加 switch, while
+      // every agent-facing path serves only the allowed models. Both are plain
+      // data: a function in this object would break the IPC structured clone
+      // and leave the window with no snapshot at all.
+      const catalogue = await (typeof instance.catalogue === "function"
+        ? instance.catalogue()
+        : instance.listModels()).catch(() => null);
+      const allowed = await allowedModels(env);
+      const models = Array.isArray(catalogue) ? await restrictModels(catalogue, env) : catalogue;
+      const gateCorrupt = await modelGateCorrupt(env);
+      // Plain data only: an `enabled(id)` function here would break the IPC
+      // structured clone and leave the window with no snapshot at all. Keys
+      // are `provider:id` for new entries; a legacy bare id matches both
+      // providers until that row is changed.
+      const enabledKeys = [...allowed];
+      const enabledIds = Array.isArray(catalogue)
+        ? catalogue
+          .filter((model) => {
+            const id = String(model?.id || "");
+            const provider = String(model?.owned_by || model?.provider || "workbuddy");
+            return id && (allowed.has(id) || allowed.has(`${provider}:${id}`));
+          })
+          .map((model) => String(model.id))
+        : [];
       // A truncated wiring.json is one agent-wiring file gone wrong; the
       // accounts, activity and models it must not take down with it.
       let state = {};
@@ -283,8 +339,10 @@ export function createControlCenter({
       } catch {}
       // Both clients keep the catalogue in a file of their own, so both are
       // refreshed from the account the gateway is actually routing to: a
-      // switch between sites changes the list behind an unchanged URL.
-      if (models?.length) {
+      // switch between sites changes the list behind an unchanged URL. An
+      // empty list is a real state once every model has been removed, so it
+      // must clear the files too; only a failed catalogue (null) is skipped.
+      if (Array.isArray(models)) {
         await syncCodexCatalog({ env, models }).catch(() => {});
         await syncZcodeCatalog({ env, models }).catch(() => {});
       }
@@ -294,9 +352,12 @@ export function createControlCenter({
       } catch {}
       const account = await activeAccount(instance);
       const accountList = await instance.accounts().catch(() => []);
-      // The model page needs the same free-allowance state the usage card
-      // shows, so an exhausted free model can name its real reset time there.
-      const freeReport = await freeReportFor(instance, journal.list(), accountList);
+      // The model page needs the free-allowance state of the account that
+      // actually carries the requests: an exhausted free model names its real
+      // reset time there, and the state follows the route account instead of
+      // always reading one global overseas account. Trae accounts have no
+      // free-model allowance, so that report is null for them.
+      const freeReport = await freeReportFor(instance, journal.list(), accountList, account?.id);
       let usage = null;
       if (signedIn) {
         try {
@@ -327,7 +388,14 @@ export function createControlCenter({
         checkin: await checkinOverview(instance, env).catch(() => null),
         usage,
         freeAllowance: freeReport,
+        // `models` is the agent-facing list (added models only); `catalogue`
+        // is the full upstream list the page draws its 添加 switches from, and
+        // `modelGate.enabledIds` says which of those the user has added. No
+        // functions cross the IPC boundary: structuredClone would reject them
+        // and the whole status call would fail.
         models,
+        catalogue: Array.isArray(catalogue) ? catalogue : [],
+        modelGate: { gated: true, enabledIds, enabledKeys, corrupt: gateCorrupt },
         agents: {
           codex: {
             connected: Boolean(state.lane?.connected),
@@ -370,7 +438,9 @@ export function createControlCenter({
      * one joins the list. It becomes the route only when nothing else is.
      */
     async signIn(options = {}) {
-      const site = options.site === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
+      const site = ["workbuddy-ai", "trae-cn", "trae-global"].includes(options.site)
+        ? options.site
+        : "workbuddy";
       // One sign-in per build. A pending domestic sign-in used to swallow an
       // overseas request and hand back its own URL, so choosing WorkBuddy AI
       // opened the domestic page and no overseas account was ever written.
@@ -390,20 +460,29 @@ export function createControlCenter({
       // here would read as "signed in" before the browser is even open.
       result.callback()
         .then(async (auth) => {
-          if (auth?.type !== "success") throw new Error(auth?.error || "WorkBuddy sign-in failed");
+          if (auth?.type !== "success") throw new Error(auth?.error || "sign-in failed");
           // The outcome is handed over rather than waited for again inside
           // finishSignIn: the plugin's callback polls a token endpoint that
           // a second call with the same state need not answer.
           return instance.finishSignIn(result, site, auth);
         })
+        // A fresh sign-in makes yesterday's "expired" check-in record wrong:
+        // clear it and try today's claim once, so the account does not sit on
+        // a 30-minute retry timer with a token that has just been replaced.
+        .then(async (account) => {
+          if (account?.id) {
+            await forgetCheckinAccount(account.id, env).catch(() => {});
+            await runCheckins({ provider: instance, env, only: [account.id] }).catch(() => {});
+          }
+        })
         // The window refreshes its status on this second call; the account
         // itself is read from that status, so only clear the error here.
         .then(() => { onSignIn(null, null); })
         .catch((error) => {
-          signInError = error?.message || "WorkBuddy sign-in failed";
+          signInError = error?.message || "sign-in failed";
           // Both the window and the log get it: a sign-in that never lands
           // is otherwise a toast nobody can read afterwards.
-          console.error(`WorkBuddy sign-in (${site}) failed: ${signInError}`);
+          console.error(`sign-in (${site}) failed: ${signInError}`);
           onSignIn(null, error);
         })
         .finally(() => {
@@ -421,16 +500,33 @@ export function createControlCenter({
       // keep a copy in files of their own: refresh them at the switch, not
       // whenever the window next polls. allSettled rather than all - one
       // client's write failing must not cancel the other's, and neither may
-      // fail the switch itself.
-      await instance.listModels()
-        .then((models) => (models?.length
+      // fail the switch itself. listModels() is already the allowed subset.
+      await this.syncCatalogs(instance);
+      return account;
+    },
+
+    /** Rewrites the Codex and ZCode catalogues from the allowed model list. */
+    async syncCatalogs(instance = null) {
+      const target = instance || (await getProvider());
+      await target.listModels()
+        .then((models) => (Array.isArray(models)
           ? Promise.allSettled([
             syncCodexCatalog({ env, models }),
             syncZcodeCatalog({ env, models })
           ])
           : null))
         .catch(() => {});
-      return account;
+    },    /**
+     * The per-model 添加/移除 switch. Nothing is served until the user adds
+     * it, so this is the only way a model becomes visible to an agent.
+     */
+    async setModelEnabled(id, enabled, provider = "") {
+      const instance = await getProvider();
+      await setModelEnabled(id, enabled, env, provider);
+      // No account switch here: rewriting the two catalogue files is enough,
+      // and activate() would also move the route's last-used stamp.
+      await this.syncCatalogs(instance);
+      return { ok: true, id, provider, enabled: Boolean(enabled) };
     },
 
     async setEnabled(id, enabled) {
@@ -642,10 +738,11 @@ export function createControlCenter({
       // The account's own credits ride along as `quota`, so the page never
       // has to merge two payloads to draw one card.
       report.quota = await cachedUsage(instance).catch(() => null);
-      // The free-model card and the model list share one report. Its counts
-      // cover this machine's whole journal, not one account's rows: free
-      // models are a plan-level allowance and the route changes during a day.
-      report.freeAllowance = await freeReportFor(instance, rows);
+      // The free-model card and the model list share one report, and it is
+      // bound to the account carrying the requests: switching accounts
+      // switches which free models are exhausted.
+      const routeAccount = await activeAccount(instance).catch(() => null);
+      report.freeAllowance = await freeReportFor(instance, rows, null, routeAccount?.id);
       return report;
     },
 
