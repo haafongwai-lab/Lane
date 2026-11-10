@@ -34,8 +34,9 @@ enterprise behavior follows the plugin's protocol shapes, not a live account.
 
 The desktop app keeps the scope intentionally small. It does not implement a
 plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
-or a background updater. Those are magpie capabilities that this project does
-not need for the single-provider, Windows-local use case.
+or a general app auto-updater. The **插件** page does provide an explicit,
+diff-reviewed updater for the two vendored upstream plugins; its automatic
+mode is opt-in and described under Upstream plugins.
 
 ## ZCode
 
