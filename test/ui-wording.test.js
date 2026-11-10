@@ -76,3 +76,11 @@ test("the model list carries a per-model add switch and only added models are se
   // until the model is added.
   assert.match(app, /gate\?\.enabledIds/);
 });
+
+test("account masking reaches the route and health cards too", () => {
+  assert.match(app, /function renderAccountIdentity\(\)/);
+  assert.match(app, /const shown = accountMasked \? maskName\(account\) : account/);
+  assert.match(app, /\$\("#account-name"\)\.textContent = shown/);
+  assert.match(app, /\$\("#health-account"\)\.textContent = shown/);
+  assert.match(app, /renderAccounts\(\);\s*renderAccountIdentity\(\)/);
+});

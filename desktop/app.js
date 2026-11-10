@@ -204,13 +204,22 @@ async function refresh({ quiet = false } = {}) {
   }
 }
 
+function renderAccountIdentity() {
+  // The route/health cards name the account too; masking is a whole-page
+  // display preference, not just an account-list one.
+  const account = snapshot?.account || "";
+  const shown = accountMasked ? maskName(account) : account;
+  $("#account-name").textContent = shown || "上游账号";
+  $("#health-account").textContent = shown || "未登录";
+}
+
 function render() {
   if (!snapshot) return;
   bootOut();
   // The re-render replaces the elements any visible popup is attached to;
   // a tip frozen over detached content reads as a bug, so it goes first.
   tipNode.hidden = true;
-  const { signedIn, account, agents, models, recent = [] } = snapshot;
+  const { signedIn, agents, models, recent = [] } = snapshot;
   // One callout per anomalous row: the cost is the vendor's own number, and
   // the user should see it the moment it lands, not on the next visit to the
   // usage page. The wording says what was actually detected - a charge well
@@ -250,9 +259,8 @@ function render() {
   $("#provider-logo").src = carrier?.provider === "trae"
     ? "assets/trae-official-256.png"
     : "assets/workbuddy-official.svg";
-  $("#account-name").textContent = account || "上游账号";
   $("#account-plan").textContent = snapshot.domain || upstreamName;
-  $("#health-account").textContent = account || "未登录";
+  renderAccountIdentity();
   $("#health-domain").textContent = snapshot.domain || upstreamName;
   $("#health-codex").textContent = codexOn ? "已接入" : "未接入";
   $("#health-claude").textContent = claudeOn ? "已接入" : "未接入";
@@ -1417,6 +1425,7 @@ $("#account-mask").addEventListener("click", () => {
   accountMasked = !accountMasked;
   try { localStorage.setItem("lane.accountMasked", accountMasked ? "1" : "0"); } catch {}
   renderAccounts();
+  renderAccountIdentity();
 });
 $("#account-list").addEventListener("change", (event) => {
   const input = event.target.closest('input[data-act="enabled"]');
