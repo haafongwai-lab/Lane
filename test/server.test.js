@@ -308,6 +308,8 @@ test("a request carrying Lane's DSH marker is attributed to the harness", async 
     for (const [headers, want] of [
       [{ "x-lane-client": "dsh" }, "dsh"],
       [{ "x-lane-client": "DSH" }, "dsh"],
+      [{ "user-agent": "GitHubCopilotChat/0.40.0" }, "vscode"],
+      [{ "user-agent": "vscode_agent_host/0.1.0" }, "vscode"],
       [{}, "openai"],
       [{ "x-lane-client": "something-else" }, "openai"]
     ]) {

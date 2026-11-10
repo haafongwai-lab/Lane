@@ -192,7 +192,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         const meta = await modelMeta(provider, body.model);
         await proxyChat(res, provider, body, {
           control,
-          agent: isDsh(req) ? "dsh" : "openai",
+          agent: isDsh(req) ? "dsh" : isVscode(req) ? "vscode" : "openai",
           requested,
           endpoint: url.pathname,
           model: body.model,
@@ -484,6 +484,15 @@ function messagesClientAgent(req) {
 // generic attribution.
 function isDsh(req) {
   return String(req.headers["x-lane-client"] || "").toLowerCase().trim() === "dsh";
+}
+
+// VS Code's built-in Chat reaches a Custom Endpoint through its own fetcher
+// and announces itself as GitHubCopilotChat/<version>. Its Agents window uses
+// the same user-agent family through vscode_agent_host. Neither is a Lane
+// extension, so this is the only stable signal the request carries.
+function isVscode(req) {
+  const ua = String(req.headers["user-agent"] || "").toLowerCase();
+  return ua.startsWith("githubcopilotchat/") || ua.startsWith("vscode_agent_host");
 }
 
 // CJK text runs close to a token per character, while Latin text runs close

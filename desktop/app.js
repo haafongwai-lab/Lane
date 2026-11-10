@@ -861,7 +861,7 @@ const AGENT_ICONS = {
   codex: "assets/codex-official.svg",
   "claude-desktop": "assets/claude-official.svg",
   zcode: "assets/zcode-official-256.png",
-  vscode: "assets/vscode.svg",
+  vscode: "assets/vscode-official.svg",
   dsh: "assets/dsh-official-256.png"
 };
 
