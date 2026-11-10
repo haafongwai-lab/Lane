@@ -86,6 +86,9 @@ export class WorkBuddyProvider {
       existing.count += 1;
       existing.verdict = entry.verdict;
       existing.blocked = Boolean(entry.blocked) || existing.blocked;
+      // Paths are kept per host so the page can show which doors were used,
+      // not just which server was reached.
+      this.notePath(existing, entry);
       return;
     }
     this.egress.push({
@@ -93,16 +96,60 @@ export class WorkBuddyProvider {
       verdict: entry.verdict,
       blocked: Boolean(entry.blocked),
       at: Date.now(),
-      count: 1
+      count: 1,
+      paths: [],
+      suspicious: []
     });
+    this.notePath(this.egress[this.egress.length - 1], entry);
     if (this.egress.length > 200) this.egress.shift();
+  }
+
+  /**
+   * Records the path a request used, and any reason the audit flagged.
+   *
+   * Bounded per host: a chat endpoint is called constantly and its path list
+   * would otherwise grow without limit. A suspicious reason is kept even when
+   * the path list is full, because that is the part worth reading.
+   */
+  notePath(hostEntry, entry) {
+    const path = String(entry?.path || "");
+    if (!path) return;
+    hostEntry.paths ||= [];
+    const known = hostEntry.paths.find((item) => item.path === path);
+    if (known) {
+      known.count += 1;
+      known.at = Date.now();
+    } else if (hostEntry.paths.length < 20) {
+      hostEntry.paths.push({
+        path,
+        verdict: entry.pathVerdict || "unknown",
+        count: 1,
+        at: Date.now()
+      });
+    }
+    const reasons = Array.isArray(entry?.suspicious) ? entry.suspicious : [];
+    if (!reasons.length) return;
+    hostEntry.suspicious ||= [];
+    for (const reason of reasons) {
+      const seen = hostEntry.suspicious.find((item) => item.reason === reason);
+      if (seen) {
+        seen.count += 1;
+        seen.at = Date.now();
+        continue;
+      }
+      if (hostEntry.suspicious.length >= 20) continue;
+      hostEntry.suspicious.push({ reason, path, at: Date.now(), count: 1 });
+    }
   }
 
   /** The recorded egress list, newest first, for the status snapshot. */
   egressReport() {
+    const hosts = [...this.egress].sort((a, b) => b.at - a.at);
     return {
       mode: this.egressMode,
-      hosts: [...this.egress].sort((a, b) => b.at - a.at)
+      hosts,
+      // A flat count so the page can warn without walking every entry.
+      suspicious: hosts.reduce((sum, item) => sum + (item.suspicious?.length || 0), 0)
     };
   }
 

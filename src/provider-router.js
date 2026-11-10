@@ -208,14 +208,35 @@ export class ProviderRouter {
           existing.count += item.count;
           existing.at = Math.max(existing.at, item.at);
           existing.blocked = existing.blocked || item.blocked;
+          // Both providers can reach the same host; the merged row keeps the
+          // paths and audit reasons from each, deduplicated by path/reason.
+          for (const path of item.paths || []) {
+            const seen = existing.paths.find((entry) => entry.path === path.path);
+            if (seen) {
+              seen.count += path.count;
+              seen.at = Math.max(seen.at, path.at);
+            } else if (existing.paths.length < 20) {
+              existing.paths.push({ ...path });
+            }
+          }
+          for (const reason of item.suspicious || []) {
+            const seen = existing.suspicious.find((entry) => entry.reason === reason.reason);
+            if (seen) {
+              seen.count += reason.count;
+              seen.at = Math.max(seen.at, reason.at);
+            } else if (existing.suspicious.length < 20) {
+              existing.suspicious.push({ ...reason });
+            }
+          }
           continue;
         }
-        hosts.set(item.host, { ...item });
+        hosts.set(item.host, { ...item, paths: [...(item.paths || [])], suspicious: [...(item.suspicious || [])] });
       }
     }
     return {
       mode: parts.find((part) => part.mode && part.mode !== "off")?.mode || "monitor",
-      hosts: [...hosts.values()].sort((a, b) => b.at - a.at)
+      hosts: [...hosts.values()].sort((a, b) => b.at - a.at),
+      suspicious: [...hosts.values()].reduce((sum, item) => sum + (item.suspicious?.length || 0), 0)
     };
   }
 

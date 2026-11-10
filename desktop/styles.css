@@ -866,6 +866,18 @@ h1 {
 .egress-list .egress-row small { color: var(--faint); white-space: nowrap; }
 .egress-list .egress-row.third-party code { color: var(--red); }
 .egress-list .egress-row.third-party small { color: var(--red); }
+.egress-list .egress-row small b { color: var(--red); font-weight: 600; }
+/* One line above the host list when the audit flagged something: the detail
+   lives on the row, but a count here is what makes someone scroll to it. */
+.egress-alert {
+  margin-bottom: 6px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .sheet-select {
   padding: 6px 10px;
   border: 1px solid var(--line);

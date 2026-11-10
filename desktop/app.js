@@ -291,7 +291,7 @@ function renderEgress() {
     node.innerHTML = '<span class="soft-label">暂无记录</span>';
     return;
   }
-  node.innerHTML = hosts.map((item) => {
+  const parts = hosts.map((item) => {
     const verdict = item.verdict === "allowed"
       ? "上游"
       : item.verdict === "family" ? "厂商域名" : "第三方";
@@ -299,9 +299,29 @@ function renderEgress() {
     const when = item.at
       ? new Date(item.at).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
       : "";
-    return `<div class="egress-row${tone}"><code>${esc(item.host)}</code><small>${esc(verdict)}${when ? ` · ${esc(when)}` : ""}${item.blocked ? " · 已拦截" : ""}</small></div>`;
+    // A host that was only ever reached by an unexpected path, or with a body
+    // too big for its endpoint, is what a leak would look like: say so on the
+    // row instead of burying it in a detail list.
+    const flagged = Array.isArray(item.suspicious) ? item.suspicious : [];
+    const reasons = flagged.slice(0, 2).map((entry) => REASON_LABELS[entry.reason?.split(":")[0]] || entry.reason).join("、");
+    const paths = Array.isArray(item.paths) ? item.paths : [];
+    const pathNote = paths.length ? ` · ${paths.length} 个路径` : "";
+    return `<div class="egress-row${tone}"><code>${esc(item.host)}</code><small>${esc(verdict)}${esc(pathNote)}${when ? ` · ${esc(when)}` : ""}${item.blocked ? " · 已拦截" : ""}${reasons ? ` · <b>${esc(reasons)}</b>` : ""}</small></div>`;
   }).join("");
+  const total = Number(report.suspicious) || 0;
+  const head = total > 0
+    ? `<div class="egress-alert">${total} 项异常记录，展开下方域名查看路径</div>`
+    : "";
+  node.innerHTML = head + parts;
 }
+
+// Short Chinese labels for the audit reasons. The full reason carries detail
+// after a colon (the offending field names); the label is what fits a row.
+const REASON_LABELS = {
+  "unknown-path": "未知路径",
+  "large-body-outside-chat": "非聊天请求携带大请求体",
+  "unexpected-chat-fields": "聊天请求含未知字段"
+};
 
 function renderAccountIdentity() {
   // The route/health cards name the account too; masking is a whole-page

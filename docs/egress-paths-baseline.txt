@@ -1,0 +1,27 @@
+# Endpoint paths the vendored plugins name, as recorded from their source.
+# Regenerate with: node scripts/egress-paths-audit.mjs --write
+# Review every addition: a path no upstream uses is the shape of a leak.
+
+/api/agent/v3/llm_utils_chat
+/api/ide/v1/batch_get_detail_param
+/api/ide/v1/get_detail_param
+/billing/meter/get-enterprise-user-usage
+/billing/meter/get-user-resource-free-packages
+/billing/meter/get-user-resource-paid-packages
+/billing/meter/get-user-resource-summary
+/cloudide/api/v3/trae/oauth/ExchangeToken
+/trae/api/
+/trae/api/v1/pay/user_current_entitlement_list
+/trae/api/v2/pay/ide_user_ent_usage
+/trae/api/v2/ug/
+/trae/api/v2/ug/checkin_credits/claim
+/trae/api/v2/ug/checkin_credits/status
+/trae/api/v3/oauth/ExchangeToken
+/v2/billing/meter/checkin-activity-status
+/v2/billing/meter/daily-checkin
+/v2/plugin/accounts
+/v2/plugin/auth/state
+/v2/plugin/auth/token
+/v2/plugin/auth/token/refresh
+/v2/plugin/login/account
+/v3/config

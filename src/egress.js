@@ -1,4 +1,5 @@
 import { ALLOW_HOSTS, underFamily } from "./egress-hosts.js";
+import { inspectRequest } from "./egress-paths.js";
 
 /**
  * The outbound guard for vendored plugin traffic.
@@ -62,13 +63,26 @@ function hostOf(input) {
   }
 }
 
+function urlOf(input) {
+  const raw = typeof input === "string"
+    ? input
+    : input instanceof URL
+      ? input.href
+      : input?.url;
+  return String(raw || "");
+}
+
 /**
  * Wraps a `fetch` so every call is checked and recorded.
  *
- * `record` receives `{ host, verdict, mode, blocked, url }` per request; the
+ * `record` receives `{ host, verdict, mode, blocked, url }` plus the request
+ * audit from `inspectRequest` (path, body size, suspicious reasons); the
  * control center feeds it a bounded in-memory list the settings page shows.
  * A missing `record` still enforces, so the guard is never a no-op by
  * accident.
+ *
+ * The audit never blocks. Only the host check refuses traffic, because a path
+ * heuristic that guessed wrong would break a chat for no security gain.
  */
 export function createEgressGuard({
   mode = DEFAULT_EGRESS_MODE,
@@ -80,11 +94,27 @@ export function createEgressGuard({
     const host = hostOf(input);
     const verdict = classifyHost(host);
     const blocked = active === "enforce" && verdict === "third-party";
-    const url = typeof input === "string" ? input : String(input?.url || input || "");
+    const url = urlOf(input);
+    let pathname = "";
     try {
-      record({ host, verdict, mode: active, blocked, url: String(url).slice(0, 300) });
+      pathname = new URL(url).pathname;
     } catch {}
-    if (blocked) throw new EgressBlocked(host, String(url));
+    const audit = inspectRequest({
+      pathname,
+      body: init?.body,
+      method: init?.method || input?.method || "GET"
+    });
+    try {
+      record({
+        host,
+        verdict,
+        mode: active,
+        blocked,
+        url: url.slice(0, 300),
+        ...audit
+      });
+    } catch {}
+    if (blocked) throw new EgressBlocked(host, url);
     return realFetch(input, init);
   };
   guarded.mode = active;
