@@ -1341,7 +1341,18 @@ h1 {
 .recent-head { padding: 0 0 6px; color: var(--faint); font-size: 11px; }
 .recent-time { color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recent-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-pill { color: var(--green); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-pill { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--green); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The agent's own mark beside its name. Sized to the text, not the row: a
+   mark big enough to recognise but small enough that the name stays the
+   thing being read. */
+.agent-pill .agent-mark {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  object-fit: contain;
+  border-radius: 3px;
+  opacity: .9;
+}
 .recent-state { font-size: 11px; white-space: nowrap; }
 .recent-state.ok { color: var(--green); }
 .recent-state.live { color: var(--blue); }

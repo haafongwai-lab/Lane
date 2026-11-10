@@ -845,8 +845,23 @@ async function loadUsage() {
 // long label there wraps the row to double height.
 const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", dsh: "DSH", openai: "OpenAI" };
 
+// The mark each agent is drawn with in the recent-request list. The same
+// official icons the agent cards use, so a row is attributable at a glance
+// instead of by reading the name; an agent Lane has no icon for falls back to
+// the text-only pill it always had.
+const AGENT_ICONS = {
+  codex: "assets/codex-official.svg",
+  "claude-desktop": "assets/claude-official.svg",
+  zcode: "assets/zcode-official-256.png",
+  dsh: "assets/dsh-official-256.png"
+};
+
 function agentLabel(agent) {
   return AGENT_LABELS[agent] || agent || "未知来源";
+}
+
+function agentIcon(agent) {
+  return AGENT_ICONS[agent] || "";
 }
 
 
@@ -1344,7 +1359,7 @@ function renderUsageRecent() {
     return `<div class="recent-row" data-id="${esc(item.id)}">
       <input type="checkbox" class="recent-pick" data-pick="${esc(item.id)}"${running ? " disabled" : ""} aria-label="选择这条记录">
       <span class="recent-time">${esc(when)}</span>
-      <span class="agent-pill">${esc(agentLabel(item.agent))}</span>
+      <span class="agent-pill">${agentIcon(item.agent) ? `<img class="agent-mark" src="${agentIcon(item.agent)}" alt="">` : ""}${esc(agentLabel(item.agent))}</span>
       <span class="recent-model">${esc(item.model)}</span>
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
