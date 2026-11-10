@@ -11,7 +11,7 @@ import {
   accountIdOf,
   normalizeSite
 } from "./accounts.js";
-import { prepareChat, restoreToolNames } from "./sanitize.js";
+import { prepareChat, restoreToolNames, resetSanitize } from "./sanitize.js";
 import { SecretVault, redactBody, redactForLog, resolveRules, restoreResponse } from "./redact.js";
 import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
@@ -78,6 +78,7 @@ export class WorkBuddyProvider {
     this.factories.clear();
     this.anonymous.clear();
     this.sessions.clear();
+    resetSanitize();
     this.invalidateModels();
   }
 
@@ -518,7 +519,7 @@ export class WorkBuddyProvider {
       redactAllowlist: [],
       redactCustom: []
     }));
-    const prepared = await prepareChat({ ...body, stream: true }, { hideDsh: settings.hideDsh !== false });
+    const prepared = await prepareChat({ ...body, stream: true }, { hideDsh: settings.hideDsh !== false, env: this.env });
     // Redact after the plugin's own request preparation: what it writes is
     // what is actually sent, and every string in it is a possible carrier.
     const rules = resolveRules(settings.redactRules, {

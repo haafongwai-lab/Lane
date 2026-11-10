@@ -1,8 +1,11 @@
 // The plugin is vendored under vendor/ and imported by path, so Lane needs
-// neither the npm registry nor an installed copy to prepare a request.
-const PLUGIN_URL = new URL("../vendor/workbuddy-auth/index.mjs", import.meta.url);
+// neither the npm registry nor an installed copy to prepare a request. The
+// updater can install a newer copy under the data directory; this resolver
+// prefers that copy and keeps vendor/ as the fallback.
+import { pluginEntryUrl } from "./plugin-store.js";
 
 let internals = null;
+let internalsKey = "";
 
 /**
  * WorkBuddy refuses a chat it thinks comes from another client
@@ -16,11 +19,19 @@ let internals = null;
  * steps the plugin applies to its own requests rather than keeping a second
  * copy of that knowledge that would drift.
  */
-async function loadInternals() {
-  if (internals) return internals;
-  const entry = await import(PLUGIN_URL.href);
+async function loadInternals(env = process.env) {
+  const url = await pluginEntryUrl("workbuddy-auth", env);
+  if (internals && internalsKey === url.href) return internals;
+  const entry = await import(url.href);
   internals = entry?._internal || {};
+  internalsKey = url.href;
   return internals;
+}
+
+/** Drop the cached plugin helpers after an update or rollback. */
+export function resetSanitize() {
+  internals = null;
+  internalsKey = "";
 }
 
 /**
@@ -207,8 +218,8 @@ function concealDshName(body) {
  * maps any tool Lane had to rename back to the name the client gave it, so the
  * answer can be renamed on the way out.
  */
-export async function prepareChat(body, { hideDsh = true } = {}) {
-  const api = await loadInternals();
+export async function prepareChat(body, { hideDsh = true, env = process.env } = {}) {
+  const api = await loadInternals(env);
   if (typeof api.withSystem !== "function") {
     return { body: hideDsh ? concealDshName(body).body : body, names: new Map() };
   }

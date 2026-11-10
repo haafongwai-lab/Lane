@@ -16,6 +16,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pathsInSource } from "../src/plugin-source.js";
+
+export { pathsInSource };
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE = path.join(ROOT, "docs/egress-paths-baseline.txt");
@@ -23,23 +26,6 @@ const PLUGINS = [
   path.join(ROOT, "vendor/workbuddy-auth/index.mjs"),
   path.join(ROOT, "vendor/trae-auth/index.mjs")
 ];
-
-// A path literal in a plugin: a quoted string that starts with "/" and looks
-// like an endpoint. Query strings and template holes are cut at the "?" so the
-// baseline stays comparable across versions.
-const PATH_RE = /["'`](\/[a-zA-Z0-9][a-zA-Z0-9._\-/{}:]*)/g;
-
-/** Every endpoint-looking path literal a plugin's source names. */
-export function pathsInSource(text) {
-  const paths = new Set();
-  for (const match of String(text).matchAll(PATH_RE)) {
-    const value = match[1].split("?")[0];
-    // A single segment like "/v1" is a base URL fragment, not an endpoint.
-    if (value.split("/").filter(Boolean).length < 2) continue;
-    paths.add(value);
-  }
-  return paths;
-}
 
 export function pluginPaths(files = PLUGINS) {
   const paths = new Set();

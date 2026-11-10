@@ -101,7 +101,7 @@ test("the vendored module still exposes what Lane consumes", async () => {
 
 test("Lane loads the copy by path, with no npm package lookup", () => {
   assert.match(APP, /pluginEntryUrl\("workbuddy-auth", env\)/);
-  assert.match(SANITIZE, /new URL\("\.\.\/vendor\/workbuddy-auth\/index\.mjs", import\.meta\.url\)/);
+  assert.match(SANITIZE, /pluginEntryUrl\("workbuddy-auth", env\)/);
   for (const [name, source] of [["workbuddy.js", APP], ["sanitize.js", SANITIZE]]) {
     assert.doesNotMatch(source, /require\.resolve\(PACKAGE\)/, name);
     assert.doesNotMatch(source, /createRequire/, name);
