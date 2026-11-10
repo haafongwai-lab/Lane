@@ -396,6 +396,12 @@ export function createControlCenter({
         models,
         catalogue: Array.isArray(catalogue) ? catalogue : [],
         modelGate: { gated: true, enabledIds, enabledKeys, corrupt: gateCorrupt },
+        // Which hosts the vendored plugins actually reached, and whether the
+        // outbound guard is recording only or refusing. This is the evidence a
+        // user reviews before switching the guard to "enforce".
+        egress: typeof instance.egressReport === "function"
+          ? instance.egressReport()
+          : { mode: "off", hosts: [] },
         agents: {
           codex: {
             connected: Boolean(state.lane?.connected),

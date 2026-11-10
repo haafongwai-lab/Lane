@@ -204,6 +204,30 @@ async function refresh({ quiet = false } = {}) {
   }
 }
 
+// The hosts the vendored plugins actually reached. This is the list a user
+// reads before switching the guard to "enforce": an entry marked 第三方 is a
+// host no upstream needs, and the one worth investigating.
+function renderEgress() {
+  const node = $("#egress-list");
+  if (!node) return;
+  const report = snapshot?.egress || { mode: "off", hosts: [] };
+  const hosts = Array.isArray(report.hosts) ? report.hosts : [];
+  if (!hosts.length) {
+    node.innerHTML = '<span class="soft-label">暂无记录</span>';
+    return;
+  }
+  node.innerHTML = hosts.map((item) => {
+    const verdict = item.verdict === "allowed"
+      ? "上游"
+      : item.verdict === "family" ? "厂商域名" : "第三方";
+    const tone = item.verdict === "third-party" ? " third-party" : "";
+    const when = item.at
+      ? new Date(item.at).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "";
+    return `<div class="egress-row${tone}"><code>${esc(item.host)}</code><small>${esc(verdict)}${when ? ` · ${esc(when)}` : ""}${item.blocked ? " · 已拦截" : ""}</small></div>`;
+  }).join("");
+}
+
 function renderAccountIdentity() {
   // The route/health cards name the account too; masking is a whole-page
   // display preference, not just an account-list one.
@@ -318,10 +342,15 @@ function render() {
           if (custom && document.activeElement !== custom) {
             custom.value = (settings.redactCustom || []).join("\n");
           }
+          const egressSelect = $("#egress-mode");
+          if (egressSelect && document.activeElement !== egressSelect) {
+            egressSelect.value = settings.egressMode || "monitor";
+          }
         })
         .catch(() => { redactLoaded = false; });
     }
   }
+  renderEgress();
   // Every address shown in the UI derives from the snapshot, so a saved
   // port change is reflected everywhere once the gateway restarts on it.
   // (The sidebar shows none of them: that corner is blank by design.)
@@ -1516,6 +1545,7 @@ async function saveRedact(patch) {
 }
 $("#redact-secrets").addEventListener("change", (event) => saveRedact({ redactSecrets: event.target.checked }));
 $("#redact-personal").addEventListener("change", (event) => saveRedact({ redactPersonal: event.target.checked }));
+$("#egress-mode")?.addEventListener("change", (event) => saveRedact({ egressMode: event.target.value }));
 for (const box of $$("#redact-details [data-redact-rule]")) {
   box.addEventListener("change", (event) => {
     saveRedact({ redactRules: { [event.target.dataset.redactRule]: event.target.checked } });

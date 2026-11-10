@@ -190,6 +190,35 @@ export class ProviderRouter {
     return provider.cachedModels();
   }
 
+  /**
+   * The hosts each provider's vendored plugin reached, plus the guard mode.
+   * Merged across providers so the settings page shows one list: the question
+   * it answers is "what does Lane talk to", not "what does one plugin do".
+   */
+  egressReport() {
+    const parts = [this.workbuddy, this.trae].map((provider) =>
+      (typeof provider?.egressReport === "function"
+        ? provider.egressReport()
+        : { mode: "off", hosts: [] }));
+    const hosts = new Map();
+    for (const part of parts) {
+      for (const item of part.hosts || []) {
+        const existing = hosts.get(item.host);
+        if (existing) {
+          existing.count += item.count;
+          existing.at = Math.max(existing.at, item.at);
+          existing.blocked = existing.blocked || item.blocked;
+          continue;
+        }
+        hosts.set(item.host, { ...item });
+      }
+    }
+    return {
+      mode: parts.find((part) => part.mode && part.mode !== "off")?.mode || "monitor",
+      hosts: [...hosts.values()].sort((a, b) => b.at - a.at)
+    };
+  }
+
   invalidateModels() {
     this.workbuddy.invalidateModels();
     this.trae.invalidateModels();

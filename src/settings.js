@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir, DEFAULT_PORT } from "./config.js";
 import { DEFAULT_RULES } from "./redact.js";
+import { DEFAULT_EGRESS_MODE, normalizeEgressMode } from "./egress.js";
 import { writeJSON } from "./agents/store.js";
 
 // Gateway settings the desktop app can change at runtime: the port, the DSH
@@ -64,7 +65,22 @@ export async function readSettings(env = process.env) {
   const redactRules = { ...DEFAULT_RULES, ...normalizeRules(stored.redactRules) };
   const redactAllowlist = normalizeList(stored.redactAllowlist);
   const redactCustom = normalizeList(stored.redactCustom);
-  return { port: fromEnv || saved, source, hideDsh, redactSecrets, redactPersonal, redactRules, redactAllowlist, redactCustom };
+  // The outbound guard starts in "monitor": it records every host the vendored
+  // plugins reach but blocks nothing, so a provider that moved an endpoint is
+  // visible in the log instead of breaking a chat on first run. "enforce" is
+  // an explicit choice once the recorded list has been reviewed.
+  const egressMode = normalizeEgressMode(stored.egressMode || DEFAULT_EGRESS_MODE);
+  return {
+    port: fromEnv || saved,
+    source,
+    hideDsh,
+    redactSecrets,
+    redactPersonal,
+    redactRules,
+    redactAllowlist,
+    redactCustom,
+    egressMode
+  };
 }
 
 // Applies only the keys present in a patch, leaving every other stored
@@ -78,6 +94,7 @@ function applyRedactPatch(next, patch = {}) {
   }
   if (Array.isArray(patch.redactAllowlist)) next.redactAllowlist = normalizeList(patch.redactAllowlist);
   if (Array.isArray(patch.redactCustom)) next.redactCustom = normalizeList(patch.redactCustom);
+  if (typeof patch.egressMode === "string") next.egressMode = normalizeEgressMode(patch.egressMode);
 }
 
 export async function writeSettings(patch, env = process.env) {

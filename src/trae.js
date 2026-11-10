@@ -86,13 +86,14 @@ export class TraeProvider extends WorkBuddyProvider {
     const hooks = await this.anonymousHooks(key);
     const method = hooks.auth.methods?.find((item) => item.label?.includes("browser"));
     if (!method) throw new Error("Trae plugin has no browser sign-in method");
-    const result = await method.authorize();
+    const result = await this.withEgress(() => method.authorize());
     if (!result?.url) throw new Error("Trae plugin returned no browser URL");
     return { ...result, site: key };
   }
 
   async finishSignIn(result, site = result?.site || "trae-cn", auth = null) {
-    const outcome = auth || await result?.callback?.();
+    // The callback polls Trae's token endpoint, so it is guarded too.
+    const outcome = auth || await this.withEgress(() => result?.callback?.());
     if (outcome?.type !== "success") {
       throw new Error(outcome?.error || "Trae sign-in failed");
     }
@@ -131,7 +132,7 @@ export class TraeProvider extends WorkBuddyProvider {
     // processes, and the loser is logged out upstream.
     await this.refreshIfNeeded(session);
     try {
-      return await session.hooks.auth.usage(async () => session.auth);
+      return await this.withEgress(() => session.hooks.auth.usage(async () => session.auth));
     } catch (error) {
       return { error: error?.message || "usage is unknown" };
     }
@@ -210,7 +211,7 @@ export class TraeProvider extends WorkBuddyProvider {
       })
       : body;
     const endpoint = await this.baseURL(session.id);
-    const response = await loader.fetch(`${endpoint}/chat/completions`, {
+    const response = await this.withEgress(() => loader.fetch(`${endpoint}/chat/completions`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -218,7 +219,7 @@ export class TraeProvider extends WorkBuddyProvider {
       },
       body: JSON.stringify(outgoing),
       signal
-    });
+    }));
     return restoreResponse(response, this.secrets);
   }
 }

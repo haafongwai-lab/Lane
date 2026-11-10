@@ -15,6 +15,7 @@ import { prepareChat, restoreToolNames } from "./sanitize.js";
 import { SecretVault, redactBody, redactForLog, resolveRules, restoreResponse } from "./redact.js";
 import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
+import { DEFAULT_EGRESS_MODE, installEgressGuard } from "./egress.js";
 
 // The plugin is vendored under vendor/ so a fresh clone builds and runs with
 // no registry access. A .mjs file is always ESM, so resolution goes straight
@@ -65,6 +66,69 @@ export class WorkBuddyProvider {
     this.ownedBy = "workbuddy";
     // One best-effort repair of names imported as "?" by old sign-in code.
     this.labelRefresh = null;
+    // Every host a vendored plugin reaches, newest last, bounded: the settings
+    // page shows this list, and it is what a review of "enforce" mode reads.
+    this.egress = [];
+    this.egressMode = DEFAULT_EGRESS_MODE;
+  }
+
+  /**
+   * Records one outbound request from a plugin. Bounded and deduplicated by
+   * host: the list answers "which hosts does this plugin talk to", not "how
+   * many requests did it make".
+   */
+  recordEgress(entry) {
+    const host = String(entry?.host || "");
+    if (!host) return;
+    const existing = this.egress.find((item) => item.host === host);
+    if (existing) {
+      existing.at = Date.now();
+      existing.count += 1;
+      existing.verdict = entry.verdict;
+      existing.blocked = Boolean(entry.blocked) || existing.blocked;
+      return;
+    }
+    this.egress.push({
+      host,
+      verdict: entry.verdict,
+      blocked: Boolean(entry.blocked),
+      at: Date.now(),
+      count: 1
+    });
+    if (this.egress.length > 200) this.egress.shift();
+  }
+
+  /** The recorded egress list, newest first, for the status snapshot. */
+  egressReport() {
+    return {
+      mode: this.egressMode,
+      hosts: [...this.egress].sort((a, b) => b.at - a.at)
+    };
+  }
+
+  /**
+   * Runs `work` with the outbound guard installed.
+   *
+   * The plugins were written for a host that hands them a global `fetch`, and
+   * they call it directly — including from their own helpers — so the guard
+   * replaces the global for the duration of one provider operation and puts it
+   * back afterwards. `monitor` only records; `enforce` refuses a host that is
+   * neither an exact upstream nor inside a provider's own domain family.
+   */
+  async withEgress(work) {
+    const settings = await readSettings(this.env).catch(() => ({ egressMode: DEFAULT_EGRESS_MODE }));
+    const mode = settings.egressMode || DEFAULT_EGRESS_MODE;
+    this.egressMode = mode;
+    if (mode === "off") return work();
+    const guard = installEgressGuard({
+      mode,
+      record: (entry) => this.recordEgress(entry)
+    });
+    try {
+      return await work();
+    } finally {
+      guard.restore();
+    }
   }
 
   /**
@@ -121,7 +185,7 @@ export class WorkBuddyProvider {
         await this.refreshIfNeeded(session).catch(() => {});
         const base = await this.baseURL(account.id);
         if (!base) continue;
-        const response = await fetch(`${base}/plugin/accounts`, {
+        const response = await this.withEgress(() => fetch(`${base}/plugin/accounts`, {
           headers: {
             authorization: `Bearer ${session.auth.access}`,
             "x-domain": account.domain || (account.site === "workbuddy-ai" ? "www.workbuddy.ai" : "www.workbuddy.cn"),
@@ -130,7 +194,7 @@ export class WorkBuddyProvider {
             "x-ide-name": "WorkBuddy"
           },
           signal: AbortSignal.timeout(8000)
-        });
+        }));
         if (!response.ok) continue;
         const payload = await response.json().catch(() => null);
         const rows = Array.isArray(payload?.data?.accounts) ? payload.data.accounts : [];
@@ -346,7 +410,7 @@ export class WorkBuddyProvider {
         ...modelDetails(modelId, value, site, this.ownedBy)
       }));
     }
-    const models = await hooks.provider.models(structuredClone(provider), { auth });
+    const models = await this.withEgress(() => hooks.provider.models(structuredClone(provider), { auth }));
     return Object.entries(models || {}).map(([modelId, value]) => ({
       id: modelId,
       ...modelDetails(modelId, value, site, this.ownedBy)
@@ -365,7 +429,7 @@ export class WorkBuddyProvider {
       return { error: "usage is not available" };
     }
     try {
-      const result = await session.hooks.auth.usage(async () => session.auth);
+      const result = await this.withEgress(() => session.hooks.auth.usage(async () => session.auth));
       return localizeUsage(result);
     } catch (error) {
       return { error: error?.message || "usage is unknown" };
@@ -439,7 +503,7 @@ export class WorkBuddyProvider {
     }
     let response;
     try {
-      response = await loader.fetch(`${endpoint}/chat/completions`, {
+      response = await this.withEgress(() => loader.fetch(`${endpoint}/chat/completions`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -447,7 +511,7 @@ export class WorkBuddyProvider {
         },
         body: JSON.stringify(outgoing),
         signal: gate.signal
-      });
+      }));
     } finally {
       clearTimeout(timer);
     }
@@ -510,7 +574,7 @@ export class WorkBuddyProvider {
     if (!method) throw new Error("WorkBuddy plugin has no browser sign-in method");
     // The plugin returns an OpenCode auth object already
     // ({url, instructions, callback}); authorize() itself is not a callback.
-    const result = await method.authorize();
+    const result = await this.withEgress(() => method.authorize());
     if (!result?.url) throw new Error("WorkBuddy plugin returned no browser URL");
     return { ...result, site: key };
   }
@@ -526,7 +590,7 @@ export class WorkBuddyProvider {
    * the same state, which the endpoint is free to refuse.
    */
   async finishSignIn(result, site = result?.site || "workbuddy", auth = null) {
-    const outcome = auth || await result.callback();
+    const outcome = auth || await this.withEgress(() => result.callback());
     if (outcome?.type !== "success") {
       throw new Error(outcome?.error || "WorkBuddy sign-in failed");
     }

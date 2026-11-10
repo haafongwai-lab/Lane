@@ -845,6 +845,36 @@ h1 {
 }
 .rule-details summary::-webkit-details-marker { display: none; }
 .rule-details summary span { color: var(--faint); font-size: 11px; font-weight: 500; }
+/* The outbound guard's host list: one quiet line per host, with the verdict
+   as the only colour so a third-party entry stands out on its own. */
+.egress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 13px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.egress-list .egress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-soft);
+}
+.egress-list .egress-row code { color: var(--ink-soft); font-size: 11px; overflow-wrap: anywhere; }
+.egress-list .egress-row small { color: var(--faint); white-space: nowrap; }
+.egress-list .egress-row.third-party code { color: var(--red); }
+.egress-list .egress-row.third-party small { color: var(--red); }
+.sheet-select {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 12px/1.4 var(--font-sans);
+}
+.sheet-select:focus { outline: 2px solid var(--green); outline-offset: 1px; border-color: transparent; }
 .rule-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

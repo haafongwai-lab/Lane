@@ -1,0 +1,17 @@
+# Hosts the vendored plugins can reach, as recorded from their source.
+# Regenerate with: node scripts/egress-audit.mjs --write
+# Review every addition before committing: a new host is either a provider
+# endpoint (add it to src/egress-hosts.js) or a third party (investigate).
+
+api-sg-central.trae.ai
+api-us-east.trae.ai
+api.trae.cn
+copilot.tencent.com
+coresg-normal.trae.ai
+coreva-normal.trae.ai
+growsg-normal.trae.ai
+trae-api-cn.mchost.guru
+www.trae.ai
+www.trae.cn
+www.workbuddy.ai
+www.workbuddy.cn

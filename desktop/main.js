@@ -622,7 +622,8 @@ handleIpc("lane:redact-settings", async (_event, patch = {}) => {
     redactPersonal: saved.redactPersonal !== false,
     redactRules: saved.redactRules,
     redactAllowlist: saved.redactAllowlist,
-    redactCustom: saved.redactCustom
+    redactCustom: saved.redactCustom,
+    egressMode: saved.egressMode
   };
 });
 
