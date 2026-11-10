@@ -204,6 +204,81 @@ async function refresh({ quiet = false } = {}) {
   }
 }
 
+// The outbound guard's mode menu. It mirrors DeepSeek Harness's menu: a quiet
+// trigger plus a padded popover, because a native <select> cannot be styled
+// into that shape. The selected value lives on the wrapper's data-value so a
+// status poll can repaint it without losing an open menu.
+const EGRESS_LABELS = { monitor: "只记录", enforce: "拦截第三方", off: "关闭" };
+
+function setEgressSelection(root, value) {
+  if (!root) return;
+  const mode = EGRESS_LABELS[value] ? value : "monitor";
+  root.dataset.value = mode;
+  const label = $("#egress-label");
+  if (label) label.textContent = EGRESS_LABELS[mode];
+  for (const item of $$("#egress-menu [data-value]")) {
+    item.setAttribute("aria-checked", String(item.dataset.value === mode));
+  }
+}
+
+function closeEgressMenu() {
+  const menu = $("#egress-menu");
+  const trigger = $("#egress-trigger");
+  if (menu) menu.hidden = true;
+  if (trigger) trigger.setAttribute("aria-expanded", "false");
+}
+
+function openEgressMenu() {
+  const menu = $("#egress-menu");
+  const trigger = $("#egress-trigger");
+  if (!menu || !trigger) return;
+  // The settings sheet is tall and the guard row sits near its bottom: a menu
+  // that always opens downward is clipped by the window. Measure first, then
+  // flip above the trigger when there is no room below.
+  menu.hidden = false;
+  menu.classList.remove("above");
+  const rect = trigger.getBoundingClientRect();
+  const room = window.innerHeight - rect.bottom;
+  if (room < menu.offsetHeight + 12) menu.classList.add("above");
+  trigger.setAttribute("aria-expanded", "true");
+  menu.querySelector('[aria-checked="true"]')?.focus?.();
+}
+
+$("#egress-trigger")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("#egress-menu");
+  if (!menu) return;
+  if (menu.hidden) openEgressMenu();
+  else closeEgressMenu();
+});
+
+$("#egress-menu")?.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-value]");
+  if (!item) return;
+  const root = $("#egress-select");
+  setEgressSelection(root, item.dataset.value);
+  closeEgressMenu();
+  saveRedact({ egressMode: item.dataset.value });
+});
+
+// A menu that stays open while the page scrolls or another control is clicked
+// reads as stuck; one document-level listener closes it.
+document.addEventListener("click", (event) => {
+  const menu = $("#egress-menu");
+  if (!menu || menu.hidden) return;
+  if (event.target.closest("#egress-select")) return;
+  closeEgressMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  const menu = $("#egress-menu");
+  if (!menu || menu.hidden) return;
+  if (event.key === "Escape") {
+    closeEgressMenu();
+    $("#egress-trigger")?.focus?.();
+  }
+});
+
 // The hosts the vendored plugins actually reached. This is the list a user
 // reads before switching the guard to "enforce": an entry marked 第三方 is a
 // host no upstream needs, and the one worth investigating.
@@ -342,9 +417,9 @@ function render() {
           if (custom && document.activeElement !== custom) {
             custom.value = (settings.redactCustom || []).join("\n");
           }
-          const egressSelect = $("#egress-mode");
-          if (egressSelect && document.activeElement !== egressSelect) {
-            egressSelect.value = settings.egressMode || "monitor";
+          const egressSelect = $("#egress-select");
+          if (egressSelect && document.activeElement !== $("#egress-trigger")) {
+            setEgressSelection(egressSelect, settings.egressMode || "monitor");
           }
         })
         .catch(() => { redactLoaded = false; });
@@ -1545,7 +1620,6 @@ async function saveRedact(patch) {
 }
 $("#redact-secrets").addEventListener("change", (event) => saveRedact({ redactSecrets: event.target.checked }));
 $("#redact-personal").addEventListener("change", (event) => saveRedact({ redactPersonal: event.target.checked }));
-$("#egress-mode")?.addEventListener("change", (event) => saveRedact({ egressMode: event.target.value }));
 for (const box of $$("#redact-details [data-redact-rule]")) {
   box.addEventListener("change", (event) => {
     saveRedact({ redactRules: { [event.target.dataset.redactRule]: event.target.checked } });

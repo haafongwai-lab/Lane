@@ -456,11 +456,17 @@
                 <b>出站域名守卫</b>
                 <span>记录插件访问的上游域名；开启拦截后，非上游域名会被拒绝。默认只记录，不改行为。</span>
               </div>
-              <select class="sheet-select" id="egress-mode">
-                <option value="monitor">只记录</option>
-                <option value="enforce">拦截第三方</option>
-                <option value="off">关闭</option>
-              </select>
+              <div class="dsh-select" id="egress-select" data-value="monitor">
+                <button type="button" class="dsh-select-trigger" id="egress-trigger" aria-haspopup="menu" aria-expanded="false">
+                  <span id="egress-label">只记录</span>
+                  <svg class="dsh-select-caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="dsh-menu" id="egress-menu" role="menu" hidden>
+                  <button type="button" role="menuitemradio" data-value="monitor" aria-checked="true">只记录</button>
+                  <button type="button" role="menuitemradio" data-value="enforce" aria-checked="false">拦截第三方</button>
+                  <button type="button" role="menuitemradio" data-value="off" aria-checked="false">关闭</button>
+                </div>
+              </div>
             </div>
             <details class="rule-details" id="egress-details">
               <summary>已访问的域名<span>点击查看插件实际连过的主机</span></summary>
