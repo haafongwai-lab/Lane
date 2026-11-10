@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * The four agent cards used to be hand-written with three different labels
+ * The agent cards used to be hand-written with three different labels
  * ("模型" / "模式" / "方式") and two different second rows ("网关" / "配置"),
  * and Codex's "Hy3 · WorkBuddy" was a hard-coded model name that never
  * changed with the account. Pin the uniform shape and that every value now
@@ -24,9 +24,9 @@ function cards() {
   return grid.split('<article class="agent-card">').slice(1).map((chunk) => chunk.split("</article>")[0]);
 }
 
-test("all four cards use the same two detail rows", () => {
+test("all five cards use the same two detail rows", () => {
   const list = cards();
-  assert.equal(list.length, 4, "four agent cards");
+  assert.equal(list.length, 5, "five agent cards");
   for (const [i, card] of list.entries()) {
     const labels = [...card.matchAll(/<div class="agent-detail"><span>([^<]+)<\/span>/g)].map((m) => m[1]);
     assert.deepEqual(labels, ["接入方式", "网关"], `card ${i + 1} labels`);
@@ -44,7 +44,7 @@ test("no hard-coded model, mode or path is left in the cards", () => {
 });
 
 test("every address and every config path is filled from the status snapshot", () => {
-  for (const id of ["codex", "claude", "zcode", "dsh"]) {
+  for (const id of ["codex", "claude", "zcode", "vscode", "dsh"]) {
     assert.match(APP, new RegExp(`\\$\\("#${id}-address"\\)\\.textContent`), `${id} address is dynamic`);
     assert.match(APP, new RegExp(`setAgentPath\\("${id}-path"`), `${id} path is dynamic`);
   }
@@ -52,6 +52,7 @@ test("every address and every config path is filled from the status snapshot", (
     ["agents?.codex?.configPath", "configPath: codexConfigPath(env)"],
     ["agents?.claudeDesktop?.modeConfig", "modeConfig: claudePaths(env).modeConfig"],
     ["agents?.zcode?.configPath", "configPath: zcodePaths(env).config"],
+    ["agents?.vscode?.configPath", "configPath: vscodePaths(env).config"],
     ["agents?.dsh?.configPath", "configPath: dshPatchPath(env)"]
   ]) {
     assert.ok(APP.includes(rendererField), `renderer reads ${rendererField}`);

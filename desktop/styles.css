@@ -481,6 +481,13 @@ h1 {
   display: block;
   object-fit: contain;
 }
+.vscode-logo { background: transparent; overflow: hidden; }
+.vscode-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
 /* In the route node the whale stands bare, as Claude's asterisk and Codex's
    star do: no tile, no ring. The asset's ink is only 63% of the image tall
    (a wide mark against square glyphs), and percentage sizing compounded
@@ -601,6 +608,7 @@ h1 {
 .agent-icon.codex img { width: 48px; height: 48px; }
 .agent-icon.claude img { width: 36px; height: 36px; }
 .agent-icon.zcode img { width: 44px; height: 44px; }
+.agent-icon.vscode img { width: 44px; height: 44px; }
 /* DeepSeek Harness's mark sits bare on the card, exactly as Claude's
    asterisk and Codex's star do: no tile, no ring, no radius. The whale is
    1.36:1, so it is drawn a little wider than Claude's near-square mark to

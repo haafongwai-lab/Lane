@@ -356,6 +356,7 @@ function render() {
   const codexOn = agents?.codex?.connected;
   const claudeOn = agents?.claudeDesktop?.connected;
   const zcodeOn = agents?.zcode?.connected;
+  const vscodeOn = agents?.vscode?.connected;
   const dshOn = agents?.dsh?.connected;
 
   $("#route-live-dot").className = "dot ok";
@@ -364,7 +365,7 @@ function render() {
   // The rail only animates while a request is on the wire, so the motion
   // always means something is happening rather than looping for decoration.
   $(".route-canvas").classList.toggle("busy", running.length > 0);
-  renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn });
+  renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, vscodeOn, dshOn });
   // "starting" is what the main process answers while the gateway is coming
   // up or retrying after a failed start; a fixed "运行中" would mask that.
   $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
@@ -394,6 +395,9 @@ function render() {
   $("#zcode-connect-state").textContent = zcodeOn ? "已接入" : "未接入";
   $("#zcode-connect-state").classList.toggle("on", zcodeOn);
   $("#zcode-connect").textContent = zcodeOn ? "重新接入 ZCode" : "接入 ZCode";
+  $("#vscode-connect-state").textContent = vscodeOn ? "已接入" : "未接入";
+  $("#vscode-connect-state").classList.toggle("on", vscodeOn);
+  $("#vscode-connect").textContent = vscodeOn ? "重新接入 VS Code" : "接入 VS Code";
   $("#dsh-connect-state").textContent = dshOn ? "已接入" : "未接入";
   $("#dsh-connect-state").classList.toggle("on", dshOn);
   $("#dsh-connect").textContent = dshOn ? "重新接入 DSH" : "接入 DSH";
@@ -456,6 +460,7 @@ function render() {
   $("#codex-address").textContent = `${address}/v1`;
   $("#claude-address").textContent = address;
   $("#zcode-address").textContent = address;
+  $("#vscode-address").textContent = address;
   $("#dsh-address").textContent = address;
   // The cards name the config file Lane actually writes, read from the status
   // snapshot. A hard-coded path was wrong as soon as CODEX_HOME / ZCODE_HOME
@@ -470,6 +475,7 @@ function render() {
   setAgentPath("codex-path", agents?.codex?.configPath);
   setAgentPath("claude-path", agents?.claudeDesktop?.modeConfig);
   setAgentPath("zcode-path", agents?.zcode?.configPath);
+  setAgentPath("vscode-path", agents?.vscode?.configPath);
   setAgentPath("dsh-path", agents?.dsh?.configPath);
   renderCredits(signedIn ? snapshot.usage : null);
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
@@ -700,7 +706,7 @@ async function accountAction(action, id, options = {}) {
 
 // The route's agent slot shows whichever agent sent the latest request,
 // falling back to the connected one, and the workflow lists both.
-function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn }) {
+function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, vscodeOn, dshOn }) {
   // The AGENT node shows every client that is wired, so the route reads the
   // same whether one, two or all of them are in use. Each mark carries its
   // own name under its logo: Codex's star and Claude's asterisk read alike
@@ -709,6 +715,7 @@ function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, dshOn }) {
     { on: codexOn, mark: "#client-codex-mark", full: "Codex" },
     { on: claudeOn, mark: "#client-claude-mark", full: "Claude Desktop" },
     { on: zcodeOn, mark: "#client-zcode-mark", full: "ZCode" },
+    { on: vscodeOn, mark: "#client-vscode-mark", full: "VS Code" },
     { on: dshOn, mark: "#client-dsh-mark", full: "DeepSeek Harness" }
   ];
   const live = clients.filter((client) => client.on);
@@ -844,7 +851,7 @@ async function loadUsage() {
 
 // Short forms: the recent list's source column is one narrow grid cell, and a
 // long label there wraps the row to double height.
-const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", dsh: "DSH", openai: "OpenAI" };
+const AGENT_LABELS = { codex: "Codex", "claude-desktop": "Claude", zcode: "ZCode", vscode: "VS Code", dsh: "DSH", openai: "OpenAI" };
 
 // The mark each agent is drawn with in the recent-request list. The same
 // official icons the agent cards use, so a row is attributable at a glance
@@ -854,6 +861,7 @@ const AGENT_ICONS = {
   codex: "assets/codex-official.svg",
   "claude-desktop": "assets/claude-official.svg",
   zcode: "assets/zcode-official-256.png",
+  vscode: "assets/vscode.svg",
   dsh: "assets/dsh-official-256.png"
 };
 
@@ -1523,8 +1531,10 @@ $("#codex-disconnect").addEventListener("click", () => command("disconnect", { a
 $("#claude-connect").addEventListener("click", () => command("connect", { agent: "claude-desktop" }, "Claude Desktop 已接入，请重启客户端"));
 $("#claude-disconnect").addEventListener("click", () => command("disconnect", { agent: "claude-desktop" }, "Claude Desktop 已断开"));
 $("#zcode-connect").addEventListener("click", () => command("connect", { agent: "zcode" }, "ZCode 已接入，请重启客户端"));
+$("#vscode-connect").addEventListener("click", () => command("connect", { agent: "vscode" }, "VS Code 已接入，请重载窗口"));
 $("#dsh-connect").addEventListener("click", () => command("connect", { agent: "dsh" }, "DeepSeek Harness 已接入，请重启客户端"));
 $("#zcode-disconnect").addEventListener("click", () => command("disconnect", { agent: "zcode" }, "ZCode 已断开"));
+$("#vscode-disconnect").addEventListener("click", () => command("disconnect", { agent: "vscode" }, "VS Code 已断开"));
 $("#dsh-disconnect").addEventListener("click", () => command("disconnect", { agent: "dsh" }, "DeepSeek Harness 已断开"));
 $("#quick-signin").addEventListener("click", () => {
   // More than one upstream can sign in now: take the user to the account page

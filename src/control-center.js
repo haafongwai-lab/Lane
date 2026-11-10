@@ -10,6 +10,7 @@ import {
   disconnectClaudeDesktop
 } from "./agents/claude-desktop.js";
 import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./agents/zcode.js";
+import { connectVscode, disconnectVscode, syncVscodeCatalog, vscodePaths, vscodeStatus } from "./agents/vscode.js";
 import { connectDsh, disconnectDsh, dshStatus, dshPatchPath } from "./agents/dsh.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, forgetCheckinAccount, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
@@ -283,6 +284,14 @@ export function createControlCenter({
         providerModels: () => instance.listModels()
       });
     }
+    if (agent === "vscode") {
+      const instance = await getProvider();
+      return connectVscode({
+        env,
+        gateway: target,
+        providerModels: () => instance.listModels()
+      });
+    }
     if (agent === "dsh") {
       const instance = await getProvider();
       return connectDsh({
@@ -298,6 +307,7 @@ export function createControlCenter({
     if (agent === "codex") return disconnectCodex({ env });
     if (agent === "claude-desktop") return disconnectClaudeDesktop({ env });
     if (agent === "zcode") return disconnectZcode({ env });
+    if (agent === "vscode") return disconnectVscode({ env });
     if (agent === "dsh") return disconnectDsh({ env });
     throw new Error(`unknown agent: ${agent}`);
   };
@@ -364,6 +374,7 @@ export function createControlCenter({
       if (Array.isArray(models)) {
         await syncCodexCatalog({ env, models }).catch(() => {});
         await syncZcodeCatalog({ env, models }).catch(() => {});
+        await syncVscodeCatalog({ env, models }).catch(() => {});
       }
       let signedIn = false;
       try {
@@ -434,6 +445,11 @@ export function createControlCenter({
             connected: Boolean(state.zcode?.connected),
             configPath: zcodePaths(env).config
           },
+          vscode: await vscodeStatus({ env }).catch(() => ({
+            connected: false,
+            configPath: vscodePaths(env).config,
+            installed: false
+          })),
           dsh: await dshStatus({ env }).catch(() => ({
             connected: false,
             configPath: dshPatchPath(env),
@@ -562,14 +578,15 @@ export function createControlCenter({
       return account;
     },
 
-    /** Rewrites the Codex and ZCode catalogues from the allowed model list. */
+    /** Rewrites the Codex, ZCode and VS Code catalogues from the allowed model list. */
     async syncCatalogs(instance = null) {
       const target = instance || (await getProvider());
       await target.listModels()
         .then((models) => (Array.isArray(models)
           ? Promise.allSettled([
             syncCodexCatalog({ env, models }),
-            syncZcodeCatalog({ env, models })
+            syncZcodeCatalog({ env, models }),
+            syncVscodeCatalog({ env, models })
           ])
           : null))
         .catch(() => {});

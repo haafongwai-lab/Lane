@@ -76,6 +76,10 @@
                   <div class="node-logo zcode-logo" id="client-zcode-logo"><img src="assets/zcode-official-256.png" alt=""></div>
                   <span>ZCode</span>
                 </div>
+                <div class="agent-mark" id="client-vscode-mark">
+                  <div class="node-logo vscode-logo" id="client-vscode-logo"><img src="assets/vscode.svg" alt=""></div>
+                  <span>VS Code</span>
+                </div>
                 <div class="agent-mark" id="client-dsh-mark">
                   <div class="node-logo dsh-logo" id="client-dsh-logo"><img src="assets/dsh-official-256.png" alt=""></div>
                   <span>DSH</span>
@@ -162,6 +166,18 @@
             <div class="agent-detail"><span>网关</span><code id="zcode-address">127.0.0.1:3426</code></div>
             <p class="agent-note">写入 lane 提供方并把它的模型清单指向网关，其余提供方与设置保持不变。<code class="agent-path" id="zcode-path"></code></p>
             <div class="card-actions"><button class="primary" id="zcode-connect">接入 ZCode</button><button class="ghost" id="zcode-disconnect">断开</button></div>
+          </article>
+
+          <article class="agent-card">
+            <span class="connection-state" id="vscode-connect-state">未接入</span>
+            <div class="agent-title">
+              <div class="agent-icon vscode"><img src="assets/vscode.svg" alt=""></div>
+              <div class="agent-name"><h2>VS Code</h2><p>Claude Code · Anthropic Messages</p></div>
+            </div>
+            <div class="agent-detail"><span>接入方式</span><b>Claude Code 配置</b></div>
+            <div class="agent-detail"><span>网关</span><code id="vscode-address">127.0.0.1:3426/v1</code></div>
+            <p class="agent-note">写入 Claude Code 的网关与模型设置，接入后重载 VS Code 窗口。<code class="agent-path" id="vscode-path"></code></p>
+            <div class="card-actions"><button class="primary" id="vscode-connect">接入 VS Code</button><button class="ghost" id="vscode-disconnect">断开</button></div>
           </article>
 
           <article class="agent-card">

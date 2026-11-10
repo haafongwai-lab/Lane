@@ -1,12 +1,12 @@
 # Lane
 
-Lane is a small, Windows-local desktop gateway for multiple upstreams and three agents:
+Lane is a small, Windows-local desktop gateway for multiple upstreams and four agents:
 
 - Upstreams: WorkBuddy — the domestic build (copilot.tencent.com) and the
   international build (www.workbuddy.ai), signed in side by side; Trae CN
   (trae.cn) and Trae Global (trae.ai) as a second upstream via the community
   Trae auth plugin
-- Agents: Claude Desktop, Codex and ZCode
+- Agents: Claude Desktop, Codex, ZCode and VS Code through the Claude Code extension
 
 It is intentionally independent from magpie. It does not read magpie's data
 directory, use its port, or control its processes.
@@ -30,7 +30,7 @@ enterprise behavior follows the plugin's protocol shapes, not a live account.
   handling through the community plugin
 - Trae CN / Trae Global sign-in, model discovery, token refresh and chat
   through the vendored Trae community plugin
-- Reversible Claude Desktop, Codex and ZCode wiring
+- Reversible Claude Desktop, Codex, ZCode and VS Code (Continue) wiring
 
 The desktop app keeps the scope intentionally small. It does not implement a
 plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
@@ -47,6 +47,19 @@ without a template is complete on its own in ZCode's schema, so nothing else
 in the file changes: the user's API keys, other providers and settings are
 written back as they were. Disconnect removes the rule and its order entry.
 ZCode must be restarted to read the new provider.
+
+## VS Code
+
+VS Code is wired through the Claude Code extension. The extension launches
+the Claude Code runtime, which reads `~/.claude/settings.json`; Lane writes
+three keys into its `env` block: `ANTHROPIC_BASE_URL` (the gateway),
+`ANTHROPIC_AUTH_TOKEN` (a local placeholder; the gateway is loopback-only),
+and `ANTHROPIC_MODEL` (the first model the account allows). The rest of the
+file — login state, model settings, plugins and unrelated environment
+variables — is preserved. Disconnect restores only those three keys, and only
+while their value is still Lane's. Reload the VS Code window after connecting.
+`CLAUDE_CONFIG_DIR` or `LANE_VSCODE_CONFIG` can point the adapter at a
+non-default profile.
 
 ## Accounts
 
