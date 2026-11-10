@@ -314,6 +314,22 @@ integrity records are archived in `vendor/originals/`, the upstream MIT
 licenses are at `vendor/*/LICENSE`, and any local changes are recorded in
 `vendor/*/NOTICE.md`. See `THIRD_PARTY_NOTICES.md` for the consolidated notice.
 
+### Plugin updates
+
+The desktop app's **插件** page lists both plugins with their installed
+version, license and SHA-256. Checking for updates reads the npm registry only
+when asked; an update is downloaded from `registry.npmjs.org`, verified against
+the release's SHA-512 integrity, and unpacked into
+`%LOCALAPPDATA%\lane\plugins\<key>\`. The vendored copy remains the fallback,
+so an unreadable or failed update falls back instead of leaving Lane without a
+plugin.
+
+Before anything is replaced, the page shows the hosts and paths the new
+version names that the installed copy did not. Installing keeps the previous
+external copy as a rollback target. **自动更新** is off by default; when on, it
+only installs a release whose host and path sets are unchanged — a release
+that adds an endpoint is staged and left for review.
+
 ## Disclaimer
 
 Lane is an independent personal open-source project. It is **not affiliated

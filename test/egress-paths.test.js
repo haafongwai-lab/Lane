@@ -87,7 +87,8 @@ test("the path baseline covers the plugins, so an upgrade that adds a path fails
 test("the audit ignores base-url fragments, which are not endpoints", () => {
   const paths = pathsInSource('baseURL: "https://x/v1" + "/chat/completions"');
   assert.equal(paths.has("/v1"), false, "a single segment is not an endpoint");
-  assert.equal(paths.has("/chat/completions"), true);
+  assert.equal(paths.has("/v1/chat/completions"), false, "a relative tail is not a complete endpoint on its own");
+  assert.equal(pathsInSource('"/v1/chat/completions"').has("/v1/chat/completions"), true);
 });
 
 test("the audit cuts a query string off a path", () => {

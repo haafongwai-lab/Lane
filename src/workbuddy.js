@@ -16,11 +16,12 @@ import { SecretVault, redactBody, redactForLog, resolveRules, restoreResponse } 
 import { readSettings } from "./settings.js";
 import { ERROR_KIND, withKind } from "./error-kind.js";
 import { DEFAULT_EGRESS_MODE, installEgressGuard } from "./egress.js";
+import { pluginEntryUrl } from "./plugin-store.js";
 
 // The plugin is vendored under vendor/ so a fresh clone builds and runs with
-// no registry access. A .mjs file is always ESM, so resolution goes straight
-// to the file and does not depend on node_modules or a package name.
-const PLUGIN_URL = new URL("../vendor/workbuddy-auth/index.mjs", import.meta.url);
+// no registry access. The plugin updater can install a newer copy under the
+// data directory; pluginEntryUrl() prefers it and falls back to this vendor
+// copy, which is what keeps a failed update from bricking Lane.
 
 // The plugin's models hook fetches /v3/config live on every call. Lane asks
 // it from the model routes, the journal's rate lookup and the desktop
@@ -70,6 +71,14 @@ export class WorkBuddyProvider {
     // page shows this list, and it is what a review of "enforce" mode reads.
     this.egress = [];
     this.egressMode = DEFAULT_EGRESS_MODE;
+  }
+
+  /** Forget every loaded plugin instance so the next call imports the new copy. */
+  reloadPlugins() {
+    this.factories.clear();
+    this.anonymous.clear();
+    this.sessions.clear();
+    this.invalidateModels();
   }
 
   /**
@@ -186,7 +195,7 @@ export class WorkBuddyProvider {
     const key = normalizeSite(site);
     if (this.factory) return this.factory;
     if (this.factories.has(key)) return this.factories.get(key);
-    const factory = await loadFactory(key);
+    const factory = await loadFactory(key, this.env);
     this.factories.set(key, factory);
     return factory;
   }
@@ -702,10 +711,11 @@ const SITE_EXPORTS = {
   "workbuddy-ai": "WorkBuddyAIAuthPlugin"
 };
 
-async function loadFactory(site = "workbuddy") {
+async function loadFactory(site = "workbuddy", env = process.env) {
   let entry;
   try {
-    entry = await import(PLUGIN_URL.href);
+    const pluginUrl = await pluginEntryUrl("workbuddy-auth", env);
+    entry = await import(pluginUrl.href);
   } catch (error) {
     throw new Error(
       `WorkBuddy plugin copy is missing or unreadable at vendor/workbuddy-auth/index.mjs. (${error.message})`

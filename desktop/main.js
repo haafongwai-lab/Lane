@@ -467,6 +467,26 @@ handleIpc("lane:set-model", async (_event, { id, enabled, provider } = {}) => {
   await startGateway();
   return control.setModelEnabled(id, Boolean(enabled), typeof provider === "string" ? provider : "");
 });
+handleIpc("lane:plugins", async () => {
+  await startGateway();
+  return control.plugins();
+});
+handleIpc("lane:plugin-check", async () => {
+  await startGateway();
+  return control.pluginCheck();
+});
+handleIpc("lane:plugin-stage", async (_event, { key } = {}) => {
+  await startGateway();
+  return control.pluginStage(String(key || ""));
+});
+handleIpc("lane:plugin-apply", async (_event, { key } = {}) => {
+  await startGateway();
+  return control.pluginApply(String(key || ""));
+});
+handleIpc("lane:plugin-rollback", async (_event, { key } = {}) => {
+  await startGateway();
+  return control.pluginRollback(String(key || ""));
+});
 handleIpc("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   const wanted = Array.isArray(ids) ? ids : null;
@@ -623,7 +643,8 @@ handleIpc("lane:redact-settings", async (_event, patch = {}) => {
     redactRules: saved.redactRules,
     redactAllowlist: saved.redactAllowlist,
     redactCustom: saved.redactCustom,
-    egressMode: saved.egressMode
+    egressMode: saved.egressMode,
+    pluginAutoUpdate: saved.pluginAutoUpdate === true
   };
 });
 

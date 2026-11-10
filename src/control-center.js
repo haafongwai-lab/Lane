@@ -13,6 +13,7 @@ import { connectZcode, disconnectZcode, syncZcodeCatalog, zcodePaths } from "./a
 import { connectDsh, disconnectDsh, dshStatus, dshPatchPath } from "./agents/dsh.js";
 import { installWindowsTask, uninstallWindowsTask, startupDir } from "./windows-task.js";
 import { checkinOverview, forgetCheckinAccount, runCheckins, startCheckinScheduler, updateSettings } from "./checkin.js";
+import { applyUpdate, autoUpdate, checkUpdates, listPlugins, rollbackPlugin, stageUpdate } from "./plugin-store.js";
 import { summary as usageSummary, RANGES, billedRates, rangeStart, rangeEnd } from "./usage.js";
 import * as mcpServers from "./mcp-servers.js";
 import * as mcpDeploy from "./mcp-deploy.js";
@@ -44,6 +45,8 @@ export function createControlCenter({
   const signInPending = new Map();
   let signInError = "";
   let scheduler = null;
+  let pluginTimer = null;
+  let pluginKickoff = null;
   // Set when the control is stopped; a scheduler that finishes mounting
   // afterwards must not start behind a control that is already gone.
   let disposed = false;
@@ -236,6 +239,22 @@ export function createControlCenter({
         }
       })
       .catch(() => {});
+
+    // The plugin updater's opt-in path: check on startup and every six hours.
+    // It only installs releases whose host/path surface is unchanged; one with
+    // new endpoints is left staged for the user to review.
+    const runPluginAuto = async () => {
+      if (disposed) return;
+      const result = await autoUpdate(env).catch(() => ({ results: [] }));
+      if (result.results?.some((item) => item.action === "updated")) {
+        const instance = await getProvider().catch(() => null);
+        instance?.reloadPlugins?.();
+      }
+    };
+    pluginKickoff = setTimeout(runPluginAuto, 60_000);
+    pluginKickoff.unref?.();
+    pluginTimer = setInterval(runPluginAuto, 6 * 60 * 60 * 1000);
+    pluginTimer.unref?.();
   }
 
   const activeAccount = async (instance) => {
@@ -437,6 +456,38 @@ export function createControlCenter({
         accounts: await instance.accounts(),
         activeId: await instance.activeId()
       };
+    },
+
+    /**
+     * The two vendored plugins and their local installation state. This is a
+     * local read only; checking npm is a separate, explicit action.
+     */
+    async plugins() {
+      return listPlugins(env);
+    },
+
+    async pluginCheck() {
+      return checkUpdates(env);
+    },
+
+    async pluginStage(key) {
+      return stageUpdate(key, env);
+    },
+
+    async pluginApply(key) {
+      const info = await applyUpdate(key, env);
+      // The providers keep plugin factories and sessions in memory; without
+      // this the old module would keep serving until the next restart.
+      const instance = await getProvider();
+      instance.reloadPlugins?.();
+      return info;
+    },
+
+    async pluginRollback(key) {
+      const info = await rollbackPlugin(key, env);
+      const instance = await getProvider();
+      instance.reloadPlugins?.();
+      return info;
     },
 
     /**
@@ -760,6 +811,10 @@ export function createControlCenter({
       await mounting?.catch(() => {});
       scheduler?.stop();
       scheduler = null;
+      if (pluginKickoff) clearTimeout(pluginKickoff);
+      if (pluginTimer) clearInterval(pluginTimer);
+      pluginKickoff = null;
+      pluginTimer = null;
       // The journal's writes are debounced; a shutdown that skips the flush
       // loses the tail of the day's requests. Awaited so the CLI and the
       // desktop can let it land before the process goes.

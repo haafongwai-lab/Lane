@@ -176,6 +176,7 @@ function go(view) {
   // it is open, so the figures would otherwise be as old as the last visit.
   if (view === "activity") loadUsage();
   if (view === "extensions") loadExtensions();
+  if (view === "plugins") loadPlugins();
   $$(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
@@ -1874,6 +1875,175 @@ function extError(id, message) {
   node.hidden = !message;
   node.textContent = message || "";
 }
+
+let pluginState = { plugins: [], checks: new Map(), previews: new Map() };
+
+function pluginBadge(plugin, check) {
+  if (check?.updateAvailable) return '<span class="plugin-badge warn">可更新 v' + esc(check.latestVersion) + '</span>';
+  if (plugin.installed) return '<span class="plugin-badge">已安装</span>';
+  return '<span class="plugin-badge">内置</span>';
+}
+
+function renderPlugins() {
+  const node = $("#plugin-list");
+  if (!node) return;
+  const plugins = pluginState.plugins || [];
+  if (!plugins.length) {
+    node.innerHTML = '<div class="empty">正在读取插件…</div>';
+    return;
+  }
+  node.innerHTML = plugins.map((plugin) => {
+    const check = pluginState.checks.get(plugin.key);
+    const preview = pluginState.previews.get(plugin.key);
+    const diff = preview && !preview.upToDate ? preview.diff : null;
+    const diffText = diff
+      ? renderPluginDiff(diff)
+      : "";
+    const canUpdate = Boolean(check?.updateAvailable) || Boolean(preview && !preview.upToDate);
+    return `<div class="plugin-row" data-plugin="${esc(plugin.key)}">
+      <div>
+        <div class="plugin-name"><b>${esc(plugin.title)}</b>${pluginBadge(plugin, check)}</div>
+        <p class="plugin-desc">${esc(plugin.description)}</p>
+        <div class="plugin-meta">${esc(plugin.packageName)} · 当前 ${esc(plugin.version || "—")}${check?.latestVersion ? ` · 最新 ${esc(check.latestVersion)}` : ""}${plugin.sha ? ` · SHA ${esc(plugin.sha.slice(0, 10))}…` : ""}</div>
+      </div>
+      <div class="plugin-actions">
+        <button class="mini" data-plugin-check="${esc(plugin.key)}">检查更新</button>
+        <button class="mini" data-plugin-update="${esc(plugin.key)}"${canUpdate ? "" : " disabled"}>更新</button>
+        <button class="mini" data-plugin-rollback="${esc(plugin.key)}"${plugin.canRollback ? "" : " disabled"}>回滚</button>
+      </div>
+      ${preview && !preview.upToDate ? `<div class="plugin-diff">
+        <b>${esc(preview.fromVersion || plugin.version)} → ${esc(preview.toVersion || check?.latestVersion || "新版本")}</b>
+        ${diffText || "<br>新版没有新增域名或路径。"}
+        <div class="plugin-diff-actions">
+          <button class="mini" data-plugin-apply="${esc(plugin.key)}">确认安装</button>
+          <button class="mini" data-plugin-cancel="${esc(plugin.key)}">取消</button>
+        </div>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function renderPluginDiff(diff) {
+  const lines = [];
+  const hosts = diff.hosts || { added: [], removed: [] };
+  const paths = diff.paths || { added: [], removed: [] };
+  if (hosts.added.length) lines.push(`<span class="bad">新增域名：${hosts.added.map(esc).join("、")}</span>`);
+  if (hosts.removed.length) lines.push(`<span class="ok">移除域名：${hosts.removed.map(esc).join("、")}</span>`);
+  if (paths.added.length) lines.push(`<span class="bad">新增路径：${paths.added.map(esc).join("、")}</span>`);
+  if (paths.removed.length) lines.push(`<span class="ok">移除路径：${paths.removed.map(esc).join("、")}</span>`);
+  return lines.length ? `<br>${lines.join("<br>")}` : "";
+}
+
+async function loadPlugins() {
+  const status = $("#plugin-status");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+  try {
+    pluginState.plugins = await window.lane.plugins();
+    renderPlugins();
+  } catch (error) {
+    $("#plugin-list").innerHTML = `<div class="empty">${esc(error.message || "读取插件失败")}</div>`;
+  }
+  // The toggle lives in settings.json, not in the plugin record.
+  try {
+    const settings = await window.lane.gatewaySettings();
+    const box = $("#plugin-auto");
+    if (box) box.checked = settings.pluginAutoUpdate === true;
+  } catch {}
+}
+
+$("#plugin-list").addEventListener("click", async (event) => {
+  const check = event.target.closest("[data-plugin-check]");
+  const update = event.target.closest("[data-plugin-update]");
+  const apply = event.target.closest("[data-plugin-apply]");
+  const cancel = event.target.closest("[data-plugin-cancel]");
+  const rollback = event.target.closest("[data-plugin-rollback]");
+  if (check) {
+    const key = check.dataset.pluginCheck;
+    check.disabled = true;
+    try {
+      const rows = await window.lane.pluginCheck();
+      for (const row of rows) pluginState.checks.set(row.key, row);
+      renderPlugins();
+    } catch (error) {
+      toast(`检查更新失败：${error.message}`, true);
+    } finally {
+      check.disabled = false;
+    }
+    return;
+  }
+  if (update) {
+    const key = update.dataset.pluginUpdate;
+    update.disabled = true;
+    try {
+      const preview = await window.lane.pluginStage(key);
+      if (preview.upToDate) {
+        toast("已经是最新版本");
+      } else {
+        pluginState.previews.set(key, preview);
+        renderPlugins();
+      }
+    } catch (error) {
+      toast(`准备更新失败：${error.message}`, true);
+    } finally {
+      update.disabled = false;
+    }
+    return;
+  }
+  if (apply) {
+    const key = apply.dataset.pluginApply;
+    const preview = pluginState.previews.get(key);
+    const additions = preview?.diff ? preview.diff.hosts.added.length + preview.diff.paths.added.length : 0;
+    if (!confirm(additions
+      ? `新版新增了 ${additions} 个域名/路径，确认安装并信任这些变化吗？`
+      : "确认安装这个版本吗？旧版本会保留，可回滚。")) return;
+    apply.disabled = true;
+    try {
+      const info = await window.lane.pluginApply(key);
+      pluginState.previews.delete(key);
+      pluginState.checks.delete(key);
+      toast(`插件已更新到 ${info.version || "新版本"}`);
+      await loadPlugins();
+    } catch (error) {
+      toast(`安装失败：${error.message}`, true);
+    } finally {
+      apply.disabled = false;
+    }
+    return;
+  }
+  if (cancel) {
+    pluginState.previews.delete(cancel.dataset.pluginCancel);
+    renderPlugins();
+    return;
+  }
+  if (rollback) {
+    const key = rollback.dataset.pluginRollback;
+    if (!confirm("回滚到上一个版本？当前插件会被替换。")) return;
+    rollback.disabled = true;
+    try {
+      const info = await window.lane.pluginRollback(key);
+      toast(`已回滚到 ${info.version || "内置版本"}`);
+      await loadPlugins();
+    } catch (error) {
+      toast(`回滚失败：${error.message}`, true);
+    } finally {
+      rollback.disabled = false;
+    }
+  }
+});
+
+$("#plugin-refresh").addEventListener("click", loadPlugins);
+$("#plugin-auto").addEventListener("change", async (event) => {
+  try {
+    await window.lane.redactSettings({ pluginAutoUpdate: event.target.checked });
+    toast(event.target.checked ? "已开启自动更新：只安装没有新增域名/路径的版本" : "已关闭自动更新");
+  } catch (error) {
+    event.target.checked = !event.target.checked;
+    toast(`保存失败：${error.message}`, true);
+  }
+});
 
 async function loadExtensions() {
   // Two panels, two reads: a failure in one must not blank the other, and

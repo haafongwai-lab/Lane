@@ -245,6 +245,12 @@ export class ProviderRouter {
     this.trae.invalidateModels();
   }
 
+  /** Drop every loaded plugin instance after an update or a rollback. */
+  reloadPlugins() {
+    this.workbuddy.reloadPlugins?.();
+    this.trae.reloadPlugins?.();
+  }
+
   async activate(id) {
     const account = await this.accountOf(id);
     if (!account) throw new Error(`unknown account: ${id}`);

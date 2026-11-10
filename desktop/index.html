@@ -20,6 +20,7 @@
         <button class="nav" data-view="models"><span>模型</span></button>
         <p>系统</p>
         <button class="nav" data-view="extensions"><i>⧉</i><span>扩展</span></button>
+      <button class="nav" data-view="plugins"><i>▣</i><span>插件</span></button>
         <button class="nav" data-view="activity"><i>≡</i><span>积分花费</span></button>
         <button class="nav" data-view="settings"><i>⚙</i><span>设置</span></button>
       </nav>
@@ -343,6 +344,22 @@
             <div id="skills-list"><div class="empty">技能库是空的。<br>点「导入」收进一个含 SKILL.md 的文件夹。</div></div>
           </article>
         </div>
+      </section>
+
+      <section class="view" id="view-plugins">
+        <div class="heading-row">
+          <div><div class="eyebrow">插件</div><h1>上游协议插件</h1><p class="sub">查看 WorkBuddy 与 Trae 插件版本，检查并更新。</p></div>
+          <div class="heading-actions">
+            <label class="switch small" data-tip="自动更新前先做域名和路径审查"><input type="checkbox" id="plugin-auto"><span></span></label>
+            <span class="soft-label">自动更新</span>
+            <button class="ghost" id="plugin-refresh">↻ 刷新</button>
+          </div>
+        </div>
+        <article class="panel plugins-panel">
+          <div id="plugin-status" class="accounts-error" hidden></div>
+          <div class="plugin-list" id="plugin-list"><div class="empty">正在读取插件…</div></div>
+        </article>
+        <p class="models-hint">更新只从 npm 官方 registry 下载并校验 SHA-512。新版会先暂存，显示新增的域名和路径，确认后才替换；旧版本保留，可随时回滚。</p>
       </section>
 
       <section class="view" id="view-activity">

@@ -10,8 +10,8 @@ import {
 import { WorkBuddyProvider } from "./workbuddy.js";
 import { SecretVault, redactBody, resolveRules, restoreResponse } from "./redact.js";
 import { readSettings } from "./settings.js";
+import { pluginEntryUrl } from "./plugin-store.js";
 
-const PLUGIN_URL = new URL("../vendor/trae-auth/index.mjs", import.meta.url);
 const SITE_EXPORTS = {
   "trae-cn": "TraeCNAuthPlugin",
   "trae-global": "TraeGlobalAuthPlugin"
@@ -46,13 +46,20 @@ export class TraeProvider extends WorkBuddyProvider {
     this.traeFactories = new Map();
   }
 
+  /** A new plugin copy may change either site factory; drop both. */
+  reloadPlugins() {
+    this.traeFactories.clear();
+    return super.reloadPlugins();
+  }
+
   async factoryFor(site) {
     const key = traeSite(site);
     if (this.factory) return this.factory;
     if (this.traeFactories.has(key)) return this.traeFactories.get(key);
     let entry;
     try {
-      entry = await import(PLUGIN_URL.href);
+      const pluginUrl = await pluginEntryUrl("trae-auth", this.env);
+      entry = await import(pluginUrl.href);
     } catch (error) {
       throw new Error(
         `Trae plugin copy is missing or unreadable at vendor/trae-auth/index.mjs. (${error.message})`

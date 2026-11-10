@@ -79,7 +79,8 @@ export async function readSettings(env = process.env) {
     redactRules,
     redactAllowlist,
     redactCustom,
-    egressMode
+    egressMode,
+    pluginAutoUpdate: stored.pluginAutoUpdate === true
   };
 }
 
@@ -95,6 +96,7 @@ function applyRedactPatch(next, patch = {}) {
   if (Array.isArray(patch.redactAllowlist)) next.redactAllowlist = normalizeList(patch.redactAllowlist);
   if (Array.isArray(patch.redactCustom)) next.redactCustom = normalizeList(patch.redactCustom);
   if (typeof patch.egressMode === "string") next.egressMode = normalizeEgressMode(patch.egressMode);
+  if (typeof patch.pluginAutoUpdate === "boolean") next.pluginAutoUpdate = patch.pluginAutoUpdate;
 }
 
 export async function writeSettings(patch, env = process.env) {

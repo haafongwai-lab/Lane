@@ -759,6 +759,43 @@ h1 {
 .model-search::placeholder { color: var(--faint); }
 .model-count { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .models-hint { margin: 10px 22px 14px; color: var(--faint); font-size: 11px; line-height: 1.5; }
+/* ---- plugin updater ------------------------------------------------------ */
+.plugins-panel { padding: 4px 22px 16px; }
+.plugin-list { display: flex; flex-direction: column; }
+.plugin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 18px;
+  align-items: start;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.plugin-row:last-child { border-bottom: 0; }
+.plugin-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.plugin-name b { font-size: 13px; font-weight: 650; }
+.plugin-name code { color: var(--faint); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-desc { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.plugin-meta { margin-top: 6px; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.plugin-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.plugin-actions .mini:disabled { opacity: .45; cursor: default; }
+.plugin-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; background: var(--green-bg); color: var(--green); font-size: 10px; }
+.plugin-badge.warn { background: var(--red-bg); color: var(--red); }
+.plugin-diff {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--recess);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.plugin-diff b { color: var(--ink-soft); }
+.plugin-diff .bad { color: var(--red); }
+.plugin-diff .ok { color: var(--green); }
+.plugin-diff-actions { margin-top: 7px; display: flex; gap: 8px; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
 /* One sheet, one card: every setting lives in a single panel divided by

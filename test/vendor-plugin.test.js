@@ -100,15 +100,14 @@ test("the vendored module still exposes what Lane consumes", async () => {
 });
 
 test("Lane loads the copy by path, with no npm package lookup", () => {
+  assert.match(APP, /pluginEntryUrl\("workbuddy-auth", env\)/);
+  assert.match(SANITIZE, /new URL\("\.\.\/vendor\/workbuddy-auth\/index\.mjs", import\.meta\.url\)/);
   for (const [name, source] of [["workbuddy.js", APP], ["sanitize.js", SANITIZE]]) {
-    assert.match(source, /new URL\("\.\.\/vendor\/workbuddy-auth\/index\.mjs", import\.meta\.url\)/, name);
-    assert.match(source, /await import\(PLUGIN_URL\.href\)/, name);
     assert.doesNotMatch(source, /require\.resolve\(PACKAGE\)/, name);
     assert.doesNotMatch(source, /createRequire/, name);
     assert.doesNotMatch(source, /@magpie-community\/opencode-workbuddy-auth/, name);
   }
-  assert.match(TRAE, /new URL\("\.\.\/vendor\/trae-auth\/index\.mjs", import\.meta\.url\)/);
-  assert.match(TRAE, /await import\(PLUGIN_URL\.href\)/);
+  assert.match(TRAE, /pluginEntryUrl\("trae-auth", this\.env\)/);
   assert.doesNotMatch(TRAE, /@magpie-community\/opencode-trae-auth/);
 });
 
