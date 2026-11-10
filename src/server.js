@@ -379,6 +379,16 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         if (!res.writableEnded) res.destroy();
         return;
       }
+      // A provider that cannot name its account (an expired Trae/WorkBuddy
+      // sign-in) can fail during model discovery, before proxyChat's own
+      // unavailable() path. Keep the same 503/provider_unavailable shape there
+      // instead of turning the upstream's auth refusal into a generic 500.
+      const providerUnavailable = error?.name === "ProviderUnavailable"
+        || /not signed in|signed out|sign in again/i.test(error?.message || "");
+      if (providerUnavailable) {
+        errorJSON(res, 503, error?.message || "provider unavailable", "provider_unavailable");
+        return;
+      }
       errorJSON(res, status, error?.message || "internal error", status >= 500 ? "server_error" : "invalid_request_error");
     }
   };

@@ -34,6 +34,23 @@ test("health and model discovery work without a provider account", async () => {
   }
 });
 
+test("a provider auth failure during model discovery keeps the 503 provider_unavailable shape", async () => {
+  const provider = {
+    listModels: async () => { throw new Error("Trae CN's sign-in has expired; sign in again"); }
+  };
+  const server = createServer({ provider });
+  const base = await listen(server);
+  try {
+    const response = await fetch(`${base}/v1/models`);
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.error.type, "provider_unavailable");
+    assert.match(body.error.message, /sign in again/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("chat reports a clear unavailable-provider error when not signed in", async () => {
   const server = createServer();
   const base = await listen(server);

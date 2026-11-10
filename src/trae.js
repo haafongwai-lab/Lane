@@ -4,7 +4,8 @@ import {
   loadAccounts,
   upsertAccount,
   publicAccount,
-  accountIdOf
+  accountIdOf,
+  crossProcessLock
 } from "./accounts.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
 import { SecretVault, redactBody, resolveRules, restoreResponse } from "./redact.js";
@@ -15,6 +16,9 @@ const SITE_EXPORTS = {
   "trae-cn": "TraeCNAuthPlugin",
   "trae-global": "TraeGlobalAuthPlugin"
 };
+// Same early-renewal window the plugin uses for `fresh`: a token this close
+// to its end is renewed before a request instead of being sent and refused.
+const REFRESH_EARLY_MS = 2 * 60 * 1000;
 
 function traeSite(site) {
   const value = String(site || "");
@@ -122,11 +126,41 @@ export class TraeProvider extends WorkBuddyProvider {
     if (typeof session.hooks.auth?.usage !== "function") {
       return { error: "usage is not available" };
     }
+    // Refresh under the same cross-process lock chat uses: a usage read and
+    // a chat can otherwise both rotate one refresh token on separate Lane
+    // processes, and the loser is logged out upstream.
+    await this.refreshIfNeeded(session);
     try {
       return await session.hooks.auth.usage(async () => session.auth);
     } catch (error) {
       return { error: error?.message || "usage is unknown" };
     }
+  }
+
+  /**
+   * Trae's plugin `auth.refresh` renews unconditionally, unlike WorkBuddy's.
+   * Calling it before every chat therefore rotates the refresh token on every
+   * request; two Lane processes doing that invalidate each other and look like
+   * random "sign-in expired" failures. Renew only when the access token is
+   * near its end, and serialise that renewal across processes so only one
+   * process spends a rotating refresh token.
+   */
+  async refreshIfNeeded(session) {
+    const target = session || (await this.activeSession());
+    if (!target) return null;
+    const expires = Number(target.auth?.expires) || 0;
+    if (expires && expires - Date.now() > REFRESH_EARLY_MS) return target.auth;
+    return crossProcessLock(path.join(dataDir(this.env), "trae-refresh"), async () => {
+      // Another process may have renewed while this one waited for the lock.
+      // Re-read the account store and use its token instead of spending the
+      // already-rotated refresh token a second time.
+      this.state = await loadAccounts(this.env);
+      const latest = this.state.accounts.find((item) => item.id === target.id);
+      if (latest?.auth) target.auth = latest.auth;
+      const current = Number(target.auth?.expires) || 0;
+      if (current && current - Date.now() > REFRESH_EARLY_MS) return target.auth;
+      return super.refreshIfNeeded(target);
+    });
   }
 
   /**

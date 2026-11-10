@@ -62,6 +62,29 @@ test("Trae sign-in stores an account in its own provider store and lists models"
   assert.equal(models[0].output, 64000);
 });
 
+test("Trae refreshes a valid token only when it is near expiry", async (t) => {
+  const env = await tempEnv(t);
+  let refreshCalls = 0;
+  const hooks = hooksFor();
+  hooks.auth.refresh = async (auth) => {
+    refreshCalls += 1;
+    return { ...auth, expires: Date.now() + 3600_000 };
+  };
+  const provider = new TraeProvider({ env, factory: async () => hooks });
+  await provider.init();
+  await provider.finishSignIn(null, "trae-cn", {
+    type: "success",
+    access: "access",
+    refresh: "refresh",
+    expires: Date.now() + 3600_000,
+    uid: "trae-u3",
+    accountId: "Trae Tester"
+  });
+  const session = await provider.session("trae-u3");
+  await provider.refreshIfNeeded(session);
+  assert.equal(refreshCalls, 0, "a valid token is not rotated on every request");
+});
+
 test("Trae chat uses the plugin loader and restores the response", async (t) => {
   const env = await tempEnv(t);
   let seen = null;
