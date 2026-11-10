@@ -460,7 +460,7 @@ function render() {
   $("#codex-address").textContent = `${address}/v1`;
   $("#claude-address").textContent = address;
   $("#zcode-address").textContent = address;
-  $("#vscode-address").textContent = address;
+  $("#vscode-address").textContent = `${address}/v1`;
   $("#dsh-address").textContent = address;
   // The cards name the config file Lane actually writes, read from the status
   // snapshot. A hard-coded path was wrong as soon as CODEX_HOME / ZCODE_HOME

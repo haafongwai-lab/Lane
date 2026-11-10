@@ -447,7 +447,7 @@ export function createControlCenter({
           },
           vscode: await vscodeStatus({ env }).catch(() => ({
             connected: false,
-            configPath: vscodePaths(env).config,
+            configPath: vscodePaths(env).models,
             installed: false
           })),
           dsh: await dshStatus({ env }).catch(() => ({

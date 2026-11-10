@@ -52,7 +52,7 @@ test("every address and every config path is filled from the status snapshot", (
     ["agents?.codex?.configPath", "configPath: codexConfigPath(env)"],
     ["agents?.claudeDesktop?.modeConfig", "modeConfig: claudePaths(env).modeConfig"],
     ["agents?.zcode?.configPath", "configPath: zcodePaths(env).config"],
-    ["agents?.vscode?.configPath", "configPath: vscodePaths(env).config"],
+    ["agents?.vscode?.configPath", "configPath: vscodePaths(env).models"],
     ["agents?.dsh?.configPath", "configPath: dshPatchPath(env)"]
   ]) {
     assert.ok(APP.includes(rendererField), `renderer reads ${rendererField}`);
