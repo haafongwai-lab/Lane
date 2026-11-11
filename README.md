@@ -312,7 +312,7 @@ indistinguishable from ordinary failures.
 ## Upstream plugins
 
 The WorkBuddy adapter uses a vendored copy of
-`@magpie-community/opencode-workbuddy-auth` `0.2.17` (MIT), kept at
+`@magpie-community/opencode-workbuddy-auth` `0.2.27` (MIT), kept at
 `vendor/workbuddy-auth/`. WorkBuddy-specific sign-in, refresh, model
 discovery, headers, and request fixes live in that one file; Lane imports it
 directly by path from `src/workbuddy.js` and `src/sanitize.js`.

@@ -304,6 +304,12 @@ on it, so 0.2.8 lifted the cap (#561). A prompt WorkBuddy does find too
 long ("prompt is too long: … > … maximum") is answered with its own 400,
 passed on as it came, which magpie takes as the context overflowing.
 
+A model's reply limit is the config's `maxOutputTokens`. The list used
+before the config is read gives it too since 0.2.26, for the models a
+config read from each site named (Deepseek-V4.1-Flash: 128000 on both).
+Before, that list gave none, and magpie filled in models.dev's: 384000
+for Deepseek-V4.1-Flash. A model it gives none for still gets models.dev's.
+
 A chat goes gzipped (`Content-Encoding: gzip`), as WorkBuddy's own client
 sends its model requests (`RequestBodyGzip` in both builds' product.json).
 Claude's Messages route goes as it came, and so does anything that isn't a
@@ -339,6 +345,22 @@ and says `filtersModels`, so while it is on magpie says under the models
 that the list is filtered (#590). Both are magpie's own fields; an older
 magpie shows the English words and no note.
 
+### Hide DeepSeek Harness's name
+
+Since 0.2.23 each site also has a "Hide DeepSeek Harness's name" switch, on
+by default, and on in OpenCode, which has no switches. A user reported a
+WorkBuddy account banned after use from DeepSeek Harness, with a reply saying
+its built-in prompt is recognised. With the switch on, the harness's name is
+taken out of the system prompt and the tools' descriptions: "You are an AI
+agent powered by DeepSeek Harness." becomes "You are an AI agent.", and the
+runtime lines naming its checkout and Web GUI say "agent implementation
+checkout" and "Web GUI", wherever they are. Since 0.2.25 the user's and the
+assistant's own words go as written (a path such as `/root/DSH/Work/` was
+sent as `/root/the agent harness/Work/` before), and so does the name in a
+path or a file name anywhere. Tools' results, commands and names such as
+`DSH_HOME` or `~/.dsh` go as they were.
+Whether this keeps an account from being banned is not known.
+
 ## Credits in magpie
 
 magpie's usage card shows the account's credits from the resource summary.
@@ -357,9 +379,15 @@ kind WorkBuddy's own usage panel lists: the plan's bonus, top-ups (bought
 credit packs) and platform rewards (gifted and activity credits,
 赠送积分). The summary's CreditGroups say which is which (plan_base
 against plan_bonus, addon and benefit); a summary without them is split
-by package code as WorkBuddy's client does. Only one of the two stops the
-account, since WorkBuddy serves it while any credits are left: the extra
-window is set aside until the plan's credits are spent. A summary with
+by package code as WorkBuddy's client does. Neither stops the account,
+since WorkBuddy serves it while any credits are left: both are set aside,
+and a third window, "Total credits", the two together, stops it. It has
+the plan's cycle and the soonest lapse of the two, so every account reads
+the same, its plan's credits spent or not (ferock on Discord; before
+0.2.24 the extra window stood in for the account only once the plan's
+were spent). Extra credits only the detail lists carry (a China-site free
+account's summary can list the plan's base alone) are their own "Extra
+credits" window, with a "Total credits" by the same rule. A summary with
 only one kind keeps the one "Credits" window (akic404 on Discord; since
 0.2.16 the plan's bonus is extra too, Jiabubu on Discord).
 
@@ -447,14 +475,30 @@ What is measured, and what is easy to read wrongly:
   rather than +08:00 guessed.
 
 A window that has lapsed reports nothing rather than 0%: nothing is
-exhausted, and the next request opens a fresh one. The China build
-(`copilot.tencent.com`) carries the same window: two Free-plan accounts
+exhausted, and the next request opens a fresh one.
+
+### The China build's windows (measured, shown as estimates)
+
+The China build (`copilot.tencent.com`) carries the same kind of window,
+measured one model at a time. `deepseek-v4.1-flash`: two Free-plan accounts
 refused on 2026-11-02 at 200,389,043 and 200,485,923 tokens, so its cap is
-measured at about 2e8 — and its refusals name the reset in Chinese
-(`将在 … UTC+8 重置`), which reads as an edge the same way. Its card reads
-against 2e8. In 0.2.12 and 0.2.13 it read against a soft cap of 1.9e8, so
-that routing rested the model before the vendor refused it; with the sum set
-aside that headroom only stopped the model early, so it is gone.
+about **2e8** — and its refusals name the reset in Chinese
+(`将在 … UTC+8 重置`), which reads as an edge the same way.
+
+Unlike the AI build's, the China model is **charged in credits** (`x0.11`)
+— the token window and the credits meter are two limits on one model — so
+the card is not a "free model" card. It is named after its model and says
+its cap is an estimate: **`deepseek-v4.1-flash tokens (est.)`**, with
+`~200M` in its text (`151.5M / ~200M`). The estimate is this machine's ledger
+against a cap measured on two accounts; the vendor reports neither, and the
+first refusal of a window pins the card full at the reset the vendor names.
+
+The measured windows live in one table (`CN_ESTIMATED_WINDOWS`), one entry
+per model. Only measured models have a card — a guessed cap would read wrong
+every day. Add an entry when another model's window is measured; remove one
+when the vendor stops applying it. Because the card is set aside (shown, not
+routed on), a stale cap costs a wrong percentage, never a wrongly rested
+model: the refusal is what stops a model, on both builds.
 
 ## When free models work but a credit model does not
 

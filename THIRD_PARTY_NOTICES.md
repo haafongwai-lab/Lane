@@ -9,8 +9,8 @@ with them.
 Lane uses a copy of `@magpie-community/opencode-workbuddy-auth` for WorkBuddy
 sign-in, token refresh, model discovery and request handling.
 
-- Version: `0.2.17`, unmodified. `index.mjs` SHA-256:
-  `DDB049C0B98D139690711CB2A48E61D569F6821DF4604F6B9CF0A20368A47DA8`
+- Version: `0.2.27`, unmodified. `index.mjs` SHA-256:
+  `3D5A79F638EED1355912E8CD282EB91F9437EDC5D5E8AD523DB386524BACA183`
 - License: MIT — see `vendor/workbuddy-auth/LICENSE`
   (Copyright (c) 2026 magpie-community contributors)
 - Upstream: <https://github.com/magpie-community/plugins/tree/main/packages/workbuddy>

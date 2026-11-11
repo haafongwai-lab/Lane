@@ -1,13 +1,13 @@
 # Vendored WorkBuddy auth plugin
 
 `index.mjs` and `README.md` in this directory are an **unmodified** copy of
-`@magpie-community/opencode-workbuddy-auth@0.2.17`, as published on npm. The
-copy is byte-identical to the installed package (SHA-256
-`DDB049C0B98D139690711CB2A48E61D569F6821DF4604F6B9CF0A20368A47DA8`). The
+`@magpie-community/opencode-workbuddy-auth@0.2.27`, as published on npm. The
+copy is byte-identical to the published package (SHA-256
+`3D5A79F638EED1355912E8CD282EB91F9437EDC5D5E8AD523DB386524BACA183`). The
 original tarball and its npm integrity are kept in `../originals/`.
 
 - Upstream source: <https://github.com/magpie-community/plugins/tree/main/packages/workbuddy>
-- Version: `0.2.17`
+- Version: `0.2.27`
 - License: MIT — see `LICENSE` (Copyright (c) 2026 magpie-community contributors)
 - Why: a fresh clone must build and run even if the package is unpublished,
   moved behind a closed license, or the registry is unreachable.

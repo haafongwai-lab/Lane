@@ -26,7 +26,7 @@ const SANITIZE = read(path.join(ROOT, "src/sanitize.js"));
 const TRAE = read(path.join(ROOT, "src/trae.js"));
 const PKG = JSON.parse(read(path.join(ROOT, "package.json")));
 const LOCK = JSON.parse(read(path.join(ROOT, "package-lock.json")));
-const INTEGRITY = "sha512-KrZu96wyvFCeKQVApZvwTX7okL7pz9wyJ5C6bAa+aF67GfkegCEfythMBO2chqFDC8ztxkQIPGgFTjaoqO05Rg==";
+const INTEGRITY = "sha512-Z9cLrnrok3CsW/c++s1GJRy6EYIgADf/PC0MbplCXa9/Hbh/U6HRqUW+E+Vgfw+cLCOmbWDINex6ahqBfSgGeA==";
 const TRAE_INTEGRITY = "sha512-/qifTc/65BRpHqBNv0UwxM1AUBv01Ax9gQB5fyYd9FnSCtcTCSRzRlsCaogv/60GOXaazpEIDul1fIy31LqB/w==";
 
 /** Pull one file out of a gzip tarball without a tar dependency. */
@@ -47,7 +47,7 @@ function untarOne(gz, wanted) {
 
 test("the copy is traceable, and any local change is recorded", () => {
   const copy = fs.readFileSync(path.join(VENDOR, "index.mjs"));
-  const tgz = fs.readFileSync(path.join(ORIGINALS, "opencode-workbuddy-auth-0.2.17.tgz"));
+  const tgz = fs.readFileSync(path.join(ORIGINALS, "opencode-workbuddy-auth-0.2.27.tgz"));
   assert.equal(
     "sha512-" + crypto.createHash("sha512").update(tgz).digest("base64"),
     INTEGRITY,
