@@ -1242,6 +1242,14 @@ h1 {
   padding-top: 16px;
   border-top: 1px dashed var(--line);
 }
+/* It now has its own card under the trend chart, so the card supplies the
+   frame and this block supplies only its inner spacing. */
+.usage-free-panel {
+  grid-column: 1 / 2;
+  margin-top: 0;
+  padding: 16px 22px 18px;
+  border-top: 0;
+}
 .usage-free[hidden] { display: none; }
 .free-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .free-title { font-size: 12px; font-weight: 600; color: var(--muted); }

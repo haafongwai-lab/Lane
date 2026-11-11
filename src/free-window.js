@@ -146,10 +146,12 @@ export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = 
     const seen = refusedByModel.get(model);
     if (!seen || atMs > seen) refusedByModel.set(model, atMs);
   }
-  // The latest reset still in force, for the card's one-line summary. The
-  // per-model map is what the model list reads.
+  // The latest reset still in force for a free model, for the card's one-line
+  // summary. The per-model map keeps every refusal, because the model list
+  // also needs a paid model's own exhausted window.
   let refusedUntil = "";
-  for (const atMs of refusedByModel.values()) {
+  for (const [model, atMs] of refusedByModel) {
+    if (!isFreeModel(model)) continue;
     if (atMs > (Date.parse(refusedUntil) || 0)) refusedUntil = new Date(atMs).toISOString();
   }
   const refusedModels = {};

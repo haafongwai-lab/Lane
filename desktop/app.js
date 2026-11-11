@@ -1113,22 +1113,18 @@ function renderFreeAllowance(allowance) {
   const reset = allowance.credits?.resetsAt
     ? new Date(allowance.credits.resetsAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
-  // 0.2.27 refuses one model's allowance at a time; the card names the model
-  // rather than claiming the whole free list is exhausted. Older reports have
-  // only the account-wide refusedUntil, which stays as the fallback.
+  // 0.2.27 refuses one model's allowance at a time; the free card names only
+  // the free models that are exhausted. A paid model's own refusal belongs
+  // in the model list, not under "免费模型".
   const refusedModels = allowance.refusedModels || {};
-  const exhaustedModels = Object.keys(refusedModels);
+  const exhaustedModels = Object.keys(refusedModels).filter((id) => (allowance.freeModels || []).includes(id));
   const models = (allowance.freeModels || []).map((id) => {
-    const at = refusedModels[id];
+    const at = exhaustedModels.includes(id) ? refusedModels[id] : "";
     const when = at
       ? new Date(at).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
       : "";
     return `${esc(id)}${at ? `（${esc(when)} 恢复）` : ""}`;
   }).join("、");
-  const extraExhausted = exhaustedModels.filter((id) => !(allowance.freeModels || []).includes(id));
-  const exhaustedLine = extraExhausted.length
-    ? `<div class="free-refused">已用尽：${extraExhausted.map(esc).join("、")}</div>`
-    : "";
   const tokens = (Number(allowance.freeTokensToday) || 0) / 1e6;
   const refused = allowance.refusedUntil
     ? new Date(allowance.refusedUntil).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -1136,7 +1132,7 @@ function renderFreeAllowance(allowance) {
   const lastFree = allowance.lastFreeAt
     ? new Date(allowance.lastFreeAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
-  const state = exhaustedModels.length ? "部分模型用尽" : refused ? "已达上限" : "额度内";
+  const state = exhaustedModels.length ? "部分免费模型用尽" : refused ? "已达上限" : "额度内";
   node.innerHTML = `
     <div class="free-head">
       <span class="free-title">免费模型（每日额度）</span>
@@ -1147,7 +1143,6 @@ function renderFreeAllowance(allowance) {
       <span>不计费模型：${models || "—"}</span>
       <span>本机累计 ${allowance.freeRequestsTotal} 次${lastFree ? `，最近 ${esc(lastFree)}` : ""}</span>
     </div>
-    ${exhaustedLine}
     ${refused ? `<div class="free-refused">免费额度已耗尽，${esc(refused)} 重置；此前将无法使用这些模型</div>` : ""}
     <div class="free-credits-note">积分 ${creditNumber(allowance.credits.left)} / ${creditNumber(allowance.credits.limit)} 剩余，供付费模型使用；免费模型不占积分${reset ? `，${esc(reset)} 重置` : ""}</div>`;
 }
