@@ -243,7 +243,7 @@ h1 {
 }
 .sub { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.65; }
 
-.route-card, .panel, .agent-card {
+.route-card, .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel-bg);
@@ -571,93 +571,118 @@ h1 {
    card alone on a second row with two empty tracks beside it. These are the
    widths that keep the set rectangular - four across on a maximized window,
    two by two when there is not room for four, one on a narrow one. */
-.agent-grid {
+/* One row per client: the marks and names read down a single column, so the
+   page answers "which of these is connected" in one glance instead of asking
+   the eye to compare four cards. */
+.agent-list { display: flex; flex-direction: column; }
+/* Head and rows share one track definition, so the columns always line up.
+   The proportions are fixed rather than max-content: a long gateway address
+   or config path must ellipsis inside its own cell, never widen the row. */
+.agent-list-head,
+.agent-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 46px minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.5fr) 168px;
+  align-items: center;
   gap: 16px;
 }
-/* Four across only where the view itself widens: at 1500px the page's own
-   cap rises from 1320 to 1390, which is the first width that fits four cards
-   without squeezing them thinner than the 2x2 form gives. Tying the two to
-   the same breakpoint keeps them from disagreeing. */
-@media (min-width: 1500px) {
-  .agent-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.agent-list-head {
+  padding: 0 22px 9px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: .3px;
 }
-/* The icon and the name share a centred column: the mark sits directly above
-   the title, so every card reads as one shape regardless of name length. */
-/* Cards in one row are the same height: the grid stretches its items, and
-   each card is a column whose action row sits at the bottom, so a note that
-   wraps to three lines in one card adds height to the row rather than
-   leaving its neighbours ending at a different point. */
-.agent-card {
-  position: relative;
-  padding: 28px 24px 24px;
-  display: flex;
-  flex-direction: column;
+.agent-list-head span:first-child { grid-column: 1 / 3; }
+.agent-row {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line-soft);
+  transition: background .15s;
 }
-.agent-card .card-actions { margin-top: auto; padding-top: 18px; }
-.agent-title { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
-.agent-name { display: grid; justify-items: center; gap: 4px; }
-.agent-title h2 { font: 600 18px/1.3 var(--font-display); letter-spacing: -.35px; }
-.agent-title p { margin-top: 0; color: var(--muted); font-size: 11px; }
-/* Each mark is sized by how much of its own art is ink, not by the art's
-   canvas: Codex's tile and ZCode's plate carry their own padding, while
-   Claude's asterisk is full-bleed, so the sizes differ to look equal. */
-.agent-icon { width: 52px; height: 52px; display: grid; place-items: center; }
-.agent-icon img { display: block; object-fit: contain; }
-.agent-icon.codex img { width: 48px; height: 48px; }
-.agent-icon.claude img { width: 36px; height: 36px; }
-.agent-icon.zcode img { width: 44px; height: 44px; }
-.agent-icon.vscode img { width: 44px; height: 44px; }
-/* DeepSeek Harness's mark sits bare on the card, exactly as Claude's
-   asterisk and Codex's star do: no tile, no ring, no radius. The whale is
-   1.36:1, so it is drawn a little wider than Claude's near-square mark to
-   carry the same optical weight; object-fit keeps its own aspect rather than
-   stretching it into a square. */
-.agent-icon.dsh img {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
-  display: block;
-}
-.connection-state {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  padding: 4px 7px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.connection-state.on { border-color: var(--green-bg); color: var(--green); background: var(--green-bg); }
-.agent-detail { display: flex; justify-content: space-between; gap: 10px; margin-top: 21px; padding-top: 13px; border-top: 1px solid var(--line-soft); font-size: 11px; }
-/* The gateway address is dynamic (a saved port or another host can be much
-   longer than the default), so it must never widen the card. */
-.agent-detail code {
-  min-width: 0;
+.agent-row:last-child { border-bottom: 0; }
+.agent-row:hover { background: var(--hover-bg); }
+/* Each mark is sized by how much of its own art is ink: Codex's tile and
+   ZCode's plate carry their own padding, while Claude's asterisk is
+   full-bleed, so the sizes differ to look equal. */
+.agent-mark { width: 34px; height: 34px; display: grid; place-items: center; }
+.agent-mark img { display: block; object-fit: contain; max-width: 100%; max-height: 100%; }
+.agent-ident { min-width: 0; }
+.agent-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.agent-line h3 {
+  font: 600 13.5px/1.35 var(--font-display);
+  letter-spacing: -.15px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-detail > span { flex: 0 0 auto; color: var(--muted); }
-.agent-detail span { color: var(--faint); }
-.agent-detail b { font-weight: 550; }
-.agent-note { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.65; }
-/* The real config path from the status snapshot gets its own ellipsised
-   line: dropping it inside the note would wrap that card to four lines and
-   stretch the whole equal-height row. */
+.agent-proto {
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The connection state is a small chip beside the name rather than a badge
+   floating in a card corner: in a row it belongs with the thing it describes. */
+.connection-state {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.connection-state.on { border-color: var(--green-bg); color: var(--green); background: var(--green-bg); }
+/* The head names the column, so a row carries only the value. A row's cells
+   align on one baseline: with a protocol line under the name, centring the
+   short values keeps them level with the name rather than the note. */
+.agent-field { min-width: 0; display: flex; align-items: center; }
+.agent-field b { font-weight: 550; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The gateway address is dynamic (a saved port or another host can be much
+   longer than the default), so it must never widen the row. */
+.agent-field code {
+  min-width: 0;
+  color: var(--ink-soft);
+  font: 11px/1.5 var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-path-cell { min-width: 0; }
+/* The real config path from the status snapshot: one ellipsised line, so a
+   deep profile path never wraps the row. */
 .agent-path {
   display: block;
-  margin-top: 5px;
   color: var(--faint);
   font: 10px/1.5 var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-actions { margin-top: 18px; }
-.card-actions .primary, .card-actions .ghost { padding: 8px 13px; font-size: 11px; box-shadow: none; }
+.agent-actions { display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
+/* One width for every connect button, so the actions form a straight column
+   instead of shifting with the longest client name ("接入 VS Code"). */
+.agent-actions .primary { width: 104px; justify-content: center; text-align: center; }
+.agent-actions .ghost { width: 46px; justify-content: center; }
+.agent-actions .primary, .agent-actions .ghost { padding: 6px 0; font-size: 11px; box-shadow: none; white-space: nowrap; }
+/* Narrow windows drop the config-path column before anything overlaps: the
+   identity, the gateway and the actions are what a row is for. */
+@media (max-width: 1180px) {
+  .agent-list-head,
+  .agent-row { grid-template-columns: 46px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) 168px; }
+  .agent-list-head span:nth-child(4),
+  .agent-path-cell { display: none; }
+}
+@media (max-width: 900px) {
+  .agent-list-head { display: none; }
+  .agent-row {
+    grid-template-columns: 46px minmax(0, 1fr) 168px;
+    row-gap: 8px;
+  }
+  .agent-field:nth-of-type(2) { grid-column: 2 / 4; }
+}
+
 .models-panel { overflow: hidden; padding: 0; }
 /* Head and rows share one track definition, so the columns always line up.
    Every track is a fixed proportion of the row, never max-content: each row
@@ -1602,11 +1627,11 @@ h1 {
 
 /* ---- accounts & daily check-in ------------------------------------------ */
 
-/* The list takes the width, the daily card is a fixed rail beside it, so the
-   schedule and today's progress never push the accounts below the fold. */
+/* One column now: the daily check-in moved into the list's own head, so the
+   page has no side rail to balance. */
 .accounts-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 336px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-top: 16px;
   align-items: stretch;
@@ -1618,14 +1643,25 @@ h1 {
 .account-tools .text-button { padding: 2px 7px; border-radius: 6px; border: 1px solid transparent; }
 .account-tools .text-button.on { color: var(--green); border-color: var(--green-bg); background: var(--green-bg); text-decoration: none; }
 .account-tools .soft-label:empty { display: none; }
-/* The right rail stacks the daily card and the welcome card. A third child
-   of the grid itself would land in the left column, not below the daily
-   card, so both right-hand panels live in one vertical flex column. */
-.accounts-rail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-/* The rail stretches with the account list, but its cards would otherwise
-   keep their content height and leave an unframed gap at the bottom. Let the
-   last card take the leftover space so both columns end on one baseline. */
-.accounts-rail .welcome-card { flex: 1 1 auto; }
+/* The daily check-in, as the head of the account list: one row that carries
+   the switch, today's progress and the schedule, separated from the rows
+   below by a rule rather than by a panel border. */
+.checkin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--recess);
+}
+.checkin-main { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.checkin-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.checkin-text b { font: 600 12.5px/1.3 var(--font-display); color: var(--ink); }
+.checkin-text span { color: var(--faint); font-size: 11px; line-height: 1.4; }
 .account-list { margin-top: 10px; }
 /* A sign-in that never landed stays visible here, not just in a toast. */
 .accounts-error {
@@ -1785,13 +1821,15 @@ h1 {
 .switch.small span:after { top: 3px; left: 3px; width: 11px; height: 11px; }
 .switch.small input:checked + span:after { left: 15px; }
 
+/* The schedule sits in the check-in bar's right half: no rule of its own,
+   since the bar already frames it. */
 .checkin-time {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
-  padding: 9px 0;
-  border-top: 1px solid var(--line-soft);
+  margin-top: 0;
+  padding: 0;
+  border-top: 0;
 }
 .checkin-time > span { flex: 0 0 auto; color: var(--faint); font-size: 11px; }
 .time-field { display: flex; align-items: center; gap: 3px; }
@@ -1807,17 +1845,7 @@ h1 {
 }
 .time-field b { color: var(--faint); font-weight: 500; }
 
-/* The status line: one sentence answers "how is today going", with the
-   next run or the failure count underneath. */
-.checkin-hero {
-  margin-top: 12px;
-}
-.checkin-hero[hidden] { display: none; }
-.checkin-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.checkin-hero-text b { font: 600 13px/1.25 var(--font-display); color: var(--ink); }
-.checkin-hero-text span { color: var(--faint); font-size: 11px; }
-
-.checkin-list { margin-top: 10px; }
+.checkin-list { margin-top: 8px; }
 .checkin-list[hidden] { display: none; }
 .checkin-item {
   display: flex;
@@ -1836,60 +1864,10 @@ h1 {
    its old centered block shape made the card read sparse. */
 .checkin-now { margin-left: auto; padding: 6px 12px; }
 
-/* The star line: the one outward-facing thing on the card, kept as quiet as
-   the rest of it. The wording leans on the card's own theme - starring the
-   repository framed as signing Lane in - and hovering fills the star. */
-.checkin-star {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 8px 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 9px;
-  color: var(--muted);
-  font-size: 11.5px;
-  text-decoration: none;
-  transition: color .2s ease, border-color .2s ease, background .2s ease;
-}
-.checkin-star .gh-mark { width: 15px; height: 15px; flex: 0 0 auto; fill: currentColor; }
-.checkin-star span { flex: 1 1 auto; }
-.checkin-star .star {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  transition: fill .2s ease, stroke .2s ease;
-}
-.checkin-star:hover { color: var(--ink-soft); border-color: var(--line); background: var(--hover-bg); }
-.checkin-star:hover .star { fill: #e2a63b; stroke: #e2a63b; }
-
-/* A quiet text card below the daily check-in: the verse and the GitHub star
-   link, with no illustration. The panel's own padding frames the text. */
-.welcome-card { padding: 24px 26px; }
-.welcome-body h3 { margin-top: 5px; font: 600 15px/1.4 var(--font-display); letter-spacing: -.2px; }
-.welcome-verse {
-  margin: 10px 0 18px;
-  color: var(--ink-soft);
-  font: 13px/1.8 var(--font-display);
-  letter-spacing: .6px;
-}
-.welcome-verse span {
-  display: block;
-  margin-top: 2px;
-  color: var(--faint);
-  font: 10.5px/1.5 var(--font-sans);
-  letter-spacing: 0;
-}
-.welcome-card .checkin-star { margin-top: 0; gap: 10px; padding: 10px 12px; }
-
-@media (max-width: 1200px) {
-  .accounts-grid { grid-template-columns: 1fr; }
-}
 @media (max-width: 700px) {
+  .checkin-bar { flex-direction: column; align-items: stretch; }
+  .checkin-time { flex-wrap: wrap; }
+  .checkin-now { margin-left: 0; }
   .account-row { flex-wrap: wrap; }
   .account-actions { width: 100%; margin-left: 46px; justify-content: flex-end; }
 }

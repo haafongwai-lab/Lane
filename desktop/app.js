@@ -1686,13 +1686,8 @@ for (const field of [$("#redact-allowlist"), $("#redact-custom")]) {
   });
 }
 
-// The star line opens the repository in the user's browser: the renderer
-// never navigates itself, and the main process allowlist decides whether
-// the URL may open at all.
-$("#checkin-star").addEventListener("click", (event) => {
-  event.preventDefault();
-  window.lane.openURL("https://github.com/haafongwai-lab/Lane");
-});
+// The check-in lives in the account list's head now; the GitHub star link
+// went with the welcome card it sat in.
 
 async function saveCheckinSettings(patch, message) {
   try {
