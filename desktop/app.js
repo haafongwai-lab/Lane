@@ -549,17 +549,18 @@ function renderAccounts() {
   foot.textContent = carrier ? `${shownName(carrier)} 正在承载请求` : "没有账号承载请求";
   const checkin = new Map((snapshot.checkin?.accounts || []).map((item) => [item.id, item]));
   list.innerHTML = accounts.map((account) => {
-    const active = account.id === activeId;
     const routable = routablePending.get(account.id) ?? account.routable === true;
+    // No "default" badge and no locked row: which account carries a request
+    // follows the model being asked for, not a chosen primary. The footer
+    // still names the account that happens to be carrying right now.
     const tags = [
-      active ? '<em class="tag-on">默认</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
       account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : "",
       account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : "",
       routable ? "" : '<em class="tag-soft">不供模型</em>'
     ].filter(Boolean).join("");
     return `
-    <div class="account-row${active ? " active" : ""}" data-id="${esc(account.id)}">
+    <div class="account-row" data-id="${esc(account.id)}">
       <div class="account-avatar"><img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
@@ -1132,20 +1133,31 @@ function renderUsageChart(series) {
 // user's pointer by the status poll behind it.
 let quotaPickerKey = "";
 function renderQuotaAccountPicker() {
-  const select = $("#usage-account");
-  if (!select) return;
+  const button = $("#usage-account-button");
+  const menu = $("#usage-account-menu");
+  const label = $("#usage-account-label");
+  if (!button || !menu || !label) return;
   const accounts = snapshot?.accounts || [];
   const activeId = snapshot?.activeId || "";
   const current = usageAccountId || activeId;
+  const picked = accounts.find((account) => account.id === current);
+  const masked = (account) => (accountMasked ? maskName(account.label) : account.label);
+  // The button names the account being shown; with none there is nothing to
+  // switch between, so the whole control steps aside.
+  button.hidden = accounts.length < 2;
+  label.textContent = picked ? masked(picked) : "选择账号";
   const key = accounts.map((a) => `${a.id}:${a.label}`).join("|") + `#${current}`;
   if (key === quotaPickerKey) return;
   quotaPickerKey = key;
-  const masked = (account) => (accountMasked ? maskName(account.label) : account.label);
-  select.innerHTML = accounts.map((account) => {
-    const mark = account.id === activeId ? "（当前）" : "";
-    return `<option value="${esc(account.id)}"${account.id === current ? " selected" : ""}>${esc(masked(account))}${mark}</option>`;
+  menu.innerHTML = accounts.map((account) => {
+    const upstream = account.provider === "trae"
+      ? (account.site === "trae-global" ? "Trae Global" : "Trae CN")
+      : (account.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy");
+    return `<button type="button" data-account="${esc(account.id)}"${account.id === current ? ' class="active"' : ""}>
+      <img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt="">
+      <span><b>${esc(masked(account))}</b><small>${esc(upstream)}</small></span>
+    </button>`;
   }).join("");
-  select.hidden = accounts.length < 2;
 }
 
 function renderUsageQuota(quota) {
@@ -1584,9 +1596,31 @@ $("#usage-range").addEventListener("click", (event) => {
 });
 // The quota card's account switch: reading another account's allowance is a
 // new usage read, so it goes through the same loader as a range change.
-$("#usage-account")?.addEventListener("change", (event) => {
-  usageAccountId = event.target.value || "";
+$("#usage-account-button")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("#usage-account-menu");
+  const button = $("#usage-account-button");
+  if (!menu || !button) return;
+  const open = menu.hidden;
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+});
+$("#usage-account-menu")?.addEventListener("click", (event) => {
+  const pick = event.target.closest("button[data-account]");
+  if (!pick) return;
+  usageAccountId = pick.dataset.account || "";
+  $("#usage-account-menu").hidden = true;
+  $("#usage-account-button")?.setAttribute("aria-expanded", "false");
   loadUsage();
+});
+// A click anywhere else closes the menu, the same way the add-account one
+// behaves: leaving it open over the card reads as a stuck control.
+document.addEventListener("click", (event) => {
+  const menu = $("#usage-account-menu");
+  if (!menu || menu.hidden) return;
+  if (event.target.closest(".quota-account-picker")) return;
+  menu.hidden = true;
+  $("#usage-account-button")?.setAttribute("aria-expanded", "false");
 });
 $("#codex-connect").addEventListener("click", () => command("connect", { agent: "codex" }, "Codex 已接入，请新建会话"));
 $("#codex-disconnect").addEventListener("click", () => command("disconnect", { agent: "codex" }, "Codex 已断开"));

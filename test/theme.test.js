@@ -94,7 +94,9 @@ test("component surfaces use the tokens instead of literal light colours", () =>
   assert.match(CSS, /\.mcp-editor \{[^}]*background: var\(--recess\)/);
   assert.match(CSS, /\.mcp-json textarea \{[^}]*background: var\(--surface-raised\)/);
   assert.match(CSS, /\.recent-state\.live \{ color: var\(--blue\)/);
-  assert.match(CSS, /:root\[data-theme="dark"\] \.account-row\.active/);
+  // The account list no longer highlights a "primary" row: a request goes to
+  // whichever account owns its model, so there is no chosen account to mark.
+  assert.doesNotMatch(CSS, /\.account-row\.active/);
   // The model rows sit inside a panel, so in dark mode they stay transparent
   // and only lift on hover — the same surface the usage and account lists use.
   assert.match(CSS, /:root\[data-theme="dark"\] \.models-panel \.model-row \{ background: transparent; \}/);
