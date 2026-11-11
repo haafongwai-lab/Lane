@@ -209,6 +209,28 @@ test("a stale stacked prefix is dropped instead of stuck on", async (t) => {
   assert.deepEqual(ids.sort(), ["hy4free", "workbuddy:hy3"].sort(), "the stuck entry is gone, real ones stay");
 });
 
+test("every protocol path converts the model AFTER resolving its account", async () => {
+  const server = await fs.readFile(new URL("../src/server.js", import.meta.url), "utf8");
+  // The converted body carries the model id to the upstream. Converting
+  // before the id is replaced sent `trae:deepseek-v4.1-flash-max` upstream,
+  // which Trae refuses with 4001 — only the OpenAI path worked, because it
+  // overwrites `body.model` before sending rather than building a body early.
+  for (const [name, convert] of [
+    ["Anthropic", "const chat = anthropicToChat(body);"],
+    ["Responses", "const chat = responsesToChat(body);"]
+  ]) {
+    const at = server.indexOf(convert);
+    assert.ok(at > 0, `${name} conversion is present`);
+    const before = server.slice(0, at);
+    const resolveAt = before.lastIndexOf("await provider.resolveModel(");
+    assert.ok(resolveAt > 0, `${name}: the account is resolved`);
+    assert.ok(
+      resolveAt < at,
+      `${name}: the model is resolved before the body is converted, or the prefix reaches the upstream`
+    );
+  }
+});
+
 test("the Anthropic and Responses routes resolve the account too", async () => {
   const server = await fs.readFile(new URL("../src/server.js", import.meta.url), "utf8");
   // Three request paths reach a provider: OpenAI chat, Anthropic messages and

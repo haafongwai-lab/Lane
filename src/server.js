@@ -271,15 +271,17 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           return;
         }
         body.model = mappedCodex.id;
-        const chat = responsesToChat(body);
-        const id = randomUUID().replaceAll("-", "");
         // Same rule as the OpenAI and Anthropic paths: send on the account
-        // that owns the model, not on the route.
+        // that owns the model, not on the route — and resolve before the
+        // conversion, so the body the upstream receives carries its own id
+        // rather than Lane's `trae:` prefix.
         const servedCodex = typeof provider.resolveModel === "function"
           ? await provider.resolveModel(body.model)
           : null;
         const servingCodex = servedCodex?.known ? servedCodex.providerInstance : provider;
         if (servedCodex?.known) body.model = servedCodex.id;
+        const chat = responsesToChat(body);
+        const id = randomUUID().replaceAll("-", "");
         const meta = await modelMeta(servingCodex, body.model);
         const record = control?.journal.start({
           agent: "codex",
@@ -368,16 +370,22 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           return;
         }
         fitEffort(body, models.find((model) => model.id === body.model));
-        const chat = anthropicToChat(body);
-        const id = randomUUID().replaceAll("-", "");
         // The account that owns the model, not the route: several accounts
         // can serve models at once, and a model listed from any of them has
         // to be callable through the same account.
+        //
+        // Resolved BEFORE the protocol conversion: the converted body carries
+        // the model id to the upstream, and an id still wearing Lane's
+        // `trae:` prefix is one the upstream refuses with 4001 — which is why
+        // only the OpenAI path worked, since that one overwrites `body.model`
+        // before sending.
         const served = typeof provider.resolveModel === "function"
           ? await provider.resolveModel(body.model)
           : null;
         const servingProvider = served?.known ? served.providerInstance : provider;
         if (served?.known) body.model = served.id;
+        const chat = anthropicToChat(body);
+        const id = randomUUID().replaceAll("-", "");
         const meta = await modelMeta(servingProvider, body.model);
         const record = control?.journal.start({
           agent: messagesClientAgent(req),
