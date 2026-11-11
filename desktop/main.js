@@ -590,10 +590,11 @@ handleIpc("lane:signin", async (_event, options) => {
 });
 // Account actions run against whichever Lane owns the gateway, so the list
 // stays the same whether this window started it or joined one.
-handleIpc("lane:account", async (_event, { action, id, enabled }) => {
+handleIpc("lane:account", async (_event, { action, id, enabled, routable }) => {
   await startGateway();
   if (action === "activate") return control.activate(id);
   if (action === "enabled") return control.setEnabled(id, Boolean(enabled));
+  if (action === "routable") return control.setRoutable(id, Boolean(routable));
   if (action === "remove") return control.removeAccount(id);
   throw new Error(`unknown account action: ${action}`);
 });

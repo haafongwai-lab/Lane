@@ -618,6 +618,19 @@ export function createControlCenter({
       return account;
     },
 
+    /**
+     * Takes an account in or out of the model pool without touching its
+     * sign-in or its check-in. The merged catalogue changes, so the agent
+     * files are rewritten too.
+     */
+    async setRoutable(id, routable) {
+      const instance = await getProvider();
+      const account = await instance.setRoutable(id, routable);
+      forgetUsage();
+      await this.syncCatalogs(instance);
+      return account;
+    },
+
     async removeAccount(id) {
       const instance = await getProvider();
       const result = await instance.forget(id);

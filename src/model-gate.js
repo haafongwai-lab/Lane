@@ -77,7 +77,15 @@ export async function restrictModels(models = [], env = process.env) {
   // a fresh process); the page reports the corruption separately.
   return models.filter((model) => {
     const id = String(model?.id);
-    return allowed.has(id) || allowed.has(keyOf(id, providerOf(model)));
+    if (allowed.has(id)) return true;
+    if (allowed.has(keyOf(id, providerOf(model)))) return true;
+    // A bare id saved before models were namespaced still selects the model
+    // it named. `trae:glm-5.3` is served when the file holds `glm-5.3`, so an
+    // existing selection survives the multi-account upgrade instead of
+    // silently emptying the agent's list.
+    const bare = model?.bareId ? String(model.bareId) : "";
+    if (bare && allowed.has(bare)) return true;
+    return Boolean(bare) && allowed.has(keyOf(bare, providerOf(model)));
   });
 }
 

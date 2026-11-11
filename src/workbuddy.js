@@ -5,6 +5,7 @@ import {
   updateAccountLabel,
   activateAccount,
   setAccountEnabled,
+  setAccountRoutable,
   removeAccount,
   activeAccount,
   publicAccount,
@@ -610,6 +611,15 @@ export class WorkBuddyProvider {
     const account = await setAccountEnabled(id, enabled, this.env);
     this.state = await loadAccounts(this.env);
     if (!enabled) this.sessions.delete(id);
+    this.invalidateModels();
+    return publicAccount(account);
+  }
+
+  /** Keeps the sign-in and the check-in; only leaves the model pool. */
+  async setRoutable(id, routable) {
+    await this.init();
+    const account = await setAccountRoutable(id, routable, this.env);
+    this.state = await loadAccounts(this.env);
     this.invalidateModels();
     return publicAccount(account);
   }

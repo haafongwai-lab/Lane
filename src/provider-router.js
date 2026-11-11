@@ -112,19 +112,22 @@ export class ProviderRouter {
   /**
    * The full upstream catalogue, unfiltered. Only the model page uses this:
    * it must show every model so the user can choose which ones to add.
+   *
+   * With no explicit account this is the merged catalogue of every routable
+   * account, so the page can show that one model is served by two accounts.
+   * An explicit id still asks that one account, which is what the account
+   * page's per-row figures need.
    */
   async catalogue(id) {
-    // Resolve an explicit account before asking a provider. Without an id a
-    // provider's own activeId may have drifted from the router's route; the
-    // model page must describe the account the gateway actually serves.
-    const target = id || (await this.activeId());
-    const account = target ? await this.accountOf(target) : null;
-    return (account ? this.providerForAccount(account) : await this.activeProvider()).listModels(target);
+    if (!id) return this.catalogueMerged();
+    const account = await this.accountOf(id);
+    if (!account) return (await this.activeProvider()).listModels("");
+    return this.providerForAccount(account).listModels(id);
   }
 
   /**
-   * The models agents may read: the catalogue minus everything the user has
-   * not added. Every agent-facing path (the /v1/models route, model
+   * The models agents may read: the merged catalogue minus everything the
+   * user has not added. Every agent-facing path (the /v1/models route, model
    * resolution, the Codex and ZCode catalogue files) goes through this, so a
    * model that is not in the allowlist can neither be listed nor requested.
    */
@@ -134,6 +137,26 @@ export class ProviderRouter {
 
   async chat(body, options) {
     return (await this.activeProvider()).chat(body, options);
+  }
+
+  /**
+   * Sends one request to the account that owns its model.
+   *
+   * This is the multi-account path: the model id decides the account, not the
+   * route. A model the allowlist does not serve is refused before anything is
+   * sent, and a failure is reported as it came — never retried on another
+   * account, because that would move the charge to a different payer.
+   */
+  async chatOn(body, options = {}) {
+    const resolved = await this.resolveModel(body?.model);
+    if (!resolved.known) return { resolved };
+    return {
+      resolved,
+      response: await resolved.providerInstance.chat(
+        { ...body, model: resolved.id },
+        { ...options, accountId: resolved.accountId }
+      )
+    };
   }
 
   async usage(id) {
@@ -155,6 +178,161 @@ export class ProviderRouter {
     return typeof provider.accountUsage === "function"
       ? provider.accountUsage(id)
       : provider.usage(id);
+  }
+
+  /**
+   * The accounts that contribute models to the merged catalogue, in a stable
+   * order: the route account first, then WorkBuddy, then the rest by sign-in
+   * order.
+   *
+   * `routable` is separate from `enabled`: an account can stay signed in and
+   * keep its check-in while being left out of the model pool. An account that
+   * is switched off entirely is never routable.
+   */
+  async routableAccounts() {
+    const accounts = await this.accounts();
+    const activeId = await this.activeId();
+    const pool = accounts.filter((account) => account.enabled && account.routable !== false);
+    // Provider first, route second. WorkBuddy has to lead even when the route
+    // is a Trae account: its ids are the ones every existing models.json
+    // names, so they keep the plain id, while Trae's are namespaced. Within
+    // WorkBuddy the route account leads, so a model several accounts serve
+    // resolves to the one the user last chose.
+    const rank = (account) => (account.provider === "workbuddy" ? 0 : 1);
+    return pool.sort((a, b) => {
+      const byProvider = rank(a) - rank(b);
+      if (byProvider) return byProvider;
+      if (a.id === activeId && b.id !== activeId) return -1;
+      if (b.id === activeId && a.id !== activeId) return 1;
+      return String(a.addedAt || "").localeCompare(String(b.addedAt || ""));
+    });
+  }
+
+  /**
+   * A model id as the agents see it.
+   *
+   * Two providers can publish the same id (GLM-5.3, MiniMax, Kimi are on both
+   * WorkBuddy and Trae), so a bare id is ambiguous. Every model from a
+   * non-default provider is therefore namespaced: `trae:glm-5.3`. The
+   * catalogue also carries `bareId`, so the model page can show the plain
+   * name and the allowlist can migrate an old bare entry.
+   */
+  static qualifiedId(provider, id) {
+    return provider === "workbuddy" ? String(id) : `${provider}:${id}`;
+  }
+
+  /** One account's models, each tagged with the account that serves it. */
+  async accountModels(account) {
+    const provider = this.providerForAccount(account);
+    const models = await provider.listModels(account.id).catch(() => []);
+    return (Array.isArray(models) ? models : []).map((model) => {
+      const bareId = String(model.id);
+      const qualified = ProviderRouter.qualifiedId(account.provider, bareId);
+      return {
+        ...model,
+        id: qualified,
+        bareId,
+        provider: account.provider,
+        ownerAccountId: account.id,
+        ownerLabel: account.label || "",
+        // Two accounts of the SAME provider can serve one id too (a domestic
+        // and an overseas WorkBuddy account both publish hy3). Only the first
+        // in the pool order keeps the plain id; the later ones are qualified
+        // by their account so both remain selectable.
+        sharedWith: []
+      };
+    });
+  }
+
+  /**
+   * The full upstream catalogue, merged across every routable account.
+   *
+   * Used by the model page (which must show everything so the user can pick)
+   * and by `listModels` (which then applies the allowlist).
+   *
+   * Collapsing rules, in order:
+   *
+   *   - Two providers publishing one id: WorkBuddy keeps the plain id and the
+   *     other provider is namespaced (`trae:glm-5.3`), because the plain id
+   *     is what every existing models.json names.
+   *   - Two accounts of the SAME provider publishing one id: the first keeps
+   *     the id and the rest are folded into its `sharedWith`, not emitted as
+   *     separate rows. Four WorkBuddy accounts all publish `hy3`, and listing
+   *     four identical rows per model is noise, not choice: the accounts are
+   *     interchangeable for that model, so one row with a count is the truth.
+   *     The folded accounts are still reachable by their `#suffix` id for a
+   *     client that wants a specific one.
+   */
+  async catalogueMerged() {
+    const accounts = await this.routableAccounts();
+    const rows = (await Promise.all(accounts.map((account) => this.accountModels(account)))).flat();
+    const byId = new Map();
+    const out = [];
+    for (const row of rows) {
+      const seen = byId.get(row.id);
+      if (!seen) {
+        byId.set(row.id, row);
+        out.push(row);
+        continue;
+      }
+      // Same provider, same id: one row, with the others recorded on it. The
+      // suffixed id is kept in `sharedWith` so it can still be selected.
+      const suffix = row.ownerAccountId.slice(0, 8);
+      const qualified = `${row.id}#${suffix}`;
+      seen.sharedWith.push({ id: qualified, ownerAccountId: row.ownerAccountId, ownerLabel: row.ownerLabel });
+      byId.set(qualified, row);
+    }
+    return out;
+  }
+
+  /**
+   * Which account serves a requested model.
+   *
+   * The merged catalogue is the source of truth, because it is the only place
+   * that knows about the `#suffix` ids minted when two accounts serve one
+   * model id. Resolving against a fresh per-account scan would miss those and
+   * refuse a model the page lists.
+   *
+   * A failure is never retried against another account: switching silently
+   * would move the charge to a different account, and the bill would stop
+   * matching what the user chose. The caller reports the refusal instead.
+   */
+  async resolveModel(requested) {
+    const wanted = String(requested || "");
+    if (!wanted) return { known: false };
+    const catalogue = await this.catalogueMerged();
+    const hit = catalogue.find((model) => model.id === wanted);
+    if (!hit) {
+      // A `#suffix` id names one folded account specifically; it is not a row
+      // of its own, so it is matched against the folded list.
+      for (const model of catalogue) {
+        const folded = (model.sharedWith || []).find((item) => item.id === wanted);
+        if (!folded) continue;
+        const account = (await this.accounts()).find((item) => item.id === folded.ownerAccountId);
+        if (!account) return { known: false };
+        return {
+          known: true,
+          id: model.bareId,
+          requested: wanted,
+          provider: account.provider,
+          accountId: account.id,
+          providerInstance: this.providerForAccount(account),
+          model
+        };
+      }
+      return { known: false };
+    }
+    const account = (await this.accounts()).find((item) => item.id === hit.ownerAccountId);
+    if (!account) return { known: false };
+    return {
+      known: true,
+      id: hit.bareId,
+      requested: wanted,
+      provider: account.provider,
+      accountId: account.id,
+      providerInstance: this.providerForAccount(account),
+      model: hit
+    };
   }
 
   async signedIn() {

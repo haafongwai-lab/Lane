@@ -2099,8 +2099,15 @@ h1 {
   transition: border-color .15s, background .15s;
 }
 .skill-card:hover { border-color: var(--line-strong); background: var(--hover-bg); }
-/* A skill Lane ships with: green badge and a faint green edge, so it reads
-   as part of the product rather than something the user imported. */
+/* A model served by more than one provider carries Lane's namespaced id
+   beside its display name: the prefix is what makes `trae:glm-5.3` and
+   `glm-5.3` tell apart in the list. */
+.model-qualified {
+  margin-left: 6px;
+  color: var(--faint);
+  font: 10px/1.4 var(--font-mono);
+  white-space: nowrap;
+}
 .skill-card.builtin {
   border-color: var(--green-bg);
   background: linear-gradient(180deg, var(--green-bg), var(--glass));

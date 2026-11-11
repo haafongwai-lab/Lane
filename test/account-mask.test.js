@@ -64,10 +64,10 @@ function renderAccounts({ masked, accounts }) {
     checkin: { accounts: [] }
   };
   const fn = new Function(
-    "$", "snapshot", "enabledPending", "accountMasked", "esc", "checkinChip", "creditsChip", "maskName", "maskId",
+    "$", "snapshot", "enabledPending", "routablePending", "accountMasked", "esc", "checkinChip", "creditsChip", "maskName", "maskId",
     body + "\nreturn renderAccounts;"
   );
-  fn((sel) => nodes[sel], snapshot, new Map(), masked, esc, checkinChip, creditsChip, maskName, maskId)();
+  fn((sel) => nodes[sel], snapshot, new Map(), new Map(), masked, esc, checkinChip, creditsChip, maskName, maskId)();
   return nodes;
 }
 

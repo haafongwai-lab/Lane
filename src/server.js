@@ -170,17 +170,40 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         // The allowlist lives in the provider's listModels(), so a model the
         // user has not added is absent here; refuse it instead of forwarding
         // a request the gate was meant to stop.
-        const mapped = await servedModel(provider, requested, "openai");
-        if (!mapped.known) {
-          errorJSON(
-            res,
-            400,
-            `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
-            "invalid_request_error"
-          );
-          return;
+        // The model decides which account serves the request, not the route:
+        // several accounts of different providers can be live at once, and a
+        // shared id is disambiguated by its provider prefix in the merged
+        // catalogue. A model the allowlist does not serve is refused before
+        // anything is sent.
+        const resolved = typeof provider.resolveModel === "function"
+          ? await provider.resolveModel(requested)
+          : null;
+        let servingProvider = provider;
+        if (resolved) {
+          if (!resolved.known) {
+            errorJSON(
+              res,
+              400,
+              `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
+              "invalid_request_error"
+            );
+            return;
+          }
+          servingProvider = resolved.providerInstance;
+          body.model = resolved.id;
+        } else {
+          const mapped = await servedModel(provider, requested, "openai");
+          if (!mapped.known) {
+            errorJSON(
+              res,
+              400,
+              `model ${requested} is not enabled for agents; add it on Lane's 模型 page first`,
+              "invalid_request_error"
+            );
+            return;
+          }
+          body.model = mapped.id;
         }
-        body.model = mapped.id;
         // A client that sends a request Lane cannot satisfy in one piece
         // (a body over the limit, a shape the upstream refuses) is easier to
         // help when the body that actually arrived is on record.
@@ -189,14 +212,16 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           // credentials and personal data before they can reach the log file.
           console.error(`chat request from ${req.socket.remoteAddress}: ${redactForLog(JSON.stringify(body)).slice(0, 2000)}`);
         }
-        const meta = await modelMeta(provider, body.model);
-        await proxyChat(res, provider, body, {
+        const meta = await modelMeta(servingProvider, body.model);
+        await proxyChat(res, servingProvider, body, {
           control,
           agent: isDsh(req) ? "dsh" : isVscode(req) ? "vscode" : "openai",
           requested,
           endpoint: url.pathname,
           model: body.model,
-          accountId: await activeAccountId(provider),
+          // The account that actually serves this model, not the route: with
+          // several accounts live, the journal's cost belongs to the payer.
+          accountId: resolved?.accountId || await activeAccountId(provider),
           rate: meta.rate,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
@@ -591,6 +616,15 @@ async function controlRoute(req, res, url, control) {
           return;
         }
         json(res, 200, { account: await control.setEnabled(id, body.enabled) });
+        return;
+      }
+      if (action === "routable") {
+        const body = await readJSONBody(req);
+        if (typeof body?.routable !== "boolean") {
+          errorJSON(res, 400, "routable must be a boolean", "invalid_request_error");
+          return;
+        }
+        json(res, 200, { account: await control.setRoutable(id, body.routable) });
         return;
       }
       if (action === "remove") {

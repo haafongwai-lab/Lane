@@ -328,8 +328,26 @@ export async function setAccountEnabled(id, enabled, env = process.env) {
   });
 }
 
-export async function removeAccount(id, env = process.env) {
+/**
+ * Whether an account contributes its models to the merged catalogue.
+ *
+ * Separate from `enabled` on purpose: an account can stay signed in, keep its
+ * daily check-in and still be left out of the model pool — a nearly spent
+ * balance, or a team account that should not carry personal work. Switching
+ * this off never changes the sign-in or the check-in schedule.
+ */
+export async function setAccountRoutable(id, routable, env = process.env) {
   return serial(env, async () => {
+    const state = await readAccounts(env);
+    const account = state.accounts.find((item) => item.id === id);
+    if (!account) throw new Error(`unknown account: ${id}`);
+    account.routable = Boolean(routable);
+    await writeAccounts(state, env);
+    return account;
+  });
+}
+
+export async function removeAccount(id, env = process.env) {  return serial(env, async () => {
     const state = await readAccounts(env);
     const before = state.accounts.length;
     state.accounts = state.accounts.filter((item) => item.id !== id);
@@ -366,6 +384,11 @@ export function publicAccount(account) {
     domain: account.domain || "",
     site: normalizeSite(account.site),
     enabled: Boolean(account.enabled),
+    // Whether this account contributes its models to the merged catalogue.
+    // Distinct from `enabled`: an account can stay signed in and keep its
+    // check-in while being left out of the model pool (a nearly spent
+    // balance, a team account that should not serve personal work).
+    routable: account.routable !== false,
     addedAt: account.addedAt || "",
     lastUsedAt: account.lastUsedAt || "",
     expiresAt: expires || null,

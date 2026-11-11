@@ -12,6 +12,9 @@ let refreshQueued = null;
 // cannot render the old state over the user's click.
 let autostartPending = false;
 const enabledPending = new Map();
+// The same for the "contributes models" switch: a poll that lands between the
+// click and its reply must not put the old state back.
+const routablePending = new Map();
 // Theme: theme.js applied the saved choice before the stylesheet loaded; this
 // keeps the settings control in sync and lets the page switch live. "system"
 // follows the OS preference without asking the main process each time.
@@ -537,11 +540,13 @@ function renderAccounts() {
     // An enable toggle still waiting on its command shows the state the user
     // asked for, not the snapshot from before the click.
     const enabled = enabledPending.get(account.id) ?? account.enabled;
+    const routable = routablePending.get(account.id) ?? account.routable !== false;
     const tags = [
-      active ? '<em class="tag-on">当前</em>' : "",
+      active ? '<em class="tag-on">默认</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
       account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : "",
-      account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : ""
+      account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : "",
+      enabled && routable ? "" : '<em class="tag-soft">不供模型</em>'
     ].filter(Boolean).join("");
     return `
     <div class="account-row${active ? " active" : ""}${enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
@@ -557,7 +562,10 @@ function renderAccounts() {
         </div>
       </div>
       <div class="account-actions">
-        <button class="mini" data-act="activate"${active || !enabled ? " disabled" : ""}>${active ? "使用中" : "切换"}</button>
+        <label class="switch small" data-tip="${routable ? "不把它作为模型提供方" : "把它作为模型提供方"}">
+          <input type="checkbox" data-act="routable"${routable ? " checked" : ""}>
+          <span></span>
+        </label>
         <label class="switch small" data-tip="${enabled ? "关闭该账号" : "启用该账号"}">
           <input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}>
           <span></span>
@@ -694,8 +702,8 @@ async function accountAction(action, id, options = {}) {
   try {
     await window.lane.account(action, id, options);
     toast({
-      activate: "已切换账号",
       enabled: options.enabled ? "已启用账号" : "已关闭账号",
+      routable: options.routable ? "该账号已加入模型池" : "该账号已退出模型池",
       remove: "已移除账号"
     }[action] || "操作完成");
     await refresh({ quiet: true });
@@ -771,12 +779,24 @@ function renderModels(models, freeAllowance = null, gate = null) {
     const status = modelStatus(model, freeAllowance);
     const provider = String(model.owned_by || model.provider || "workbuddy");
     const on = enabled.has(String(model.id)) || enabled.has(`${provider}:${model.id}`);
+    // The source column names the account that serves the model. With
+    // several accounts live one id can come from more than one of them, and
+    // that is exactly what the user has to see to choose between them.
+    const owner = model.ownerLabel
+      ? `${model.ownerLabel}${model.sharedWith?.length ? ` +${model.sharedWith.length}` : ""}`
+      : (model.owned_by || "upstream");
+    const ownerTip = model.sharedWith?.length
+      ? `同一模型还来自：${model.sharedWith.map((item) => item.ownerLabel).join("、")}`
+      : "";
+    // The plain name is what the upstream calls the model; the namespaced id
+    // is Lane's, and only worth showing when it differs.
+    const qualified = model.bareId && model.id !== model.bareId ? model.id : "";
     return `
     <div class="model-row">
-      <div class="model-name">${esc(model.name || model.id)}</div>
+      <div class="model-name">${esc(model.name || model.id)}${qualified ? `<code class="model-qualified" data-tip="Trae 等上游与 WorkBuddy 有同名模型，用前缀区分">${esc(qualified)}</code>` : ""}</div>
       <span>${model.context ? `${compact(model.context)} tokens` : "—"}</span>
       <span class="credit-rate">${creditRate(model)}</span>
-      <code>${esc(model.owned_by || "upstream")}</code>
+      <code${ownerTip ? ` data-tip="${esc(ownerTip)}"` : ""}>${esc(owner)}</code>
       <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` data-tip="${esc(status.title)}"` : ""}>${esc(status.text)}${status.hint ? `<small>${esc(status.hint)}</small>` : ""}</span>
       <label class="model-switch" data-tip="${on ? "移除后 Agent 不再读取该模型" : "添加后 Agent 才能读取该模型"}">
         <input type="checkbox" data-model-add="${esc(model.id)}" data-model-provider="${esc(provider)}"${on ? " checked" : ""}>
@@ -1569,7 +1589,9 @@ $("#account-list").addEventListener("click", async (event) => {
   const row = button.closest("[data-id]");
   const id = row?.dataset.id;
   if (!id) return;
-  if (button.dataset.act === "activate") return accountAction("activate", id);
+  // The 切换 button is gone: with several accounts live at once the route is
+  // no longer a single "which one serves" choice, so there is nothing to
+  // switch. `activate` stays reachable through the CLI for a default account.
   if (button.dataset.act === "remove") {
     const label = row.querySelector("b")?.textContent || id;
     if (!confirm(`移除账号「${label}」？这会删除 Lane 保存的该账号登录信息。`)) return;
@@ -1583,6 +1605,16 @@ $("#account-mask").addEventListener("click", () => {
   renderAccountIdentity();
 });
 $("#account-list").addEventListener("change", (event) => {
+  const routableInput = event.target.closest('input[data-act="routable"]');
+  if (routableInput) {
+    const id = routableInput.closest("[data-id]")?.dataset.id;
+    if (!id) return;
+    routablePending.set(id, routableInput.checked);
+    accountAction("routable", id, { routable: routableInput.checked }).finally(() => {
+      routablePending.delete(id);
+    });
+    return;
+  }
   const input = event.target.closest('input[data-act="enabled"]');
   if (!input) return;
   const id = input.closest("[data-id]")?.dataset.id;

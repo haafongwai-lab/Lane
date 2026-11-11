@@ -142,14 +142,23 @@ test("the provider router merges stores and remembers a Trae route", async (t) =
   assert.deepEqual(calls, [["activate", "trae-1"]]);
   assert.equal(await router.activeId(), "trae-1");
   // The full catalogue is what the model page draws; nothing is served to
-  // agents until the model is added.
-  assert.equal((await router.catalogue())[0].id, "trae-model");
+  // agents until the model is added. A Trae id is namespaced: both providers
+  // publish overlapping ids, so `trae:` is what makes it unambiguous.
+  const catalogue = await router.catalogue();
+  assert.equal(catalogue.length, 2, "both accounts contribute their models");
+  assert.equal(catalogue[0].id, "wb-model", "WorkBuddy keeps the plain id");
+  assert.equal(catalogue[1].id, "trae:trae-model", "Trae's id is namespaced");
   assert.deepEqual(await router.listModels(), []);
   // The router must forward Trae's chip-safe usage, not its raw expired flag:
   // the control center checks exactly this method.
   assert.equal((await router.accountUsage("trae-1")).signIn, "kept");
-  await setModelEnabled("trae-model", true, env);
-  assert.equal((await router.listModels())[0].id, "trae-model");
+  await setModelEnabled("trae:trae-model", true, env, "trae");
+  assert.equal((await router.listModels())[0].id, "trae:trae-model");
+  // A namespaced id resolves to the Trae account and is sent with the bare id.
+  const resolved = await router.resolveModel("trae:trae-model");
+  assert.equal(resolved.known, true);
+  assert.equal(resolved.accountId, "trae-1");
+  assert.equal(resolved.id, "trae-model");
   const routed = await router.chat({});
   assert.equal(await routed.text(), "trae");
 });
