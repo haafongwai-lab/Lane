@@ -894,9 +894,23 @@ let usage = null;
 // The page opens on the week view: it is the span people actually compare,
 // while "today" is one click away at the left of the segmented control.
 let usageRange = "7d";
-// Which account's allowance the quota card shows. Empty means the route
-// account, which is what the card showed before the switch existed.
+// Which account's allowance the quota card shows. Empty means "follow the
+// card above it": the same account the PROVIDER node describes, which is the
+// first one switched into the pool. It used to mean the route account, and
+// the route is a field left over from the single-account design — it stays on
+// whatever was chosen last, so the card sat on that account forever.
 let usageAccountId = "";
+
+/**
+ * The account whose allowance the card should read.
+ *
+ * An explicit pick wins; otherwise the PROVIDER node's account, so the two
+ * cards describe the same one. The route account is the last resort, for an
+ * install whose pool is still empty.
+ */
+function quotaAccountId() {
+  return usageAccountId || providerViewAccount()?.id || snapshot?.activeId || "";
+}
 let usageLoading = false;
 let usageQueued = false;
 
@@ -910,7 +924,7 @@ async function loadUsage() {
   }
   usageLoading = true;
   try {
-    usage = await window.lane.usage(usageRange, usageAccountId);
+    usage = await window.lane.usage(usageRange, quotaAccountId());
     renderUsage();
   } catch (error) {
     $("#usage-chart").innerHTML = `<div class="empty">${esc(error.message || "读取用量失败")}</div>`;
@@ -1209,8 +1223,9 @@ function renderQuotaAccountPicker() {
   const label = $("#usage-account-label");
   if (!button || !menu || !label) return;
   const accounts = snapshot?.accounts || [];
-  const activeId = snapshot?.activeId || "";
-  const current = usageAccountId || activeId;
+  // The same account the card above describes, so the label never names one
+  // account while the card shows another's balance.
+  const current = quotaAccountId();
   const picked = accounts.find((account) => account.id === current);
   const masked = (account) => (accountMasked ? maskName(account.label) : account.label);
   // The button names the account being shown; with none there is nothing to
