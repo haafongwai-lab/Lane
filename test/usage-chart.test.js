@@ -17,7 +17,10 @@ const APP = fs.readFileSync(path.join(HERE, "..", "desktop", "app.js"), "utf8");
 const CSS = fs.readFileSync(path.join(HERE, "..", "desktop", "styles.css"), "utf8");
 
 const from = APP.indexOf("function niceCeil(");
-const to = APP.indexOf("// The international Free plan", from);
+// The chart section runs up to the quota card's renderer. This used to stop
+// at the removed free-model card's comment; the quota renderer is the next
+// top-level function and is stable.
+const to = APP.indexOf("function renderUsageQuota(", from);
 const body = APP.slice(from, to);
 const esc = (v) => String(v ?? "");
 const make = (fnName) => new Function("$", "credits", "rmb", "esc", body + `\nreturn ${fnName};`)(

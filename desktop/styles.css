@@ -1235,28 +1235,6 @@ h1 {
   text-overflow: ellipsis;
 }
 
-/* The free-model allowance sits under the cycle credits: a different meter
-   with a different reset, so it is separated rather than merged into one. */
-.usage-free {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--line);
-}
-/* It now has its own card under the trend chart, so the card supplies the
-   frame and this block supplies only its inner spacing. */
-.usage-free-panel {
-  grid-column: 1 / 2;
-  margin-top: 0;
-  padding: 16px 22px 18px;
-  border-top: 0;
-}
-.usage-free[hidden] { display: none; }
-.free-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.free-title { font-size: 12px; font-weight: 600; color: var(--muted); }
-.free-head code { font-size: 10.5px; color: var(--faint); }
-/* The allowance is a bonus, not a shortfall: the meter reads green where the
-   credits meter is neutral. */
-.usage-free .quota-meter i { background: var(--green); }
 .quota-amount { display: flex; align-items: baseline; gap: 8px; }
 .quota-amount b { font: 600 24px/1 var(--font-display); letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
 .quota-hero .quota-amount b { font-size: 30px; letter-spacing: -.9px; }
@@ -1296,6 +1274,20 @@ h1 {
 .quota-model.used-up .quota-model-head span { color: var(--red); }
 .quota-meter.slim { height: 5px; margin-top: 6px; }
 .quota-model.used-up .quota-meter.slim i { background: var(--red); }
+/* The allowance WorkBuddy spends first: the one whose credits lapse soonest.
+   Marked rather than merely ordered, because the point of the split is that
+   this part of the balance is about to be lost. */
+.quota-model.lapsing-first .quota-meter.slim i { background: linear-gradient(90deg, #c58a4a, #a9722f); }
+.quota-soon {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f6ead8;
+  color: #a9722f;
+  font: 600 9.5px/1.7 var(--font-sans);
+  font-style: normal;
+  letter-spacing: .2px;
+}
 .quota-model-foot {
   display: flex;
   flex-wrap: wrap;
@@ -2134,13 +2126,6 @@ h1 {
 .skill-pip.on { border-color: var(--green-bg); background: var(--green-bg); color: var(--green); }
 .skill-pip.on:hover { border-color: #d9b6ad; background: var(--red-bg); color: var(--red); }
 .skill-pip:hover { border-color: var(--line-strong); color: var(--ink); }
-
-/* The free plan's own footnote: which models it covers and what this machine
-   has run on it, smaller than the meter above because it is context, not a
-   figure to watch. */
-/* An exhausted daily allowance is the one state on this card worth red. */
-.free-refused { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--red-bg); color: var(--red); font-size: 11px; }
-.free-credits-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 10.5px; color: var(--faint); }
 
 /* The live-connection test's verdict. It is a wrapped row of its own, not a
    child of .mcp-item-main: a long tool list wraps to several lines, and an

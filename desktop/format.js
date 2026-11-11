@@ -91,9 +91,60 @@ export function creditWindowOf(usage) {
   return null;
 }
 
+/**
+ * The two credit allowances, apart, in the order they are spent.
+ *
+ * A Free plan has two kinds of credits and they are not the same money:
+ *
+ *   - the plan's monthly grant ("Credits"), renewed with the cycle;
+ *   - the extra credits ("Extra credits"), which are the daily check-in's and
+ *     other rewards, each lapsing on its own day.
+ *
+ * WorkBuddy spends whichever lapses first, so the card lists them in that
+ * order and marks the one that goes first: showing a single total hides the
+ * fact that part of the balance is about to be lost, which is the one thing
+ * a user can act on.
+ *
+ * Only the windows the plugin actually reports are listed; a build with one
+ * merged window returns an empty list and the card shows the total alone.
+ */
+export function creditBreakdown(usage) {
+  const windows = Array.isArray(usage?.windows) ? usage.windows : [];
+  const find = (name) => windows.find((item) => item.name === name && !isTokenWindow(item));
+  const rows = [];
+  for (const [name, label, kind] of [
+    ["Credits", "月度赠送积分", "plan"],
+    ["Extra credits", "签到与额外积分", "extra"]
+  ]) {
+    const window = find(name);
+    const limit = Number(window?.limit) || 0;
+    if (!window || !(limit > 0)) continue;
+    const used = Number.isFinite(Number(window.amount))
+      ? Number(window.amount)
+      : (Number(window.used) || 0) / 100 * limit;
+    rows.push({
+      label,
+      kind,
+      used,
+      limit,
+      left: Math.max(0, limit - used),
+      // A plan window renews; the extra credits lapse. The date that matters
+      // for "spend this first" is the lapse one on both.
+      endsAt: window.runsOutAt || (kind === "plan" ? window.resetsAt || "" : "")
+    });
+  }
+  if (rows.length < 2) return [];
+  // The row whose date comes first is the one being spent first.
+  const dated = rows.filter((row) => row.endsAt);
+  if (dated.length) {
+    const first = dated.reduce((a, b) => (Date.parse(a.endsAt) <= Date.parse(b.endsAt) ? a : b));
+    first.first = true;
+  }
+  return rows;
+}
+
 /** The credits card's figures: the chosen window, as numbers and a percent. */
-export function creditView(usage) {
-  if (!usage || usage.error) return null;
+export function creditView(usage) {  if (!usage || usage.error) return null;
   const window = creditWindowOf(usage);
   if (!window) return null;
   if (window.balance != null && !(Number(window.limit) > 0)) {

@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, creditView, creditWindowOf, tokenWindowsOf } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, creditView, creditWindowOf, creditBreakdown, tokenWindowsOf } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -922,7 +922,6 @@ function renderUsage() {
 
   renderUsageChart(series);
   renderUsageQuota(quota);
-  renderFreeAllowance(usage.freeAllowance);
   renderUsageModels(models, totals);
   renderUsageRecent();
 }
@@ -1093,59 +1092,11 @@ function renderUsageChart(series) {
     <p class="usage-chart-note">${esc(peak.date)} 消耗最高 · 积分 ${credits(peak.credits)}（¥${rmb(peak.credits)}） · 请求 ${peak.requests} 次</p>`;
 }
 
-// The international Free plan has two separate allowances, and this card
-// keeps them separate the way WorkBuddy does: the credit window (which the
-// plan's paid models would draw on, and which free models are explicitly
-// excluded from) verbatim from the account's report, and the free models'
-// usage today from this machine's journal. No daily limit is shown for the
-// free side because nothing reports one; when the vendor exhausts it, it
-// refuses with a reset time, and that is what the card surfaces.
-function renderFreeAllowance(allowance) {
-  const node = $("#usage-free");
-  if (!allowance) {
-    node.hidden = true;
-    node.innerHTML = "";
-    return;
-  }
-  node.hidden = false;
-  // The credits side is the plan window's cycle: the reset (resetsAt) is
-  // when the allowance starts over, not when unused credits lapse.
-  const reset = allowance.credits?.resetsAt
-    ? new Date(allowance.credits.resetsAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
-    : "";
-  // 0.2.27 refuses one model's allowance at a time; the free card names only
-  // the free models that are exhausted. A paid model's own refusal belongs
-  // in the model list, not under "免费模型".
-  const refusedModels = allowance.refusedModels || {};
-  const exhaustedModels = Object.keys(refusedModels).filter((id) => (allowance.freeModels || []).includes(id));
-  const models = (allowance.freeModels || []).map((id) => {
-    const at = exhaustedModels.includes(id) ? refusedModels[id] : "";
-    const when = at
-      ? new Date(at).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-      : "";
-    return `${esc(id)}${at ? `（${esc(when)} 恢复）` : ""}`;
-  }).join("、");
-  const tokens = (Number(allowance.freeTokensToday) || 0) / 1e6;
-  const refused = allowance.refusedUntil
-    ? new Date(allowance.refusedUntil).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-    : "";
-  const lastFree = allowance.lastFreeAt
-    ? new Date(allowance.lastFreeAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-    : "";
-  const state = exhaustedModels.length ? "部分免费模型用尽" : refused ? "已达上限" : "额度内";
-  node.innerHTML = `
-    <div class="free-head">
-      <span class="free-title">免费模型（每日额度）</span>
-      <span class="soft-label">${state}</span>
-    </div>
-    <div class="quota-amount"><b>${allowance.freeRequestsToday}</b><span>今日请求 / ${(tokens).toFixed(1)}M tokens</span></div>
-    <div class="quota-foot">
-      <span>不计费模型：${models || "—"}</span>
-      <span>本机累计 ${allowance.freeRequestsTotal} 次${lastFree ? `，最近 ${esc(lastFree)}` : ""}</span>
-    </div>
-    ${refused ? `<div class="free-refused">免费额度已耗尽，${esc(refused)} 重置；此前将无法使用这些模型</div>` : ""}
-    <div class="free-credits-note">积分 ${creditNumber(allowance.credits.left)} / ${creditNumber(allowance.credits.limit)} 剩余，供付费模型使用；免费模型不占积分${reset ? `，${esc(reset)} 重置` : ""}</div>`;
-}
+// The free-model allowance card used to sit here. It restated the credit
+// windows the quota card already shows and counted this machine's free-model
+// traffic, which the usage tables cover in detail; it was removed as noise.
+// A per-model exhaustion still reaches the model list through
+// `freeAllowance.refusedModels`.
 
 function renderUsageQuota(quota) {
   const node = $("#usage-quota");
@@ -1218,6 +1169,28 @@ function renderUsageQuota(quota) {
       <div class="quota-model-foot"><span>${compact(amount)} / ${compact(cap)}</span>${at ? `<span>${esc(at)} 重置</span>` : ""}</div>
     </div>`;
   }).join("");
+  // The two credit windows are different allowances with different end dates:
+  // the plan's monthly grant renews with the cycle, while the extra credits
+  // (daily check-in and other rewards) each lapse on their own day. Showing
+  // them apart is what tells a user which one is about to be lost.
+  const breakdown = creditBreakdown(quota);
+  const breakdownRows = breakdown.map((row) => {
+    const share = row.limit > 0 ? Math.max(0, Math.min(100, (100 * row.used) / row.limit)) : 0;
+    const when = row.endsAt
+      ? new Date(row.endsAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+      : "";
+    return `<div class="quota-model${row.first ? " lapsing-first" : ""}">
+      <div class="quota-model-head">
+        <b>${esc(row.label)}${row.first ? ' <em class="quota-soon">先消耗</em>' : ""}</b>
+        <span>剩 ${creditNumber(row.left)} / ${creditNumber(row.limit)}</span>
+      </div>
+      <div class="quota-meter slim"><i style="width:${share.toFixed(1)}%"></i></div>
+      <div class="quota-model-foot">
+        <span>${row.kind === "plan" ? "按周期重置" : "用不完即作废"}</span>
+        ${when ? `<span>${esc(when)} ${row.kind === "plan" ? "重置" : "到期"}</span>` : ""}
+      </div>
+    </div>`;
+  }).join("");
   node.innerHTML = `
     <div class="quota-hero">
       <div class="quota-figure">
@@ -1232,6 +1205,7 @@ function renderUsageQuota(quota) {
       <div class="quota-fact"><span>重置</span><b>${reset ? esc(reset) : "—"}</b></div>
       <div class="quota-fact"><span>未用额度</span><b>${lapsesAt ? `${esc(lapsesAt)} 到期` : "—"}</b></div>
     </div>
+    ${breakdownRows ? `<div class="quota-models">${breakdownRows}</div>` : ""}
     ${tokenRows ? `<div class="quota-models">${tokenRows}</div>` : ""}`;
 }
 
@@ -2207,8 +2181,9 @@ function renderSkills(list) {
       '<div class="skill-title"><b>' + esc(skill.name) + "</b>" +
         (skill.builtin ? '<em class="skill-builtin">内置</em>' : "") +
       "</div>" +
-      "<p" + (skill.description ? ' data-tip="' + esc(skill.description) + '"' : "") + ">" +
-            esc(skill.description || "无描述") + "</p>" +
+      // The description is a short label, clamped to one line. A hover popup
+          // over body text is noise rather than help, so this one has none.
+          "<p>" + esc(skill.description || "无描述") + "</p>" +
       '<div class="skill-foot">' + pips +
         '<span class="grow"></span>' +
         (skill.builtin ? "" : '<button class="mini quiet" data-skill-remove="' + esc(skill.name) + '">删除</button>') +
