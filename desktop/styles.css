@@ -2304,6 +2304,9 @@ h1 {
 :root[data-theme="dark"] .toast { background: #43454a; }
 :root[data-theme="dark"] .boot-emblem,
 :root[data-theme="dark"] .lane-emblem img { filter: invert(1); }
+/* Qoder's Windows icon is a white tile with black line art, the same shape
+   Trae's icon has: it stays as it is on the dark surface, because inverting
+   it would put a black tile next to Trae's white one. */
 :root[data-theme="dark"] .model-chart .seg,
 :root[data-theme="dark"] .model-dot { filter: brightness(1.4) saturate(1.1); }
 :root[data-theme="dark"] .trend-line,
