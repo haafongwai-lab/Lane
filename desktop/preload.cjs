@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld("lane", {
   signIn: (options) => ipcRenderer.invoke("lane:signin", options),
   account: (action, id, options = {}) => ipcRenderer.invoke("lane:account", { action, id, ...options }),
   checkin: (id) => ipcRenderer.invoke("lane:checkin", { id }),
-  usage: (range) => ipcRenderer.invoke("lane:usage", { range }),
+  usage: (range, accountId) => ipcRenderer.invoke("lane:usage", { range, accountId }),
   checkinSettings: (patch) => ipcRenderer.invoke("lane:checkin-settings", patch),
   mcpList: () => ipcRenderer.invoke("lane:mcp"),
   mcpUpsert: (server) => ipcRenderer.invoke("lane:mcp", { server }),

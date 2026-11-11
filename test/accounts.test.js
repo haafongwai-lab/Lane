@@ -93,20 +93,6 @@ test("a team account is a separate account from the same personal one", async ()
   assert.deepEqual(state.accounts.map((item) => item.id), ["uid-1", "uid-1@ent-9"]);
 });
 
-test("switching an account off hands the route to the next one that is on", async () => {
-  const { env } = await tempEnv();
-  await upsertAccount(authFor("uid-1", "first"), env);
-  await upsertAccount(authFor("uid-2", "second"), env);
-  await activateAccount("uid-1", env);
-
-  await setAccountEnabled("uid-1", false, env);
-  const state = await readAccounts(env);
-  assert.equal(state.accounts[0].enabled, false);
-  assert.equal(state.activeId, "uid-2", "a switched-off account can't be the route");
-
-  await assert.rejects(() => activateAccount("uid-1", env), /switched off/);
-});
-
 test("removing the active account moves the route and clears the mirror", async () => {
   const { env, dir } = await tempEnv();
   await upsertAccount(authFor("uid-1", "first"), env);
@@ -119,21 +105,6 @@ test("removing the active account moves the route and clears the mirror", async 
 
   const legacy = await readAuth(env);
   assert.equal(legacy.uid, "uid-2", "the mirror follows the active account");
-});
-
-test("removing the route with only switched-off accounts left leaves no route", async () => {
-  const { env } = await tempEnv();
-  await upsertAccount(authFor("uid-1", "first"), env);
-  await upsertAccount(authFor("uid-2", "second"), env);
-  await setAccountEnabled("uid-2", false, env);
-
-  const result = await removeAccount("uid-1", env);
-  assert.equal(result.removed, true);
-  assert.equal(result.activeId, "", "a switched-off account never becomes the route");
-
-  // Switching an account back on takes the route again.
-  await setAccountEnabled("uid-2", true, env);
-  assert.equal((await readAccounts(env)).activeId, "uid-2");
 });
 
 test("the public view of an account never carries its tokens", async () => {

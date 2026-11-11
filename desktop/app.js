@@ -11,9 +11,8 @@ let refreshQueued = null;
 // Toggles still waiting on their command, so a status poll that lands first
 // cannot render the old state over the user's click.
 let autostartPending = false;
-const enabledPending = new Map();
-// The same for the "contributes models" switch: a poll that lands between the
-// click and its reply must not put the old state back.
+// The "contributes models" switch: a poll that lands between the click and
+// its reply must not put the old state back.
 const routablePending = new Map();
 // Theme: theme.js applied the saved choice before the stylesheet loaded; this
 // keeps the settings control in sync and lets the page switch live. "system"
@@ -334,6 +333,24 @@ function renderAccountIdentity() {
   const shown = accountMasked ? maskName(account) : account;
   $("#account-name").textContent = shown || "上游账号";
   $("#health-account").textContent = shown || "未登录";
+
+  // Every account that serves models, not just the route one: with several
+  // upstreams live at once, the provider node has to show which ones.
+  const pool = $("#provider-pool");
+  if (!pool) return;
+  const serving = (snapshot?.accounts || []).filter((item) => item.routable === true);
+  pool.hidden = serving.length === 0;
+  pool.innerHTML = serving.map((item) => {
+    const name = accountMasked ? maskName(item.label) : item.label;
+    const upstream = item.provider === "trae"
+      ? (item.site === "trae-global" ? "Trae Global" : "Trae CN")
+      : (item.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy");
+    return `<span class="pool-chip" data-tip="${esc(`${name} · ${upstream} 供模型`)}">
+      <img src="${item.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt="">
+      <b>${esc(name)}</b>
+      <small>${esc(upstream)}</small>
+    </span>`;
+  }).join("");
 }
 
 function render() {
@@ -528,28 +545,21 @@ function renderAccounts() {
     return;
   }
   const carrier = accounts.find((account) => account.id === activeId);
-  const off = accounts.filter((account) => !account.enabled).length;
   const shownName = (account) => (accountMasked ? maskName(account.label) : account.label);
-  foot.textContent = [
-    carrier ? `${shownName(carrier)} 正在承载请求` : "没有账号承载请求",
-    off ? `${off} 个已关闭` : ""
-  ].filter(Boolean).join(" · ");
+  foot.textContent = carrier ? `${shownName(carrier)} 正在承载请求` : "没有账号承载请求";
   const checkin = new Map((snapshot.checkin?.accounts || []).map((item) => [item.id, item]));
   list.innerHTML = accounts.map((account) => {
     const active = account.id === activeId;
-    // An enable toggle still waiting on its command shows the state the user
-    // asked for, not the snapshot from before the click.
-    const enabled = enabledPending.get(account.id) ?? account.enabled;
     const routable = routablePending.get(account.id) ?? account.routable === true;
     const tags = [
       active ? '<em class="tag-on">默认</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
       account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : "",
       account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : "",
-      enabled && routable ? "" : '<em class="tag-soft">不供模型</em>'
+      routable ? "" : '<em class="tag-soft">不供模型</em>'
     ].filter(Boolean).join("");
     return `
-    <div class="account-row${active ? " active" : ""}${enabled ? "" : " disabled"}" data-id="${esc(account.id)}">
+    <div class="account-row${active ? " active" : ""}" data-id="${esc(account.id)}">
       <div class="account-avatar"><img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
@@ -557,18 +567,14 @@ function renderAccounts() {
           <span class="account-host">${esc(account.domain || (account.provider === "trae" ? "Trae" : "WorkBuddy"))}</span>
           <i>·</i>
           <code>${esc(accountMasked ? maskId(account.id) : account.id.slice(0, 8))}</code>
-          ${checkinChip(checkin.get(account.id), { ...account, enabled })}
+          ${checkinChip(checkin.get(account.id))}
           ${creditsChip(account)}
         </div>
       </div>
       <div class="account-actions">
-        <label class="account-toggle" data-tip="${routable ? "该账号的模型可供客户端使用，点此退出模型池" : "该账号的模型不参与路由，点此加入模型池"}">
+        <label class="account-toggle" data-tip="${routable ? "该账号的模型可供客户端使用，点此退出模型池" : "该账号的模型不参与路由，点此加入模型池（同一供应商只能开一个）"}">
           <span class="account-toggle-label">供模型</span>
           <span class="switch small"><input type="checkbox" data-act="routable"${routable ? " checked" : ""}><span></span></span>
-        </label>
-        <label class="account-toggle" data-tip="${enabled ? "关闭该账号（保留登录，退出签到与路由）" : "启用该账号"}">
-          <span class="account-toggle-label">启用</span>
-          <span class="switch small"><input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}><span></span></span>
         </label>
         <button class="icon-mini" data-act="remove" data-tip="移除账号" aria-label="移除账号">✕</button>
       </div>
@@ -578,8 +584,7 @@ function renderAccounts() {
 
 // One chip per account, in the row it belongs to, instead of a second list
 // to read against.
-function checkinChip(item, account) {
-  if (!account.enabled) return '<span class="account-chip idle">已关闭</span>';
+function checkinChip(item) {
   if (!item) return '<span class="account-chip idle">今日未签到</span>';
   if (item.status === "done") {
     return `<span class="account-chip ok">${item.reward ? `已签到 +${esc(item.reward)}` : "已签到"}</span>`;
@@ -843,6 +848,9 @@ let usage = null;
 // The page opens on the week view: it is the span people actually compare,
 // while "today" is one click away at the left of the segmented control.
 let usageRange = "7d";
+// Which account's allowance the quota card shows. Empty means the route
+// account, which is what the card showed before the switch existed.
+let usageAccountId = "";
 let usageLoading = false;
 let usageQueued = false;
 
@@ -856,7 +864,7 @@ async function loadUsage() {
   }
   usageLoading = true;
   try {
-    usage = await window.lane.usage(usageRange);
+    usage = await window.lane.usage(usageRange, usageAccountId);
     renderUsage();
   } catch (error) {
     $("#usage-chart").innerHTML = `<div class="empty">${esc(error.message || "读取用量失败")}</div>`;
@@ -1118,9 +1126,32 @@ function renderUsageChart(series) {
 // A per-model exhaustion still reaches the model list through
 // `freeAllowance.refusedModels`.
 
+// The quota card's account switch: one upstream allowance per account, so
+// comparing them is the reason to open this page at all. The list is rebuilt
+// only when its contents change, so an open dropdown is not closed under the
+// user's pointer by the status poll behind it.
+let quotaPickerKey = "";
+function renderQuotaAccountPicker() {
+  const select = $("#usage-account");
+  if (!select) return;
+  const accounts = snapshot?.accounts || [];
+  const activeId = snapshot?.activeId || "";
+  const current = usageAccountId || activeId;
+  const key = accounts.map((a) => `${a.id}:${a.label}`).join("|") + `#${current}`;
+  if (key === quotaPickerKey) return;
+  quotaPickerKey = key;
+  const masked = (account) => (accountMasked ? maskName(account.label) : account.label);
+  select.innerHTML = accounts.map((account) => {
+    const mark = account.id === activeId ? "（当前）" : "";
+    return `<option value="${esc(account.id)}"${account.id === current ? " selected" : ""}>${esc(masked(account))}${mark}</option>`;
+  }).join("");
+  select.hidden = accounts.length < 2;
+}
+
 function renderUsageQuota(quota) {
   const node = $("#usage-quota");
   const plan = $("#usage-plan");
+  renderQuotaAccountPicker();
   if (!quota || quota.error) {
     plan.textContent = "—";
     node.innerHTML = quota?.signIn === "expired"
@@ -1551,6 +1582,12 @@ $("#usage-range").addEventListener("click", (event) => {
   for (const item of $$("#usage-range button")) item.classList.toggle("active", item === button);
   loadUsage();
 });
+// The quota card's account switch: reading another account's allowance is a
+// new usage read, so it goes through the same loader as a range change.
+$("#usage-account")?.addEventListener("change", (event) => {
+  usageAccountId = event.target.value || "";
+  loadUsage();
+});
 $("#codex-connect").addEventListener("click", () => command("connect", { agent: "codex" }, "Codex 已接入，请新建会话"));
 $("#codex-disconnect").addEventListener("click", () => command("disconnect", { agent: "codex" }, "Codex 已断开"));
 $("#claude-connect").addEventListener("click", () => command("connect", { agent: "claude-desktop" }, "Claude Desktop 已接入，请重启客户端"));
@@ -1606,24 +1643,14 @@ $("#account-mask").addEventListener("click", () => {
 });
 $("#account-list").addEventListener("change", (event) => {
   const routableInput = event.target.closest('input[data-act="routable"]');
-  if (routableInput) {
-    const id = routableInput.closest("[data-id]")?.dataset.id;
-    if (!id) return;
-    routablePending.set(id, routableInput.checked);
-    accountAction("routable", id, { routable: routableInput.checked }).finally(() => {
-      routablePending.delete(id);
-    });
-    return;
-  }
-  const input = event.target.closest('input[data-act="enabled"]');
-  if (!input) return;
-  const id = input.closest("[data-id]")?.dataset.id;
+  if (!routableInput) return;
+  const id = routableInput.closest("[data-id]")?.dataset.id;
   if (!id) return;
-  enabledPending.set(id, input.checked);
-  accountAction("enabled", id, { enabled: input.checked }).finally(() => {
-    // The command is over: the next snapshot (this action's own refresh, or
-    // the poll behind it) is the truth.
-    enabledPending.delete(id);
+  routablePending.set(id, routableInput.checked);
+  // Turning one on switches the same provider's other account off, so the
+  // whole list is re-read rather than just this row.
+  accountAction("routable", id, { routable: routableInput.checked }).finally(() => {
+    routablePending.delete(id);
   });
 });
 $("#checkin-enabled").addEventListener("change", (event) => {

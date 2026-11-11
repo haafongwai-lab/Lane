@@ -608,7 +608,10 @@ async function controlRoute(req, res, url, control) {
     }
     if (req.method === "GET" && url.pathname === "/lane/usage") {
       const range = url.searchParams.get("range") || "today";
-      json(res, 200, await control.usage(range));
+      // An account id lets the quota card show any account's allowance; the
+      // card's switch sends the one the user picked.
+      const accountId = url.searchParams.get("account") || "";
+      json(res, 200, await control.usage(range, accountId));
       return;
     }
     if (req.method === "GET" && url.pathname === "/lane/accounts") {

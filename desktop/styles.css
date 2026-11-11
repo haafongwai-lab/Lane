@@ -557,6 +557,54 @@ h1 {
 .provider-node .node-logo { width: 42px; height: 42px; margin-bottom: 10px; }
 .provider-node strong { max-width: 100%; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .provider-node .node-state { margin-top: 11px; }
+/* The accounts that serve models, under the route's own account: one chip
+   each, so a route with two upstreams live says so instead of naming only
+   the one carrying this request. */
+.provider-pool {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 8px;
+}
+.provider-pool[hidden] { display: none; }
+.pool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 7px 2px 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--recess);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.pool-chip img { width: 12px; height: 12px; flex: 0 0 auto; object-fit: contain; }
+.pool-chip b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pool-chip small { flex: 0 0 auto; color: var(--faint); }
+
+/* The quota card's account switch: one upstream allowance per account, and
+   comparing them is why this page is open. */
+.quota-account-bar { display: flex; align-items: center; gap: 8px; }
+.quota-account-select {
+  max-width: 160px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 11px/1.4 var(--font-sans);
+}
+.quota-account-select[hidden] { display: none; }
 .node-credits {
   max-width: 100%;
   margin-top: 4px;
@@ -634,8 +682,9 @@ h1 {
    full size; the others carry internal padding and read larger than their
    ink, which is why they stay inside a smaller box. The tile is drawn a
    little past the cell: its rounded corners leave a margin of their own, and
-   at 38px it read visibly smaller than Claude's full-bleed asterisk. */
-.agent-mark-cell.codex img { width: 44px; height: 44px; object-fit: contain; }
+   at 38px it read visibly smaller than Claude's full-bleed asterisk. At 44px
+   it then read larger than the rest, so it sits between the two. */
+.agent-mark-cell.codex img { width: 40px; height: 40px; object-fit: contain; }
 .agent-mark-cell.claude img { width: 30px; height: 30px; }
 .agent-mark-cell.zcode img { width: 34px; height: 34px; }
 .agent-mark-cell.vscode img { width: 32px; height: 32px; }

@@ -84,8 +84,10 @@ export function createControlCenter({
   const USAGE_TTL_MS = 60_000;
   const USAGE_ERROR_TTL_MS = 15_000;
   const usageCache = new Map();
-  const cachedUsage = async (instance) => {
-    const id = await instance.activeId().catch(() => "");
+  const cachedUsage = async (instance, accountId = "") => {
+    // An explicit id reads that account; without one the route account is
+    // meant, which is what the usage page shows by default.
+    const id = accountId || await instance.activeId().catch(() => "");
     const now = Date.now();
     const hit = usageCache.get(id);
     if (hit && now - hit.at < hit.ttl) return hit.value;
@@ -94,8 +96,8 @@ export function createControlCenter({
       // accountUsage() so a Trae billing-page "expired" does not light the
       // whole route account as logged out while its chat keeps working.
       value = typeof instance.accountUsage === "function"
-        ? await instance.accountUsage()
-        : await instance.usage();
+        ? await instance.accountUsage(id || undefined)
+        : await instance.usage(id || undefined);
     } catch (error) {
       value = { error: error?.message || "usage is unknown" };
     }
@@ -813,7 +815,7 @@ export function createControlCenter({
      * credits, as WorkBuddy reports them, are a separate figure (`quota`) and
      * are not mixed in.
      */
-    async usage(range = "today") {
+    async usage(range = "today", accountId = "") {
       const instance = await getProvider();
       // Estimates are priced from what the upstream itself charged for each
       // model, read out of the journal — the catalogue's `rate` is a
@@ -831,8 +833,10 @@ export function createControlCenter({
       report.ranges = RANGES.map(({ key, label, days }) => ({ key, label, days }));
       report.at = Date.now();
       // The account's own credits ride along as `quota`, so the page never
-      // has to merge two payloads to draw one card.
-      report.quota = await cachedUsage(instance).catch(() => null);
+      // has to merge two payloads to draw one card. An explicit account lets
+      // the card show any account's allowance, not only the route's.
+      report.quota = await cachedUsage(instance, accountId).catch(() => null);
+      report.quotaAccountId = accountId || await instance.activeId().catch(() => "");
       // The free-model card and the model list share one report, and it is
       // bound to the account carrying the requests: switching accounts
       // switches which free models are exhausted.

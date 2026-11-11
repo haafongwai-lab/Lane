@@ -104,6 +104,10 @@
               <strong id="account-name">上游账号</strong>
               <span id="account-plan">本地账号</span>
               <span class="node-credits" id="account-credits">积分 —</span>
+              <!-- One chip per account in the model pool: several upstreams
+                   can serve models at once, and this node is where the route
+                   says so. -->
+              <div class="provider-pool" id="provider-pool" hidden></div>
               <div class="node-state"><i></i><span id="provider-state">未登录</span></div>
             </div>
           </div>
@@ -408,7 +412,13 @@
           </article>
 
           <article class="panel usage-quota-panel">
-            <div class="panel-head"><div><span class="overline">账户额度</span><h3>账户周期额度</h3></div><span class="soft-label" id="usage-plan">—</span></div>
+            <div class="panel-head">
+              <div><span class="overline">账户额度</span><h3>账户周期额度</h3></div>
+              <div class="quota-account-bar">
+                <select id="usage-account" class="quota-account-select" aria-label="选择账号"></select>
+                <span class="soft-label" id="usage-plan">—</span>
+              </div>
+            </div>
             <p class="setting-copy">上游按周期统计整个账户的额度，无法拆分到单次请求，因此与左侧的本机记账分开显示。</p>
             <div class="usage-quota" id="usage-quota"><div class="empty">登录后显示账户额度。</div></div>
           </article>

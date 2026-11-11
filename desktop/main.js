@@ -459,9 +459,9 @@ handleIpc("lane:status", async () => {
   }
   return { ...await fetchExternalStatus(), version: app.getVersion() };
 });
-handleIpc("lane:usage", async (_event, { range } = {}) => {
+handleIpc("lane:usage", async (_event, { range, accountId } = {}) => {
   await startGateway();
-  return control.usage(range || "today");
+  return control.usage(range || "today", typeof accountId === "string" ? accountId : "");
 });
 handleIpc("lane:set-model", async (_event, { id, enabled, provider } = {}) => {
   await startGateway();

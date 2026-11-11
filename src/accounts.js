@@ -141,7 +141,12 @@ export async function readAccounts(env = process.env) {
     const accounts = Array.isArray(parsed?.accounts)
       ? parsed.accounts
         .filter((item) => item && item.id && item.auth)
-        .map((item) => ({ ...item, site: normalizeSite(item.site) }))
+        // The per-account 启用 switch is gone: an account is in the list
+        // because the user signed it in, and signing out is the only way out.
+        // Older files can still carry `enabled: false`, which would otherwise
+        // keep that account out of the check-in and the pool forever with no
+        // switch left to turn it back on.
+        .map((item) => ({ ...item, site: normalizeSite(item.site), enabled: true }))
       : [];
     // An explicitly empty route is meaningful (every account switched off),
     // so only a missing field falls back to the first account.
@@ -341,10 +346,34 @@ export async function setAccountRoutable(id, routable, env = process.env) {
     const state = await readAccounts(env);
     const account = state.accounts.find((item) => item.id === id);
     if (!account) throw new Error(`unknown account: ${id}`);
+    if (routable) {
+      // One account per upstream. Two accounts of the same provider publish
+      // the same catalogue, so the second adds no model the first cannot
+      // serve — it only makes "which account pays for this request" depend
+      // on pool order. Switching one on switches the provider's previous
+      // choice off, which is what the page shows happening.
+      const sameSite = (item) => providerOfSite(item.site) === providerOfSite(account.site);
+      for (const other of state.accounts) {
+        if (other.id === account.id) continue;
+        if (sameSite(other) && other.routable === true) other.routable = false;
+      }
+    }
     account.routable = Boolean(routable);
     await writeAccounts(state, env);
     return account;
   });
+}
+
+/**
+ * The upstream an account belongs to, from its site.
+ *
+ * WorkBuddy ships two builds (domestic and international) and Trae two
+ * realms, but they are one provider each: their model ids share a namespace,
+ * so "one account per provider" has to mean per provider, not per site.
+ */
+export function providerOfSite(site) {
+  const value = normalizeSite(site);
+  return value.startsWith("trae") ? "trae" : "workbuddy";
 }
 
 export async function removeAccount(id, env = process.env) {  return serial(env, async () => {

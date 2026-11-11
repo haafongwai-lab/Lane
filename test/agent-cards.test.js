@@ -98,5 +98,5 @@ test("the row icon does not inherit the route graph's stacked mark", () => {
   assert.match(cell, /width: 38px/, "the cell has its own fixed box");
   assert.doesNotMatch(cell, /flex-direction: column/, "it is not a stacked column");
   const codex = CSS.slice(CSS.indexOf(".agent-mark-cell.codex img"), CSS.indexOf(".agent-mark-cell.codex img") + 200);
-  assert.match(codex, /width: 44px/, "the Codex tile is drawn past the cell so it matches the others optically");
+  assert.match(codex, /width: 40px/, "the Codex tile sits between the cell and the others' optical weight");
 });

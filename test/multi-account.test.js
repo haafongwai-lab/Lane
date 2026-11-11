@@ -229,9 +229,40 @@ test("a provider id that already carries a prefix is not prefixed twice", async 
   assert.equal(ProviderRouter.qualifiedId("trae", "workbuddy:hy3"), "trae:hy3");
 });
 
-test("the account page keeps the two switches apart", async () => {
+test("the account row has one switch: the model pool", async () => {
   const app = await fs.readFile(path.join(import.meta.dirname, "..", "desktop/app.js"), "utf8");
   assert.match(app, /data-act="routable"/, "a switch for the model pool");
-  assert.match(app, /data-act="enabled"/, "a switch for the sign-in");
+  // The 启用 switch is gone: an account is in the list because it was signed
+  // in, and the 切换 button went with the single-route design.
+  assert.doesNotMatch(app, /data-act="enabled"/, "no sign-in switch in the row");
   assert.doesNotMatch(app, /data-act="activate"/, "the 切换 button is gone");
+});
+
+test("one account per upstream serves models", async (t) => {
+  const env = await tempEnv(t);
+  const { setAccountRoutable, loadAccounts } = await import("../src/accounts.js");
+  const { writeAccounts } = await import("../src/accounts.js");
+
+  // Two WorkBuddy accounts (one domestic, one international — one provider)
+  // and one Trae account. Switching the second WorkBuddy one on must switch
+  // the first off, and leave Trae alone.
+  await writeAccounts({
+    version: 1,
+    activeId: "wb-1",
+    accounts: [
+      { id: "wb-1", label: "wb-1", site: "workbuddy", enabled: true, auth: { token: "x" } },
+      { id: "wb-2", label: "wb-2", site: "workbuddy-ai", enabled: true, auth: { token: "x" } },
+      { id: "tr-1", label: "tr-1", site: "trae-cn", enabled: true, auth: { token: "x" } }
+    ]
+  }, env);
+
+  await setAccountRoutable("wb-1", true, env);
+  await setAccountRoutable("tr-1", true, env);
+  await setAccountRoutable("wb-2", true, env);
+
+  const state = await loadAccounts(env);
+  const byId = new Map(state.accounts.map((a) => [a.id, a]));
+  assert.equal(byId.get("wb-1").routable, false, "the other WorkBuddy account is switched off");
+  assert.equal(byId.get("wb-2").routable, true);
+  assert.equal(byId.get("tr-1").routable, true, "a different upstream is untouched");
 });
