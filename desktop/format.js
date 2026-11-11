@@ -92,18 +92,22 @@ export function creditWindowOf(usage) {
 }
 
 /**
- * The two credit allowances, apart, in the order they are spent.
+ * A Free plan's credit allowances, apart, in the order they are spent.
  *
- * A Free plan has two kinds of credits and they are not the same money:
+ * The kinds are not the same money, and each upstream names them its own way:
  *
- *   - the plan's monthly grant ("Credits"), renewed with the cycle;
- *   - the extra credits ("Extra credits"), which are the daily check-in's and
- *     other rewards, each lapsing on its own day.
+ *   WorkBuddy  "Credits"        the plan's monthly grant, renewed with the
+ *              "Extra credits"  daily check-in and other rewards, each lapsing
+ *                               on its own day
+ *   Qoder      "Credits"        the plan's period grant
+ *              "Add-on credits" purchased/reward credits
+ *              "Shared credits" an organisation's pool
+ *              "Dedicated credits" a dedicated resource pack
  *
- * WorkBuddy spends whichever lapses first, so the card lists them in that
- * order and marks the one that goes first: showing a single total hides the
- * fact that part of the balance is about to be lost, which is the one thing
- * a user can act on.
+ * The card lists them in the order they lapse and marks the one going first:
+ * showing a single total hides the fact that part of the balance is about to
+ * be lost, which is the one thing a user can act on. Each row carries its own
+ * end date, because the two kinds expire on different days.
  *
  * Only the windows the plugin actually reports are listed; a build with one
  * merged window returns an empty list and the card shows the total alone.
@@ -112,9 +116,14 @@ export function creditBreakdown(usage) {
   const windows = Array.isArray(usage?.windows) ? usage.windows : [];
   const find = (name) => windows.find((item) => item.name === name && !isTokenWindow(item));
   const rows = [];
+  // `plan` renews with the cycle; `extra` lapses on its own date. The plan
+  // row is the one the upstream's own reset date belongs to.
   for (const [name, label, kind] of [
-    ["Credits", "月度赠送积分", "plan"],
-    ["Extra credits", "签到与额外积分", "extra"]
+    ["Credits", "赠送积分", "plan"],
+    ["Extra credits", "签到与额外积分", "extra"],
+    ["Add-on credits", "签到与额外积分", "extra"],
+    ["Shared credits", "组织共享积分", "extra"],
+    ["Dedicated credits", "专用资源包", "extra"]
   ]) {
     const window = find(name);
     const limit = Number(window?.limit) || 0;
@@ -128,16 +137,22 @@ export function creditBreakdown(usage) {
       used,
       limit,
       left: Math.max(0, limit - used),
-      // A plan window renews; the extra credits lapse. The date that matters
-      // for "spend this first" is the lapse one on both.
-      endsAt: window.runsOutAt || (kind === "plan" ? window.resetsAt || "" : "")
+      // Two dates, never merged into one. A plan window's `resetsAt` is when
+      // the allowance comes BACK, not when it is lost — printing it as an
+      // expiry told the user their monthly grant disappears on the day it is
+      // renewed. `lapsesAt` is a real expiry and only `runsOutAt` says that.
+      lapsesAt: window.runsOutAt || "",
+      resetsAt: kind === "plan" ? window.resetsAt || "" : "",
+      // The order the upstream spends them in: whichever ends Soonest —
+      // a lapse, or a renewal that replaces the pool.
+      orderAt: window.runsOutAt || window.resetsAt || ""
     });
   }
   if (rows.length < 2) return [];
   // The row whose date comes first is the one being spent first.
-  const dated = rows.filter((row) => row.endsAt);
+  const dated = rows.filter((row) => row.orderAt);
   if (dated.length) {
-    const first = dated.reduce((a, b) => (Date.parse(a.endsAt) <= Date.parse(b.endsAt) ? a : b));
+    const first = dated.reduce((a, b) => (Date.parse(a.orderAt) <= Date.parse(b.orderAt) ? a : b));
     first.first = true;
   }
   return rows;

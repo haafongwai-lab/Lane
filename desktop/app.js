@@ -430,7 +430,12 @@ function render() {
   const carrier = (snapshot.accounts || []).find((item) => item.id === snapshot.activeId);
   const view = providerViewAccount();
   const upstreamName = upstreamLabel(view || carrier);
-  $("#provider-logo").src = upstreamIcon(view || carrier);
+  const shownMark = view || carrier;
+  $("#provider-logo").src = upstreamIcon(shownMark);
+  // Qoder ships a rounded-square tile; clipping it into the circular slot
+  // the other upstreams use would cut its corners off, so the node swaps to
+  // the same rounded-square box for that provider.
+  $("#provider-logo").parentElement?.classList.toggle("tile", shownMark?.provider === "qoder");
   $("#account-plan").textContent = view?.domain || snapshot.domain || upstreamName;
   renderAccountIdentity();
   $("#health-domain").textContent = snapshot.domain || upstreamName;
@@ -601,7 +606,7 @@ function renderAccounts() {
     ].filter(Boolean).join("");
     return `
     <div class="account-row" data-id="${esc(account.id)}">
-      <div class="account-avatar"><img src="${upstreamIcon(account)}" alt=""></div>
+      <div class="account-avatar${account.provider === "qoder" ? " tile" : ""}"><img src="${upstreamIcon(account)}" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
         <div class="account-meta">
@@ -1303,9 +1308,18 @@ function renderUsageQuota(quota) {
   const breakdown = creditBreakdown(quota);
   const breakdownRows = breakdown.map((row) => {
     const share = row.limit > 0 ? Math.max(0, Math.min(100, (100 * row.used) / row.limit)) : 0;
-    const when = row.endsAt
-      ? new Date(row.endsAt).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
-      : "";
+    const day = (iso) => (iso
+      ? new Date(iso).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+      : "");
+    // Each allowance answers two different questions, and they are not the
+    // same date: when this part is lost, and when it comes back. A plan
+    // window renews (it has a reset date); reward credits only lapse.
+    const lost = day(row.lapsesAt);
+    const back = day(row.resetsAt);
+    const dates = [
+      lost ? `${lost} 到期` : "",
+      back ? `${back} 重置` : ""
+    ].filter(Boolean).join(" · ");
     return `<div class="quota-model${row.first ? " lapsing-first" : ""}">
       <div class="quota-model-head">
         <b>${esc(row.label)}${row.first ? ' <em class="quota-soon">先消耗</em>' : ""}</b>
@@ -1314,7 +1328,7 @@ function renderUsageQuota(quota) {
       <div class="quota-meter slim"><i style="width:${share.toFixed(1)}%"></i></div>
       <div class="quota-model-foot">
         <span>${row.kind === "plan" ? "按周期重置" : "用不完即作废"}</span>
-        ${when ? `<span>${esc(when)} ${row.kind === "plan" ? "重置" : "到期"}</span>` : ""}
+        ${dates ? `<span>${esc(dates)}</span>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -1487,14 +1501,21 @@ function renderUsageRecent() {
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = requestState(item);
     // A billed credit is the upstream's own number and the only one shown. An
-    // upstream that bills by cycle (Trae) returns no per-request charge, but
-    // its token count is real: show that instead of a bare dash so the row
-    // does not read as untracked.
-    const cost = item.creditsSource === "upstream"
+    // upstream that reports no per-request charge but publishes one in its
+    // catalogue (Qoder lists the credits a request takes) is billed at that
+    // figure instead — `catalogue` says so, so the row is not passed off as a
+    // measured charge. An upstream that gives neither (Trae) still has a real
+    // token count: show that rather than a bare dash, so the row does not read
+    // as untracked.
+    const measured = item.creditsSource === "upstream" || item.creditsSource === "catalogue";
+    const cost = measured
       ? credits(item.credits ?? 0)
       : (item.totalTokens || item.inputTokens + item.outputTokens || 0
         ? `${compact(item.totalTokens || item.inputTokens + item.outputTokens)} tk`
         : "—");
+    const costTip = item.creditsSource === "catalogue"
+      ? "按上游公布的「每次请求消耗」计价"
+      : "";
     // A live request cannot be deleted; its box says so by being disabled.
     const running = item.status === "running";
     return `<div class="recent-row" data-id="${esc(item.id)}">
@@ -1505,7 +1526,7 @@ function renderUsageRecent() {
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
-      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" data-tip="同样大小、同样缓存命中率的请求通常远低于此">⚠ 异常</i>' : ""}</span>
+      <span class="recent-cost"${costTip ? ` data-tip="${esc(costTip)}"` : ""}>${cost}${item.anomaly ? ' <i class="cost-flag" data-tip="同样大小、同样缓存命中率的请求通常远低于此">⚠ 异常</i>' : ""}</span>
     </div>`;
   }).join("");
   // The re-render created fresh, unchecked boxes: the button's visibility

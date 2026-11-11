@@ -132,6 +132,7 @@ export async function proxyChat(res, provider, body, options = {}) {
     model: body.model,
     accountId: options.accountId,
     rate: options.rate,
+    rateUnit: options.rateUnit,
     contextWindow: options.contextWindow,
     ...projectFields(options.project)
   });

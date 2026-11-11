@@ -280,6 +280,10 @@ export class ProviderRouter {
         provider: account.provider,
         ownerAccountId: account.id,
         ownerLabel: account.label || "",
+        // What the catalogue's `rate` means. WorkBuddy publishes a relative
+        // multiple that is no price; Qoder publishes the credits one request
+        // takes, which is a price Lane can record per request.
+        ...(account.provider === "qoder" ? { rateUnit: "request" } : {}),
         // Two accounts of the SAME provider can serve one id too (a domestic
         // and an overseas WorkBuddy account both publish hy3). Only the first
         // in the pool order keeps the plain id; the later ones are qualified

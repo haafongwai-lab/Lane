@@ -455,6 +455,11 @@ h1 {
   border-radius: 50%;
   font: 600 20px/1 var(--font-display);
 }
+/* Same reason as the account row: Qoder's tile is a rounded square, so the
+   node draws it in a rounded-square slot instead of a circle that would cut
+   its corners off. */
+.node-logo.tile { border-radius: 11px; }
+.node-logo.tile img { border-radius: 11px; object-fit: cover; }
 /* Every client is drawn in the same mark: the logo with its own name under
    it. Five of them have to fit one row inside the node's content width
    (about 248px at the narrow breakpoint), so the mark is 40px wide with an
@@ -1239,6 +1244,15 @@ h1 {
   font-weight: 650;
 }
 .account-avatar img { width: 100%; height: 100%; display: block; object-fit: contain; }
+/* Qoder ships a rounded-square tile rather than a round logo. Clipping it
+   into the shared circle cut its corners off and showed the green avatar
+   background around it; the tile gets its own rounded-square slot with no
+   backing colour, so the mark is drawn exactly as the vendor drew it. */
+.account-avatar.tile {
+  border-radius: 8px;
+  background: transparent;
+}
+.account-avatar.tile img { border-radius: 8px; object-fit: cover; }
 
 /* ---- usage: tokens and credits ------------------------------------------ */
 

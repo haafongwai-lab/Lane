@@ -32,10 +32,12 @@ function usage() {
   };
 }
 
-test("the monthly grant and the check-in credits are listed apart", () => {
+test("the plan grant and the check-in credits are listed apart", () => {
   const rows = creditBreakdown(usage());
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].label, "月度赠送积分");
+  // "赠送积分" rather than "月度赠送积分": the grant renews with whatever the
+  // plan's period is, which is not always a month.
+  assert.equal(rows[0].label, "赠送积分");
   assert.equal(rows[0].kind, "plan");
   assert.equal(rows[0].limit, 500);
   assert.equal(rows[0].left, 0);
@@ -43,6 +45,35 @@ test("the monthly grant and the check-in credits are listed apart", () => {
   assert.equal(rows[1].kind, "extra");
   assert.equal(rows[1].limit, 2200);
   assert.ok(Math.abs(rows[1].left - 1224.05) < 1e-6);
+});
+
+test("a renewal date is never printed as an expiry", () => {
+  // The plan's `resetsAt` is when the allowance comes back. Reporting it as
+  // `lapsesAt` told the user their grant disappears on the day it renews.
+  const rows = creditBreakdown(usage());
+  assert.equal(rows[0].lapsesAt, "", "a plan window's reset is not an expiry");
+  assert.equal(rows[0].resetsAt, "2026-11-30T15:59:59.000Z");
+  assert.equal(rows[1].lapsesAt, "2026-12-05T14:52:21.000Z", "reward credits do expire");
+  assert.equal(rows[1].resetsAt, "");
+});
+
+test("Qoder's window names are recognised", () => {
+  // Qoder names its pools differently: the plan's is "Credits", the rewards
+  // are "Add-on credits". Both must still land on the two rows.
+  const rows = creditBreakdown({
+    windows: [
+      { name: "Total credits", used: 42, amount: 210, limit: 500, unit: "credits" },
+      { name: "Credits", used: 30, amount: 150, limit: 500, unit: "credits", resetsAt: "2026-12-01T00:00:00.000Z" },
+      { name: "Add-on credits", used: 60, amount: 60, limit: 100, unit: "credits", aside: true, runsOutAt: "2026-11-18T00:00:00.000Z" }
+    ]
+  });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].label, "赠送积分");
+  assert.equal(rows[0].left, 350);
+  assert.equal(rows[0].resetsAt, "2026-12-01T00:00:00.000Z");
+  assert.equal(rows[1].label, "签到与额外积分");
+  assert.equal(rows[1].left, 40);
+  assert.equal(rows[1].first, true, "the add-on pool lapses first");
 });
 
 test("the part that lapses first is marked, not merely ordered", () => {
