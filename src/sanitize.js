@@ -126,8 +126,9 @@ function unflagRefusedOpenings(value) {
  * DeepSeek Harness names itself in its own system prompt and runtime context,
  * and a name that reaches WorkBuddy can be recognised afterwards — an account
  * used through DSH was banned for exactly that. The community plugin hides the
- * name behind a switch (`hide_dsh`, on by default); Lane's pinned plugin
- * predates it, so the table lives here.
+ * name behind a switch (`hide_dsh`, on by default); Lane applies the same
+ * table while it prepares a request, so the protection is present even on the
+ * request path where only Lane's own helper runs.
  *
  * The bare name is taken out only where DSH wrote it: system/developer
  * messages and tool descriptions (`DSH_PROSE`). User and assistant text get
