@@ -61,9 +61,10 @@ export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = 
 
   // The models WorkBuddy itself says are not charged. A build that names none
   // falls back to counting every answered request as free traffic. The list
-  // rides on the "Credits" window in 0.2.17 and on both split windows, never
-  // on the synthesized "Total credits", so it is read from whichever window
-  // carries one.
+  // rides on the credit windows: one "Credits" window in 0.2.17, and on every
+  // split and total window since 0.2.24 (0.2.27 adds the measured per-model
+  // token windows, which are not credit windows); it is read from whichever
+  // window carries one.
   const notModelsWindow = windows.find((item) => Array.isArray(item?.notModels));
   const freeModels = Array.isArray(notModelsWindow?.notModels) ? notModelsWindow.notModels.map(String) : [];
   const isFreeModel = (model) => {

@@ -243,6 +243,10 @@ export async function prepareChat(body, { hideDsh = true, env = process.env } = 
   if (Array.isArray(prepared?.messages)) {
     prepared = { ...prepared, messages: unflagRefusedOpenings(prepared.messages) };
   }
+  // 0.2.23+ carries the plugin's own hide_dsh table. Run it first when the
+  // installed copy has it, then keep Lane's local pass so request preparation
+  // stays protected on a copy that predates the hook.
+  if (hideDsh && typeof api.hideDsh === "function") api.hideDsh(prepared);
   if (hideDsh) prepared = concealDshName(prepared).body;
   return { body: prepared, names: fit.names || new Map() };
 }

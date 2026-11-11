@@ -61,6 +61,26 @@ test("the plugin's 0.1.34+ plan label \"Free plan\" is the same plan", () => {
   assert.equal(a.credits.limit, 310);
 });
 
+test("0.2.27's Total credits and per-model free list are read together", () => {
+  const a = freeAllowance({
+    plan: "Free",
+    windows: [
+      { name: "Credits", amount: 100, limit: 500, aside: true },
+      { name: "Extra credits", amount: 50, limit: 200, aside: true },
+      {
+        name: "Total credits",
+        amount: 150,
+        limit: 700,
+        notModels: ["hy3", "deepseek-v4.1-flash"]
+      },
+      { name: "Free model tokens", amount: 10, limit: 100, unit: "tokens" }
+    ]
+  }, [], { now: NOW });
+  assert.equal(a.credits.limit, 700);
+  assert.equal(a.credits.used, 150);
+  assert.deepEqual(a.freeModels, ["hy3", "deepseek-v4.1-flash"]);
+});
+
 test("free-model usage is counted over the local day only", () => {
   const rows = [
     row("deepseek-v4.1-flash", { at: NOW - 20 * 3600 * 1000, tokens: 5000000 }),
