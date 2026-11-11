@@ -419,8 +419,13 @@ function render() {
   // "starting" is what the main process answers while the gateway is coming
   // up or retrying after a failed start; a fixed "运行中" would mask that.
   $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
-  $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
-  $("#provider-state").previousElementSibling.classList.toggle("off", !signedIn);
+  // The state belongs to the account the node is describing, not to the
+  // gateway as a whole: a card naming one account while reporting another's
+  // login would say "已登录" for an account that is not.
+  const viewAccount = providerViewAccount();
+  const viewSignedIn = viewAccount ? true : signedIn;
+  $("#provider-state").textContent = viewSignedIn ? "已登录" : "未登录";
+  $("#provider-state").previousElementSibling.classList.toggle("off", !viewSignedIn);
   // The route node names the account being shown — the first one switched
   // into the pool unless another is picked — and its icon follows that
   // upstream, so a Trae account is not drawn with WorkBuddy's mark.
@@ -1655,8 +1660,15 @@ $("#usage-account-menu")?.addEventListener("click", (event) => {
   const pick = event.target.closest("button[data-account]");
   if (!pick) return;
   usageAccountId = pick.dataset.account || "";
-  // Keep the route card on the same account: one choice, shown twice.
-  providerViewId = usageAccountId;
+  // The quota card lists every account (a balance is worth reading whether or
+  // not the account serves models), while the PROVIDER node only draws the
+  // ones in the pool. Setting the node's choice to an account it cannot draw
+  // would leave the two disagreeing, so it only follows when that account is
+  // actually in the pool.
+  const serving = (snapshot?.accounts || []).some(
+    (account) => account.id === usageAccountId && account.routable === true
+  );
+  if (serving) providerViewId = usageAccountId;
   $("#usage-account-menu").hidden = true;
   $("#usage-account-button")?.setAttribute("aria-expanded", "false");
   renderAccountIdentity();
@@ -1678,10 +1690,13 @@ $("#provider-pool")?.addEventListener("click", (event) => {
   const chip = event.target.closest("button[data-provider-account]");
   if (!chip) return;
   providerViewId = chip.dataset.providerAccount || "";
-  renderAccountIdentity();
   // The quota card's own switch follows the same choice, so the two views of
-  // "which account" never disagree.
+  // "which account" never disagree. Its label is repainted here rather than
+  // waiting for the usage read, which would leave it naming the old account
+  // until the response lands.
   usageAccountId = providerViewId;
+  renderAccountIdentity();
+  renderQuotaAccountPicker();
   loadUsage();
 });
 $("#codex-connect").addEventListener("click", () => command("connect", { agent: "codex" }, "Codex 已接入，请新建会话"));
@@ -1742,11 +1757,31 @@ $("#account-list").addEventListener("change", (event) => {
   if (!routableInput) return;
   const id = routableInput.closest("[data-id]")?.dataset.id;
   if (!id) return;
-  routablePending.set(id, routableInput.checked);
+  const on = routableInput.checked;
+  routablePending.set(id, on);
+  // Turning one on switches the same provider's other account off. That is a
+  // second row changing, and the row that loses its place must not keep
+  // showing "on" until the next poll lands: mirror the rule here so the two
+  // rows move together.
+  if (on) {
+    const clicked = (snapshot?.accounts || []).find((account) => account.id === id);
+    const same = (account) => (account.provider === "trae" ? "trae" : "workbuddy");
+    if (clicked) {
+      for (const other of snapshot?.accounts || []) {
+        if (other.id === id || other.routable !== true) continue;
+        if (same(other) === same(clicked)) routablePending.set(other.id, false);
+      }
+      renderAccounts();
+    }
+  }
   // Turning one on switches the same provider's other account off, so the
   // whole list is re-read rather than just this row.
-  accountAction("routable", id, { routable: routableInput.checked }).finally(() => {
+  accountAction("routable", id, { routable: on }).finally(() => {
+    // The reply is the truth for every row the command touched.
     routablePending.delete(id);
+    for (const account of snapshot?.accounts || []) {
+      if (account.id !== id) routablePending.delete(account.id);
+    }
   });
 });
 $("#checkin-enabled").addEventListener("change", (event) => {
