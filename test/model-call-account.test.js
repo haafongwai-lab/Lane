@@ -166,6 +166,49 @@ test("enabling a namespaced model does not stack the prefix in models.json", asy
   assert.deepEqual(served.map((m) => m.id), ["trae:glm-5.3"]);
 });
 
+test("a bare id enables only the default provider's model, not every lookalike", async (t) => {
+  const env = await tempEnv(t);
+  const workbuddy = fakeProvider("wb", [
+    { id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }
+  ], {
+    "wb-1": [{ id: "glm-5.3-flash-max" }]
+  });
+  const trae = fakeProvider("trae", [
+    { id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }
+  ], {
+    "tr-1": [
+      { id: "glm-5.3-flash-max" },
+      { id: "kimi-k3.1-pro-max" },
+      { id: "qwen3.8-flash-max" }
+    ]
+  });
+  const r = new ProviderRouter({ env, workbuddy, trae });
+  const { setModelEnabled, restrictModels } = await import("../src/model-gate.js");
+
+  // One old bare entry for a WorkBuddy model.
+  await setModelEnabled("glm-5.3-flash-max", true, env, "workbuddy");
+  const served = await restrictModels(await r.catalogue(), env);
+  assert.deepEqual(
+    served.map((m) => m.id),
+    ["glm-5.3-flash-max"],
+    "the Trae lookalikes are not served just because their bare id matches"
+  );
+});
+
+test("a stale stacked prefix is dropped instead of stuck on", async (t) => {
+  const env = await tempEnv(t);
+  // The file a broken build left behind: `trae:trae:…` names no row, so the
+  // page could not show it or switch it off. It served a model the user
+  // believed was not enabled.
+  await fs.writeFile(
+    path.join(env.LANE_DATA_DIR, "models.json"),
+    JSON.stringify({ version: 2, ids: ["trae:trae:glm-5.3-flash-max", "workbuddy:hy3", "hy4free"] }, null, 2)
+  );
+  const { allowedModels } = await import("../src/model-gate.js");
+  const ids = [...(await allowedModels(env))];
+  assert.deepEqual(ids.sort(), ["hy4free", "workbuddy:hy3"].sort(), "the stuck entry is gone, real ones stay");
+});
+
 test("the Anthropic and Responses routes resolve the account too", async () => {
   const server = await fs.readFile(new URL("../src/server.js", import.meta.url), "utf8");
   // Three request paths reach a provider: OpenAI chat, Anthropic messages and

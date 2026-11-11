@@ -64,12 +64,12 @@ async function readModels(env = process.env) {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      const ids = new Set(parsed.map(String));
+      const ids = new Set(normaliseIds(parsed.map(String)));
       lastGood.set(file, ids);
       return { ids, corrupt: false };
     }
     if (Array.isArray(parsed?.ids)) {
-      const ids = new Set(parsed.ids.map(String));
+      const ids = new Set(normaliseIds(parsed.ids.map(String)));
       lastGood.set(file, ids);
       return { ids, corrupt: false };
     }
@@ -92,13 +92,49 @@ export async function restrictModels(models = [], env = process.env) {
     if (allowed.has(id)) return true;
     if (allowed.has(keyOf(id, providerOf(model)))) return true;
     // A bare id saved before models were namespaced still selects the model
-    // it named. `trae:glm-5.3` is served when the file holds `glm-5.3`, so an
-    // existing selection survives the multi-account upgrade instead of
-    // silently emptying the agent's list.
+    // it named — but only for the provider that owns the bare namespace.
+    //
+    // `glm-5.3-flash-max` in the file means WorkBuddy's model of that name.
+    // Letting it also match `trae:glm-5.3-flash-max` turned one old entry into
+    // every provider's lookalike, so an account switched into the pool served
+    // five models nobody had added.
     const bare = model?.bareId ? String(model.bareId) : "";
-    if (bare && allowed.has(bare)) return true;
-    return Boolean(bare) && allowed.has(keyOf(bare, providerOf(model)));
+    if (!bare) return false;
+    // Only the default provider's rows carry the plain id, so only they may
+    // claim a bare entry.
+    return providerOf(model) === "workbuddy" && allowed.has(bare);
   });
+}
+
+/**
+ * Drops entries the current id scheme can never match.
+ *
+ * A broken key builder once prefixed an already-prefixed id, leaving
+ * `trae:trae:glm-5.3` in the file. No row carries that id, so the page could
+ * neither show it as on nor switch it off — it was stuck on, serving a model
+ * the user believed was not enabled.
+ *
+ * Such an entry is dropped rather than repaired. Repairing would guess that
+ * the stacked prefix meant the model underneath, but the only way it got
+ * written was the bug itself, and a user who did mean to add that model can
+ * add it again in one click. A stuck-on model nobody can turn off is the
+ * worse failure.
+ *
+ * A `workbuddy:` prefix is a valid key and is left alone.
+ */
+export function normaliseIds(ids = []) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of ids) {
+    const name = String(raw || "");
+    if (!name) continue;
+    // A stacked prefix names nothing; drop it instead of guessing.
+    if (/^(workbuddy|trae):(workbuddy|trae):/.test(name)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 
 /** Adds or removes one provider's model id in the allowlist. */
@@ -120,9 +156,9 @@ export async function setModelEnabled(id, enabled, env = process.env, provider =
     }
     await writeTextAtomic(
       path.join(dataDir(env), FILE),
-      `${JSON.stringify({ version: 2, ids: [...allowed] }, null, 2)}\n`
+      `${JSON.stringify({ version: 2, ids: normaliseIds([...allowed]) }, null, 2)}\n`
     );
-    lastGood.set(path.join(dataDir(env), FILE), new Set(allowed));
+    lastGood.set(path.join(dataDir(env), FILE), new Set(normaliseIds([...allowed])));
     return true;
   });
 }
