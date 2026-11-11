@@ -247,13 +247,17 @@ export function rateBadge(rate) {
 export function modelStatus(model, allowance) {
   const free = model?.free === true
     || (Array.isArray(allowance?.freeModels) && allowance.freeModels.includes(model?.id));
-  if (!free) return { text: "可用", tone: "" };
   // An exhausted allowance belongs to one model, not to the account: the
   // vendor refuses the model that ran out and keeps serving the rest. A
   // single global flag greyed out every free model, which is why the list
   // "did not follow the rules" when one model ran out.
-  const perModel = allowance?.refusedModels?.[model?.id];
-  const until = perModel || (allowance?.refusedModels ? "" : allowance?.refusedUntil);
+  const perModelMap = allowance?.refusedModels || {};
+  const perModel = perModelMap[model?.id];
+  // A per-model refusal is a fact about that model even when the catalogue
+  // does not mark it free; only the old global `refusedUntil` is limited to
+  // free models, because it predates per-model attribution.
+  if (!perModel && !free) return { text: "可用", tone: "" };
+  const until = perModel || (Object.keys(perModelMap).length ? "" : allowance?.refusedUntil);
   if (!until) return { text: "可用", tone: "" };
   const date = new Date(until);
   if (!Number.isFinite(date.getTime())) return { text: "额度已用尽", tone: "exhausted" };

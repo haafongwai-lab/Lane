@@ -124,7 +124,10 @@ export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = 
   //     whole free list, which is not what the upstream said.
   const refusedByModel = new Map();
   for (const row of statusRows) {
-    if (row?.status !== "error" || !isFreeModel(row?.model)) continue;
+    // A refusal belongs to the model it names, whether that model is on the
+    // free list or a paid one: an allowance can be per model for either. The
+    // free-model list is only used to count traffic below.
+    if (row?.status !== "error" || !row?.model) continue;
     const message = String(row?.error || "");
     const match = RESET_AT.exec(message);
     if (!match) continue;

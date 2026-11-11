@@ -387,7 +387,7 @@ export function createControlCenter({
       // reset time there, and the state follows the route account instead of
       // always reading one global overseas account. Trae accounts have no
       // free-model allowance, so that report is null for them.
-      const freeReport = await freeReportFor(instance, journal.list(), accountList, account?.id);
+      let freeReport = await freeReportFor(instance, journal.list(), accountList, account?.id);
       let usage = null;
       if (signedIn) {
         try {
@@ -395,6 +395,14 @@ export function createControlCenter({
         } catch {
           usage = { error: "usage is unknown" };
         }
+      }
+      // The per-account cache is stale-while-revalidate and answers null on
+      // its very first read. The active account's usage was just read above;
+      // use it rather than showing an empty model page until the background
+      // refresh lands. This is also what makes a refused model visible on the
+      // first poll after the refusal.
+      if (!freeReport && usage && !usage.error && account) {
+        freeReport = freeAllowance(usage, journal.list(), { accountId: account.id });
       }
       let autostart = false;
       try {
@@ -817,6 +825,9 @@ export function createControlCenter({
       // switches which free models are exhausted.
       const routeAccount = await activeAccount(instance).catch(() => null);
       report.freeAllowance = await freeReportFor(instance, rows, null, routeAccount?.id);
+      if (!report.freeAllowance && report.quota && !report.quota.error && routeAccount) {
+        report.freeAllowance = freeAllowance(report.quota, rows, { accountId: routeAccount.id });
+      }
       return report;
     },
 

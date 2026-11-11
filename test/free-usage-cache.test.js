@@ -95,7 +95,7 @@ test("the free-model report counts the whole journal, not one account's rows", (
   // The helper picks one account for the allowance, but the journal it reads
   // is scoped to that account inside freeAllowance, not filtered here.
   assert.match(SOURCE, /report\.freeAllowance = await freeReportFor\(instance, rows, null, routeAccount\?\.id\)/);
-  assert.match(SOURCE, /const freeReport = await freeReportFor\(instance, journal\.list\(\), accountList, account\?\.id\)/);
+  assert.match(SOURCE, /let freeReport = await freeReportFor\(instance, journal\.list\(\), accountList, account\?\.id\)/);
 });
 
 test("the model list's allowance follows the route account, not one fixed account", () => {

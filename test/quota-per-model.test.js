@@ -53,6 +53,16 @@ test("the model list marks only the exhausted model", () => {
   assert.equal(other.text, "可用");
 });
 
+test("a per-model refusal is shown even when the catalogue does not call it free", () => {
+  const allowance = {
+    freeModels: ["hy3"],
+    refusedModels: { "deepseek-v4.1-flash": "2026-11-11T13:48:41.000Z" }
+  };
+  const exhausted = modelStatus({ id: "deepseek-v4.1-flash" }, allowance);
+  assert.equal(exhausted.tone, "exhausted");
+  assert.equal(exhausted.text, "额度用尽");
+});
+
 test("an English refusal is still read", () => {
   const english = "usage limit reached; reset at 2026-11-11 21:48:41 UTC+8";
   const a = freeAllowance(usage(), [row("hy3", english)], { now: NOW });
