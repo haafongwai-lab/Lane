@@ -150,6 +150,24 @@ async function isSkillFolder(dir) {
   }
 }
 
+/**
+ * Whether a link at `link` resolves to `source`.
+ *
+ * A junction's readlink is the target path as it was written, so a case
+ * difference or a trailing separator would make two names for one folder look
+ * different. realpath resolves both sides to the same canonical path; when a
+ * link is dangling realpath fails, and that link is not pointing at anything
+ * Lane can own.
+ */
+async function pointsAt(link, source) {
+  try {
+    const [from, to] = await Promise.all([fs.realpath(link), fs.realpath(source)]);
+    return path.resolve(from).toLowerCase() === path.resolve(to).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** The library: one row per skill folder, with its description if any. */
 export async function listLibrary(env = process.env) {
   const root = libraryRoot(env);
@@ -171,14 +189,21 @@ export async function listLibrary(env = process.env) {
       if (m) description = m[1].trim().slice(0, 120);
     } catch {}
     const installs = [];
+    const source = path.join(root, entry.name);
     for (const agent of AGENTS) {
       let linked = false;
       let present = false;
       for (const target of installTargets(agent, env)) {
+        const link = path.join(target, entry.name);
         try {
-          const st = await fs.lstat(path.join(target, entry.name));
+          const st = await fs.lstat(link);
           present = true;
-          if (st.isSymbolicLink()) linked = true;
+          // A junction counts as Lane's install only when it points at this
+          // library copy. `~/.agents/skills` is a shared convention folder:
+          // another tool's link there (magpie's own library, a hand-made one)
+          // made Lane show every skill as installed to Claude on every start,
+          // which read as Lane installing them by itself.
+          if (st.isSymbolicLink() && (await pointsAt(link, source))) linked = true;
         } catch {}
       }
       // One row per agent, not per target. Claude Desktop has two skill
@@ -241,6 +266,7 @@ export async function importFrom(sourceDir, env = process.env) {
  */
 export async function removeFromLibrary(name, env = process.env) {
   checkSkillName(name);
+  const source = path.join(libraryRoot(env), name);
   let removed = 0;
   for (const agent of AGENTS) {
     for (const target of installTargets(agent, env)) {
@@ -250,7 +276,9 @@ export async function removeFromLibrary(name, env = process.env) {
       if (!contained(target, p)) continue;
       try {
         const st = await fs.lstat(p);
-        if (!st.isSymbolicLink()) continue;
+        // Only a link Lane made is removed: `~/.agents/skills` is shared, and
+        // another tool's junction there is not Lane's to delete.
+        if (!st.isSymbolicLink() || !(await pointsAt(p, source))) continue;
         await fs.unlink(p);
         removed++;
       } catch {}
@@ -290,7 +318,17 @@ export async function installTo(name, agent, env = process.env) {
     // failed with EEXIST on a link Lane itself had made.
     let occupied = null;
     try { occupied = await fs.lstat(link); } catch {}
-    if (occupied) { results.push({ target, linked: false, existed: true }); continue; }
+    if (occupied) {
+      // A junction already pointing at this library copy is Lane's own
+      // install (the user clicked twice, or the renderer was stale): report
+      // it as installed instead of "occupied by someone else's folder".
+      if (occupied.isSymbolicLink() && (await pointsAt(link, source))) {
+        results.push({ target, linked: true, existed: true, ours: true });
+        continue;
+      }
+      results.push({ target, linked: false, existed: true });
+      continue;
+    }
     await ensureDir(target);
     // ntfs junctions require an absolute target, which path.resolve gives.
     await fs.symlink(source, link, "junction");
@@ -304,20 +342,25 @@ export async function installTo(name, agent, env = process.env) {
     agent,
     results,
     linked: results.some((r) => r.linked),
-    occupied: results.filter((r) => r.existed).map((r) => r.target)
+    occupied: results.filter((r) => r.existed && !r.ours).map((r) => r.target)
   };
 }
 
 /** Removes the installed links of one skill from one client. */
 export async function uninstallFrom(name, agent, env = process.env) {
   checkSkillName(name);
+  const source = path.join(libraryRoot(env), name);
   let removed = 0;
   for (const target of installTargets(agent, env)) {
     const link = path.join(target, name);
     if (!contained(target, link)) continue;
     try {
       const st = await fs.lstat(link);
-      if (st.isSymbolicLink()) { await fs.unlink(link); removed++; }
+      // Only Lane's own junction goes: `~/.agents/skills` is a shared folder,
+      // and unlinking another tool's link would break that tool's install.
+      if (!st.isSymbolicLink() || !(await pointsAt(link, source))) continue;
+      await fs.unlink(link);
+      removed++;
     } catch {}
   }
   return { name, agent, removed };

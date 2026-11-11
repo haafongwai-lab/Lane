@@ -777,7 +777,7 @@ function renderModels(models, freeAllowance = null, gate = null) {
       <span>${model.context ? `${compact(model.context)} tokens` : "—"}</span>
       <span class="credit-rate">${creditRate(model)}</span>
       <code>${esc(model.owned_by || "upstream")}</code>
-      <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` title="${esc(status.title)}"` : ""}>${esc(status.text)}${status.hint ? `<small>${esc(status.hint)}</small>` : ""}</span>
+      <span class="model-status${status.tone ? ` ${status.tone}` : ""}"${status.title ? ` data-tip="${esc(status.title)}"` : ""}>${esc(status.text)}${status.hint ? `<small>${esc(status.hint)}</small>` : ""}</span>
       <label class="model-switch" data-tip="${on ? "移除后 Agent 不再读取该模型" : "添加后 Agent 才能读取该模型"}">
         <input type="checkbox" data-model-add="${esc(model.id)}" data-model-provider="${esc(provider)}"${on ? " checked" : ""}>
         <span></span>
@@ -1320,8 +1320,8 @@ function renderUsageModels(models, totals) {
           <div class="usage-table-row">
             <div class="usage-model">${color ? `<i class="model-dot" style="background:${color}"></i>` : ""}<b>${esc(row.model)}</b><code class="${badge.tone}">${esc(badge.text)}</code></div>
             <span>${row.requests}</span>
-            <span class="usage-cost"${row.credits > 0 ? "" : ` title="上游按周期额度结算，未逐请求返回扣费；本机统计 ${compact(row.totalTokens || 0)} tokens"`}>${row.credits > 0 ? `${credits(row.credits)} <i class="soft-label">¥${rmb(row.credits)}</i>` : (row.unbilledRequests > 0 ? "—" : credits(0))}</span>
-            <button type="button" class="model-delete" data-model-delete="${esc(row.model)}" title="删除「${esc(row.model)}」在当前区间的记录" aria-label="删除 ${esc(row.model)} 的使用记录">✕</button>
+            <span class="usage-cost"${row.credits > 0 ? "" : ` data-tip="上游按周期额度结算，未逐请求返回扣费；本机统计 ${compact(row.totalTokens || 0)} tokens"`}>${row.credits > 0 ? `${credits(row.credits)} <i class="soft-label">¥${rmb(row.credits)}</i>` : (row.unbilledRequests > 0 ? "—" : credits(0))}</span>
+            <button type="button" class="model-delete" data-model-delete="${esc(row.model)}" data-tip="删除「${esc(row.model)}」在当前区间的记录" aria-label="删除 ${esc(row.model)} 的使用记录">✕</button>
           </div>`;
         }).join("")}
         <div class="usage-table-foot">
@@ -1404,7 +1404,7 @@ function renderUsageRecent() {
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>
       <span class="recent-cache">${cacheKnown && item.inputTokens ? percent(cache) : "—"}</span>
-      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" title="同样大小、同样缓存命中率的请求通常远低于此">⚠ 异常</i>' : ""}</span>
+      <span class="recent-cost">${cost}${item.anomaly ? ' <i class="cost-flag" data-tip="同样大小、同样缓存命中率的请求通常远低于此">⚠ 异常</i>' : ""}</span>
     </div>`;
   }).join("");
   // The re-render created fresh, unchecked boxes: the button's visibility
@@ -2144,7 +2144,7 @@ function renderMcp() {
         ? AGENT_SHORT[target.agent] + " 不支持远程 MCP"
         : (on ? "已写入 " : "未写入 ") + AGENT_SHORT[target.agent];
       return '<span class="' + cls + '" data-lamp="' + esc(server.name) + '" data-agent="' + target.agent +
-        '" title="' + esc(tip) + '"><i></i>' + AGENT_SHORT[target.agent] + "</span>";
+        '" data-tip="' + esc(tip) + '"><i></i>' + AGENT_SHORT[target.agent] + "</span>";
     }).join("");
 
     var testState = extData.mcpTest && extData.mcpTest[server.name];
@@ -2175,7 +2175,7 @@ function renderMcp() {
         '<button class="mini quiet" data-mcp-test="' + esc(server.name) + '"' + (server.off ? " disabled" : "") + '>测试</button>' +
         '<button class="mini' + (server.off ? "" : " quiet") + '" data-mcp-toggle="' + esc(server.name) + '">' +
           (server.off ? "启用" : "停用") + "</button>" +
-        '<button class="icon-mini" data-mcp-remove="' + esc(server.name) + '" title="删除" aria-label="删除 ' +
+        '<button class="icon-mini" data-mcp-remove="' + esc(server.name) + '" data-tip="删除" aria-label="删除 ' +
           esc(server.name) + '">✕</button>' +
       "</div>" +
       testLine +
@@ -2200,14 +2200,14 @@ function renderSkills(list) {
     var pips = ["codex", "zcode", "claude-desktop"].map(function (agent) {
       var on = Boolean(installed[agent]);
       return '<button class="skill-pip' + (on ? " on" : "") + '" data-pip="' + esc(skill.name) +
-        '" data-agent="' + agent + '" title="' + (on ? "从 " + AGENT_SHORT[agent] + " 卸载" : "安装到 " + AGENT_SHORT[agent]) + '">' +
+        '" data-agent="' + agent + '" data-tip="' + (on ? "从 " + AGENT_SHORT[agent] + " 卸载" : "安装到 " + AGENT_SHORT[agent]) + '">' +
         AGENT_INITIAL[agent] + "</button>";
     }).join("");
     return '<div class="skill-card' + (skill.builtin ? " builtin" : "") + '">' +
       '<div class="skill-title"><b>' + esc(skill.name) + "</b>" +
         (skill.builtin ? '<em class="skill-builtin">内置</em>' : "") +
       "</div>" +
-      "<p" + (skill.description ? ' title="' + esc(skill.description) + '"' : "") + ">" +
+      "<p" + (skill.description ? ' data-tip="' + esc(skill.description) + '"' : "") + ">" +
             esc(skill.description || "无描述") + "</p>" +
       '<div class="skill-foot">' + pips +
         '<span class="grow"></span>' +
