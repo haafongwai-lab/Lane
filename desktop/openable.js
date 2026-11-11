@@ -3,12 +3,14 @@
  *
  * The renderer is CSP-restricted, but a compromised renderer could otherwise
  * ask the main process to open any HTTPS page it likes. The only pages Lane
- * itself ever opens are WorkBuddy's sign-in hosts — measured from the
- * plugin's own authorize(): the domestic build hands back
- * `https://www.workbuddy.cn/login?...` and the international build
- * `https://www.workbuddy.ai/login?...`, while API traffic goes to
- * copilot.tencent.com. The check-in card links the project's own repository,
- * so github.com is openable too. Anything else is refused.
+ * itself ever opens are the upstream sign-in hosts — measured from each
+ * plugin's own authorize(): WorkBuddy hands back
+ * `https://www.workbuddy.cn/login?...` and `https://www.workbuddy.ai/login?...`,
+ * Trae `https://www.trae.cn/authorization?...` and its global twin, and Qoder
+ * `https://qoder.com/device/selectAccounts?...` and `https://qoder.cn/...`.
+ * API traffic goes to the providers' own gateways. The check-in card links
+ * the project's own repository, so github.com is openable too. Anything else
+ * is refused.
  *
  * Kept out of main.js so it can be tested without an Electron runtime: this
  * is the one security decision in the desktop shell that a unit test can
@@ -20,6 +22,9 @@ const OPENABLE_HOSTS = new Set([
   "copilot.tencent.com",
   "www.trae.cn",
   "www.trae.ai",
+  // Qoder hands its device sign-in pages back on these two hosts.
+  "qoder.com",
+  "qoder.cn",
   "github.com"
 ]);
 

@@ -964,7 +964,7 @@ function upstreamLabel(account) {
 function upstreamIcon(account) {
   const provider = String(account?.provider || "");
   if (provider === "trae") return "assets/trae-official-256.png";
-  if (provider === "qoder") return "assets/qoder-official.svg";
+  if (provider === "qoder") return "assets/qoder-official-256.png";
   return "assets/workbuddy-official.svg";
 }
 

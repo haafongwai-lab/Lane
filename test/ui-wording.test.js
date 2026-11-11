@@ -29,8 +29,8 @@ test("every upstream choice carries an icon, Qoder included", () => {
   assert.equal((menu.match(/data-site=/g) || []).length, 6, "WorkBuddy CN/AI, Trae CN/Global and Qoder CN/International");
   assert.match(menu, /data-site="trae-cn"[^>]*>[\s\S]*?trae-official-256\.png/);
   assert.match(menu, /data-site="trae-global"[^>]*>[\s\S]*?trae-official-256\.png/);
-  assert.match(menu, /data-site="qoder"[^>]*>[\s\S]*?qoder-official\.svg/);
-  assert.match(menu, /data-site="qoder-cn"[^>]*>[\s\S]*?qoder-official\.svg/);
+  assert.match(menu, /data-site="qoder"[^>]*>[\s\S]*?qoder-official-256\.png/);
+  assert.match(menu, /data-site="qoder-cn"[^>]*>[\s\S]*?qoder-official-256\.png/);
   // The route node's logo follows the active upstream instead of staying a
   // fixed WorkBuddy mark.
   assert.match(html, /id="provider-logo"/);

@@ -6,10 +6,10 @@ import { openableUrl, openableHosts } from "../desktop/openable.js";
  * The shell's one security decision, held by a test.
  *
  * The hosts below are measured, not guessed: the plugins' authorize() calls
- * return WorkBuddy's two sign-in pages and Trae's two authorization pages,
- * while API traffic goes to copilot.tencent.com. A host added here without a
- * reason, or a loosened comparison, would widen what a compromised renderer
- * can make the shell open.
+ * return WorkBuddy's two sign-in pages, Trae's two authorization pages and
+ * Qoder's two device pages, while API traffic goes to the providers' own
+ * gateways. A host added here without a reason, or a loosened comparison,
+ * would widen what a compromised renderer can make the shell open.
  */
 
 test("the sign-in pages the plugins actually return are openable", () => {
@@ -19,6 +19,8 @@ test("the sign-in pages the plugins actually return are openable", () => {
     "https://www.workbuddy.ai/login?platform=workbuddy-ai&state=abc",
     "https://www.trae.cn/authorization?login_version=1",
     "https://www.trae.ai/authorization?login_version=1",
+    "https://qoder.com/device/selectAccounts?challenge=abc",
+    "https://qoder.cn/device/selectAccounts?challenge=abc",
     "https://copilot.tencent.com/"
   ]) {
     assert.equal(openableUrl(url), new URL(url).href, url);
@@ -49,6 +51,7 @@ test("a host that merely looks like one of ours is refused", () => {
   // login page is exactly what a phishing flow would try.
   assert.equal(openableUrl("https://www.workbuddy.cn.attacker.test/"), null);
   assert.equal(openableUrl("https://attacker.test/?next=https://www.workbuddy.cn"), null);
+  assert.equal(openableUrl("https://qoder.com.attacker.test/device"), null);
 });
 
 test("only https is openable", () => {
@@ -68,9 +71,18 @@ test("junk input is refused rather than thrown on", () => {
   }
 });
 
-test("the allowlist is exactly the six hosts", () => {
+test("the allowlist is exactly the eight hosts", () => {
   assert.deepEqual(
     [...openableHosts].sort(),
-    ["copilot.tencent.com", "github.com", "www.trae.ai", "www.trae.cn", "www.workbuddy.ai", "www.workbuddy.cn"]
+    [
+      "copilot.tencent.com",
+      "github.com",
+      "qoder.cn",
+      "qoder.com",
+      "www.trae.ai",
+      "www.trae.cn",
+      "www.workbuddy.ai",
+      "www.workbuddy.cn"
+    ]
   );
 });
