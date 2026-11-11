@@ -532,18 +532,17 @@ h1 {
   object-fit: contain;
 }
 .route-canvas .dsh-logo img { width: 40px; height: 40px; margin-bottom: 0; }
-.codex-logo {
-  overflow: hidden;
-  background: transparent;
-  /* The Codex mark is its own rounded square; a circular clip turned it into
-     a white puck. Keep the asset's corners instead. */
-  border-radius: 10px;
-}
+/* With the white tile removed the Codex asset is a bare mark on a
+   transparent canvas, like Claude's asterisk. There are no corners to keep
+   and no plate that has to bleed to every edge, so the rounded clip is
+   dropped and the mark is contained: cover only made sense while the tile
+   was there to fill the box. */
+.codex-logo { background: transparent; }
 .codex-logo img, .agent-icon.codex img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 .upstream-logo { overflow: hidden; background: transparent; }
 .upstream-logo img {
@@ -730,22 +729,21 @@ h1 {
 }
 .agent-row:last-child { border-bottom: 0; }
 .agent-row:hover { background: var(--hover-bg); }
-/* Each mark is sized by how much of its own art is ink: Codex's tile and
+/* Each mark is sized by how much of its own art is ink: Codex's mark and
    ZCode's plate carry their own padding, while Claude's asterisk is
    full-bleed, so the sizes differ to look equal. The row's own class is
    `agent-mark-cell`, not `agent-mark`: the route graph above uses
    `.agent-mark` for its stacked icon-plus-label, and sharing the name made
-   this box inherit that column layout and shrink the Codex tile. */
+   this box inherit that column layout and shrink the Codex mark. */
 .agent-mark-cell { width: 38px; height: 38px; display: grid; place-items: center; }
-/* The cell does not clip: the Codex tile is drawn slightly larger than the
-   box, and overflow hidden would cut its corners off. */
+/* The cell does not clip: the Codex mark is drawn slightly larger than the
+   box, and overflow hidden would cut its outer ink off. */
 .agent-mark-cell img { display: block; object-fit: contain; }
-/* Codex ships a tile that fills its own canvas, so it is drawn at the cell's
-   full size; the others carry internal padding and read larger than their
-   ink, which is why they stay inside a smaller box. The tile is drawn a
-   little past the cell: its rounded corners leave a margin of their own, and
-   at 38px it read visibly smaller than Claude's full-bleed asterisk. At 44px
-   it then read larger than the rest, so it sits between the two. */
+/* Now that the white tile is gone, Codex is a bare mark on a transparent
+   canvas that still leaves a margin inside its own 24px viewBox; the ink
+   therefore reads smaller than Claude's full-bleed asterisk at the same
+   size. It is drawn a little past the 38px cell to compensate — at 38px it
+   read visibly smaller than the rest, at 44px larger, so it sits between. */
 .agent-mark-cell.codex img { width: 40px; height: 40px; object-fit: contain; }
 .agent-mark-cell.claude img { width: 30px; height: 30px; }
 .agent-mark-cell.zcode img { width: 34px; height: 34px; }
