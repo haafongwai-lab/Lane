@@ -34,7 +34,10 @@ test("the agent page is a list, one row per client", () => {
 
 test("every row carries the same cells and one state chip", () => {
   for (const [i, row] of rows().entries()) {
-    assert.match(row, /class="agent-mark"/, `row ${i + 1} has a mark`);
+    // The row's icon cell has its own class: the route graph uses
+    // `.agent-mark` for its stacked icon-plus-label, and sharing the name
+    // made the row inherit that column layout.
+    assert.match(row, /class="agent-mark-cell [a-z]+"/, `row ${i + 1} has a mark`);
     assert.match(row, /class="connection-state" id="[a-z]+-connect-state"/, `row ${i + 1} has a state chip`);
     // The head names the columns, so a row carries only values. A repeated
     // label inside every row was the noise the list was meant to remove.
@@ -85,4 +88,15 @@ test("the list's columns line up and a long path stays on one line", () => {
 test("the state chip sits beside the name, not in a card corner", () => {
   const rule = CSS.slice(CSS.indexOf(".connection-state {"), CSS.indexOf(".connection-state.on"));
   assert.doesNotMatch(rule, /position: absolute/, "a chip in a row is not absolutely placed");
+});
+
+test("the row icon does not inherit the route graph's stacked mark", () => {
+  // `.agent-mark` is the route graph's icon-plus-label column; reusing that
+  // name for the row cell made it 42px wide with a stacked layout, which
+  // shrank the Codex tile.
+  const cell = CSS.slice(CSS.indexOf(".agent-mark-cell {"), CSS.indexOf(".agent-mark-cell {") + 200);
+  assert.match(cell, /width: 38px/, "the cell has its own fixed box");
+  assert.doesNotMatch(cell, /flex-direction: column/, "it is not a stacked column");
+  const codex = CSS.slice(CSS.indexOf(".agent-mark-cell.codex img"), CSS.indexOf(".agent-mark-cell.codex img") + 200);
+  assert.match(codex, /width: 44px/, "the Codex tile is drawn past the cell so it matches the others optically");
 });
