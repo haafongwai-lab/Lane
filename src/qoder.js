@@ -52,6 +52,10 @@ export class QoderProvider extends WorkBuddyProvider {
     this.baseEnv = baseEnv;
     this.ownedBy = "qoder";
     this.label = "Qoder";
+    // Qoder's campaign reports one amount for the whole campaign — a live one
+    // read 500 while the day grants 100 — so the hook's figure is not a
+    // reward. Lane measures the account's balance around the claim instead.
+    this.checkinRewardMeasured = true;
     this.qoderFactories = new Map();
   }
 

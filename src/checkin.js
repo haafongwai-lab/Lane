@@ -3,6 +3,7 @@ import path from "node:path";
 import { dataDir } from "./config.js";
 import { writeJSON } from "./agents/store.js";
 import { crossProcessLock } from "./accounts.js";
+import { creditWindowOf } from "./credit-window.js";
 
 /**
  * WorkBuddy hands out a daily check-in reward per account. Its own client
@@ -346,6 +347,32 @@ async function claimRound({
   return { settings, results };
 }
 
+/**
+ * An account's spendable credit total, or null when it cannot be read.
+ *
+ * Used to measure what a check-in actually granted: a provider whose campaign
+ * reports one figure for a whole campaign (Qoder: 500 while the day grants
+ * 100) leaves the balance as the only honest answer to "how much did this
+ * claim add".
+ */
+async function creditLeft(provider, id) {
+  try {
+    const usage = await provider.usage(id);
+    const window = creditWindowOf(usage);
+    if (!window) return null;
+    if (window.balance != null && !(Number(window.limit) > 0)) {
+      const balance = Number(window.balance);
+      return Number.isFinite(balance) ? balance : null;
+    }
+    const limit = Number(window.limit);
+    const used = Number(window.amount);
+    if (!Number.isFinite(limit) || !Number.isFinite(used)) return null;
+    return limit - used;
+  } catch {
+    return null;
+  }
+}
+
 async function claimFor(provider, account, { env, fetchImpl }) {
   let session;
   try {
@@ -371,8 +398,19 @@ async function claimFor(provider, account, { env, fetchImpl }) {
     // a copy here would drift from the vendor the way checkin-status did.
     const hook = session.hooks?.auth?.checkin;
     if (typeof hook === "function") {
+      // A provider whose hook reports something other than the day's grant
+      // has to be measured instead. Qoder's campaign carries one `amount` for
+      // the whole campaign (500 on a 100-credit day), so its number is not a
+      // reward Lane can print — the balance is. Measured before and after the
+      // claim, the difference is what actually landed.
+      const measure = provider.checkinRewardMeasured === true;
+      const before = measure ? await creditLeft(provider, account.id) : null;
       const outcome = await hook.call(session.hooks.auth, async () => session.auth);
-      return fromHook(outcome);
+      const mapped = fromHook(outcome);
+      if (!measure) return mapped;
+      const after = mapped.ok ? await creditLeft(provider, account.id) : null;
+      const gained = before != null && after != null ? Math.round((after - before) * 100) / 100 : 0;
+      return { ...mapped, reward: gained > 0 ? String(gained) : "" };
     }
     const baseURL = await provider.baseURL(account.id);
     const options = { auth: session.auth, baseURL, fetchImpl };

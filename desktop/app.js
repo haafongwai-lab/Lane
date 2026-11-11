@@ -1489,7 +1489,7 @@ function renderUsageRecent() {
     <input type="checkbox" class="recent-pick" id="recent-pick-all" aria-label="全选"${selectable.length ? "" : " disabled"}>
     <span>时间</span><span>来源</span><span>模型</span><span>状态</span>
     <span>上下文</span><span>缓存</span>
-    <span class="recent-cost">积分</span>
+    <span class="recent-cost">积分/token</span>
   </div>`;
   node.innerHTML = head + rows.map((item) => {
     const when = new Date(item.startedAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
