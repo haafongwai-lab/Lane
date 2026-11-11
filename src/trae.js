@@ -193,8 +193,9 @@ export class TraeProvider extends WorkBuddyProvider {
    * WorkBuddy; `prepareChat` is deliberately not used because its rewrites
    * are WorkBuddy's, not Trae's.
    */
-  async chat(body, { signal } = {}) {
-    const session = await this.activeSession();
+  async chat(body, { signal, accountId = "" } = {}) {
+    // The account that owns the model, not the route: see workbuddy.js.
+    const session = accountId ? await this.session(accountId) : await this.activeSession();
     if (!session) throw new Error("Trae is not signed in");
     await this.refreshIfNeeded(session);
     const loader = await this.loaderFor(session);

@@ -217,6 +217,18 @@ test("the router's chatOn sends the bare id to the resolved provider", async (t)
   assert.equal(seen.model, "gpt-5.4", "the prefix is Lane's, not the upstream's");
 });
 
+test("a provider id that already carries a prefix is not prefixed twice", async () => {
+  // A saved allowlist entry can read back through a provider that kept the
+  // prefix; `trae:trae:glm-5.3` would then be a model nobody can select.
+  const { ProviderRouter } = await import("../src/provider-router.js");
+  assert.equal(ProviderRouter.qualifiedId("trae", "glm-5.3"), "trae:glm-5.3");
+  assert.equal(ProviderRouter.qualifiedId("trae", "trae:glm-5.3"), "trae:glm-5.3");
+  assert.equal(ProviderRouter.qualifiedId("workbuddy", "hy3"), "hy3");
+  assert.equal(ProviderRouter.qualifiedId("workbuddy", "workbuddy:hy3"), "hy3");
+  // A prefix naming another provider is replaced, not stacked.
+  assert.equal(ProviderRouter.qualifiedId("trae", "workbuddy:hy3"), "trae:hy3");
+});
+
 test("the account page keeps the two switches apart", async () => {
   const app = await fs.readFile(path.join(import.meta.dirname, "..", "desktop/app.js"), "utf8");
   assert.match(app, /data-act="routable"/, "a switch for the model pool");

@@ -273,21 +273,29 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         body.model = mappedCodex.id;
         const chat = responsesToChat(body);
         const id = randomUUID().replaceAll("-", "");
-        const meta = await modelMeta(provider, body.model);
+        // Same rule as the OpenAI and Anthropic paths: send on the account
+        // that owns the model, not on the route.
+        const servedCodex = typeof provider.resolveModel === "function"
+          ? await provider.resolveModel(body.model)
+          : null;
+        const servingCodex = servedCodex?.known ? servedCodex.providerInstance : provider;
+        if (servedCodex?.known) body.model = servedCodex.id;
+        const meta = await modelMeta(servingCodex, body.model);
         const record = control?.journal.start({
           agent: "codex",
           endpoint: url.pathname,
           requestedModel: requested,
           model: body.model,
-          accountId: await activeAccountId(provider),
+          accountId: servedCodex?.accountId || await activeAccountId(provider),
           rate: meta.rate,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
         });
-        await proxyProtocol(res, provider, chat, {
+        await proxyProtocol(res, servingCodex, chat, {
           id,
           record,
           control,
+          accountId: servedCodex?.accountId || "",
           model: body.model,
           stream: Boolean(body.stream),
           convert: (payload) => chatToResponses(payload, body.model, `resp_${id}`),
@@ -362,21 +370,30 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         fitEffort(body, models.find((model) => model.id === body.model));
         const chat = anthropicToChat(body);
         const id = randomUUID().replaceAll("-", "");
-        const meta = await modelMeta(provider, body.model);
+        // The account that owns the model, not the route: several accounts
+        // can serve models at once, and a model listed from any of them has
+        // to be callable through the same account.
+        const served = typeof provider.resolveModel === "function"
+          ? await provider.resolveModel(body.model)
+          : null;
+        const servingProvider = served?.known ? served.providerInstance : provider;
+        if (served?.known) body.model = served.id;
+        const meta = await modelMeta(servingProvider, body.model);
         const record = control?.journal.start({
           agent: messagesClientAgent(req),
           endpoint: url.pathname,
           requestedModel: requested,
           model: body.model,
-          accountId: await activeAccountId(provider),
+          accountId: served?.accountId || await activeAccountId(provider),
           rate: meta.rate,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
         });
-        await proxyProtocol(res, provider, chat, {
+        await proxyProtocol(res, servingProvider, chat, {
           id,
           record,
           control,
+          accountId: served?.accountId || "",
           model: body.model,
           stream: Boolean(body.stream),
           convert: (payload) => chatToAnthropic(payload, body.model, `msg_${id}`),

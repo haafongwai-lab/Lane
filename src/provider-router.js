@@ -219,7 +219,19 @@ export class ProviderRouter {
    * name and the allowlist can migrate an old bare entry.
    */
   static qualifiedId(provider, id) {
-    return provider === "workbuddy" ? String(id) : `${provider}:${id}`;
+    // A provider can hand back an id that already carries a prefix (a saved
+    // allowlist entry read back through a provider that kept it). Strip it
+    // first, or the prefix doubles into `trae:trae:…`.
+    let name = String(id);
+    for (const known of ["workbuddy", "trae"]) {
+      if (name.startsWith(`${known}:`)) {
+        name = name.slice(known.length + 1);
+        break;
+      }
+    }
+    // WorkBuddy keeps the plain id: it is what every existing models.json
+    // names, and what a client sends when it has not been told otherwise.
+    return provider === "workbuddy" ? name : `${provider}:${name}`;
   }
 
   /** One account's models, each tagged with the account that serves it. */

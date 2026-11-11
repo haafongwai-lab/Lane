@@ -501,9 +501,15 @@ export class WorkBuddyProvider {
    * accepts neither would otherwise leave the client hanging forever, and
    * the body itself may stream for as long as the generation runs.
    */
-  async chat(body, { signal } = {}) {
-    const session = await this.activeSession();
+  async chat(body, { signal, accountId = "" } = {}) {
+    // The account that owns the model, not the route: with several accounts
+    // serving models at once, the router resolves which one this request
+    // belongs to and passes it here. Without it the request went out on the
+    // route account, so a model served by any other account failed — the
+    // catalogue listed it but the call could not use it.
+    const session = accountId ? await this.session(accountId) : await this.activeSession();
     if (!session) throw new Error("WorkBuddy is not signed in");
+    if (!session.auth) throw new Error("WorkBuddy is not signed in");
     await this.refreshIfNeeded(session);
     const loader = await this.loaderFor(session);
     // WorkBuddy refuses a chat whose prompt carries another client's words,

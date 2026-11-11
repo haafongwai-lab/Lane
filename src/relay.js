@@ -146,7 +146,12 @@ export async function proxyChat(res, provider, body, options = {}) {
     }
   });
   try {
-    const upstream = await chatWithRetry(provider, body, { signal: abort.signal }, { record, journal: options.control?.journal });
+    // The account that owns the model travels with the call: with several
+    // accounts serving models at once, the provider must send on the one the
+    // router resolved, not on whichever account happens to be the route.
+    const init = { signal: abort.signal };
+    if (options.accountId) init.accountId = options.accountId;
+    const upstream = await chatWithRetry(provider, body, init, { record, journal: options.control?.journal });
     // The upstream status is the request's outcome: a chat WorkBuddy refuses
     // arrives here as a Response with ok === false, and recording it as
     // "complete" hid the refusal from the journal and the activity list.
@@ -387,7 +392,11 @@ export async function proxyProtocol(res, provider, chat, options) {
   });
   try {
     state = { id: options.id };
-    const upstream = await chatWithRetry(provider, { ...chat, stream: true }, { signal: abort.signal }, { record: options.record, journal: options.control?.journal });
+    // Same as the OpenAI path: the account that owns the model travels with
+    // the call, or every request would go out on the route account.
+    const init = { signal: abort.signal };
+    if (options.accountId) init.accountId = options.accountId;
+    const upstream = await chatWithRetry(provider, { ...chat, stream: true }, init, { record: options.record, journal: options.control?.journal });
     if (!upstream.ok) {
       const text = await upstream.text();
       options.control?.journal.finish(options.record?.id, {
