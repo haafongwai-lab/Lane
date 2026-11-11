@@ -1267,6 +1267,37 @@ h1 {
   background: linear-gradient(90deg, #6d9a7e, #4f7d60);
   transition: width .3s ease;
 }
+/* 0.2.27's per-model token windows: each is its own allowance, so each gets
+   its own slim meter rather than being folded into the credits bar. */
+.quota-models {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.quota-model-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.quota-model-head b { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); overflow-wrap: anywhere; }
+.quota-model-head span { color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.quota-model.used-up .quota-model-head span { color: var(--red); }
+.quota-meter.slim { height: 5px; margin-top: 6px; }
+.quota-model.used-up .quota-meter.slim i { background: var(--red); }
+.quota-model-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
 .quota-foot {
   display: flex;
   flex-wrap: wrap;
@@ -2071,8 +2102,12 @@ h1 {
   letter-spacing: .4px;
 }
 .skill-card b { display: block; font-size: 13px; font-weight: 650; letter-spacing: -.1px; }
+/* The description is a label, not documentation: two lines is what fits a
+   grid cell without turning the card into a paragraph, and the full text is
+   one hover away. Clamping to three lines made every card as tall as its
+   longest neighbour and buried the pips. */
 .skill-card p {
-  margin-top: 4px; min-height: 30px;
+  margin-top: 4px; min-height: 0;
   color: var(--muted); font-size: 11.5px; line-height: 1.5;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;

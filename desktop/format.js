@@ -21,6 +21,8 @@
  *               sum, with the two originals set aside.
  *   0.2.0+      also "Prepaid credits" (a balance with no cycle limit) and
  *               "Free model tokens" (a token count, not credits at all).
+ *   0.2.27+     also one measured per-model token window each (named after
+ *               the model, carrying `models`), likewise not credits.
  *
  * A "Total credits" window wins; a build without one has its two credit
  * windows summed exactly the way 0.2.24's `totalOf` does. A token window is
@@ -31,9 +33,25 @@
  * card — repeated here for the same reason as `kindFromText` below: the
  * renderer cannot import from `src/`.
  */
+
+/** A window that counts tokens for one model, not credits for the account. */
+export function isTokenWindow(window) {
+  if (!window) return false;
+  if (window.unit === "tokens") return true;
+  // 0.2.27's China windows carry no unit (their name already says tokens) but
+  // name the model ids they cover.
+  return Array.isArray(window.models) && window.models.length > 0;
+}
+
+/** The per-model token windows 0.2.27 reports, shown apart from credits. */
+export function tokenWindowsOf(usage) {
+  const windows = Array.isArray(usage?.windows) ? usage.windows : [];
+  return windows.filter((item) => isTokenWindow(item) && Number(item.limit) > 0);
+}
+
 export function creditWindowOf(usage) {
   const windows = Array.isArray(usage?.windows) ? usage.windows : [];
-  const byName = (name) => windows.find((item) => item.name === name);
+  const byName = (name) => windows.find((item) => item.name === name && !isTokenWindow(item));
   const total = byName("Total credits");
   if (total) return total;
   const plan = byName("Credits");
@@ -229,8 +247,15 @@ export function rateBadge(rate) {
 export function modelStatus(model, allowance) {
   const free = model?.free === true
     || (Array.isArray(allowance?.freeModels) && allowance.freeModels.includes(model?.id));
-  if (!free || !allowance?.refusedUntil) return { text: "可用", tone: "" };
-  const date = new Date(allowance.refusedUntil);
+  if (!free) return { text: "可用", tone: "" };
+  // An exhausted allowance belongs to one model, not to the account: the
+  // vendor refuses the model that ran out and keeps serving the rest. A
+  // single global flag greyed out every free model, which is why the list
+  // "did not follow the rules" when one model ran out.
+  const perModel = allowance?.refusedModels?.[model?.id];
+  const until = perModel || (allowance?.refusedModels ? "" : allowance?.refusedUntil);
+  if (!until) return { text: "可用", tone: "" };
+  const date = new Date(until);
   if (!Number.isFinite(date.getTime())) return { text: "额度已用尽", tone: "exhausted" };
   const when = date.toLocaleString("zh-CN", {
     month: "2-digit", day: "2-digit",

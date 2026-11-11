@@ -11,6 +11,8 @@
  *               sum, with the two originals set aside.
  *   0.2.0+      also "Prepaid credits" (a balance with no cycle limit) and
  *               "Free model tokens" (a token count, not credits at all).
+ *   0.2.27+     also one measured per-model token window each (named after
+ *               the model, carrying `models`), which is likewise not credits.
  *
  * The card must show the total credits, so a "Total credits" window wins; a
  * build without one has its two credit windows summed exactly the way
@@ -20,9 +22,24 @@
  * Pure and dependency-free, so the renderer and the gateway read one rule.
  */
 
+/** A window that counts tokens for one model, not credits for the account. */
+export function isTokenWindow(window) {
+  if (!window) return false;
+  if (window.unit === "tokens") return true;
+  // 0.2.27's China windows carry no unit (their name already says tokens) but
+  // name the model ids they cover.
+  return Array.isArray(window.models) && window.models.length > 0;
+}
+
+/** The per-model token windows 0.2.27 reports, which the card shows apart. */
+export function tokenWindowsOf(usage) {
+  const windows = Array.isArray(usage?.windows) ? usage.windows : [];
+  return windows.filter((item) => isTokenWindow(item) && Number(item.limit) > 0);
+}
+
 export function creditWindowOf(usage) {
   const windows = Array.isArray(usage?.windows) ? usage.windows : [];
-  const byName = (name) => windows.find((item) => item.name === name);
+  const byName = (name) => windows.find((item) => item.name === name && !isTokenWindow(item));
   const total = byName("Total credits");
   if (total) return total;
   const plan = byName("Credits");

@@ -1,4 +1,4 @@
-import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, creditView, creditWindowOf } from "./format.js";
+import { esc, credits, rmb, percent, requestState, rateBadge, modelStatus, parseMcpJson, creditView, creditWindowOf, tokenWindowsOf } from "./format.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -1188,6 +1188,24 @@ function renderUsageQuota(quota) {
   // unit rather than printing "$12" under a "剩余积分" heading.
   const money = view.unit === "usd";
   const prefix = money ? "$" : "";
+  // 0.2.27 reports one measured token window per model, separate from the
+  // credits above and separate from each other: a model can be out of its own
+  // window while the account still has credits, which is the state the card
+  // used to hide. Shown as their own rows, in the window's own unit.
+  const tokenRows = tokenWindowsOf(quota).map((window) => {
+    const cap = Number(window.limit) || 0;
+    const amount = Number(window.amount) || 0;
+    const share = cap > 0 ? Math.max(0, Math.min(100, (100 * amount) / cap)) : 0;
+    const at = window.resetsAt
+      ? new Date(window.resetsAt).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "";
+    const label = String(window.name || "模型额度");
+    return `<div class="quota-model${window.refused ? " used-up" : ""}">
+      <div class="quota-model-head"><b>${esc(label)}</b><span>${window.refused ? "已用尽" : percent(share / 100)}</span></div>
+      <div class="quota-meter slim"><i style="width:${share.toFixed(1)}%"></i></div>
+      <div class="quota-model-foot"><span>${compact(amount)} / ${compact(cap)}</span>${at ? `<span>${esc(at)} 重置</span>` : ""}</div>
+    </div>`;
+  }).join("");
   node.innerHTML = `
     <div class="quota-hero">
       <div class="quota-figure">
@@ -1201,7 +1219,8 @@ function renderUsageQuota(quota) {
       <div class="quota-fact"><span>已用</span><b>${percent(share / 100)}</b></div>
       <div class="quota-fact"><span>重置</span><b>${reset ? esc(reset) : "—"}</b></div>
       <div class="quota-fact"><span>未用额度</span><b>${lapsesAt ? `${esc(lapsesAt)} 到期` : "—"}</b></div>
-    </div>`;
+    </div>
+    ${tokenRows ? `<div class="quota-models">${tokenRows}</div>` : ""}`;
 }
 
 // The donut's slice colours: a ramp around the app's own greens, ordered so
@@ -2176,7 +2195,8 @@ function renderSkills(list) {
       '<div class="skill-title"><b>' + esc(skill.name) + "</b>" +
         (skill.builtin ? '<em class="skill-builtin">内置</em>' : "") +
       "</div>" +
-      "<p>" + esc(skill.description || "无描述") + "</p>" +
+      "<p" + (skill.description ? ' title="' + esc(skill.description) + '"' : "") + ">" +
+            esc(skill.description || "无描述") + "</p>" +
       '<div class="skill-foot">' + pips +
         '<span class="grow"></span>' +
         (skill.builtin ? "" : '<button class="mini quiet" data-skill-remove="' + esc(skill.name) + '">删除</button>') +

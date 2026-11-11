@@ -31,6 +31,32 @@ import { creditWindowOf } from "./credit-window.js";
 // (#337: the bare word beside the account read as the model being free).
 const FREE_PLAN = /^free(?:\s+plan)?$/i;
 
+// The two spellings of "this model's allowance is exhausted, it comes back
+// at <time>". The domestic build answers Chinese; the international one and
+// the older builds answer English.
+const RESET_AT = new RegExp(
+  [
+    "reset at (\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})",
+    "(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})\\s*重置",
+    "将在\\s*(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})"
+  ].join("|"),
+  "i"
+);
+const RESET_OFFSET = /(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?/i;
+
+/**
+ * The first non-empty capture group of `match`, as a [y, m, d, h, mi, s]
+ * tuple. RESET_AT has three alternatives, so the date sits in whichever
+ * group that alternative uses.
+ */
+function resetParts(match) {
+  for (const start of [1, 7, 13]) {
+    const parts = match.slice(start, start + 6);
+    if (parts[0]) return parts.map(Number);
+  }
+  return null;
+}
+
 export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = "" } = {}) {
   if (!usage || usage.error) return null;
   if (!FREE_PLAN.test(String(usage.plan || "").trim())) return null;
@@ -85,29 +111,46 @@ export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = 
     0
   );
 
-  // A refusal naming a reset is the one observable sign the daily allowance
-  // is exhausted. The latest one still in force is shown; one whose reset has
-  // passed is history, not a state. The vendor names its own offset, and it
-  // is applied: reading "08:00 UTC+8" as 08:00Z would put the reset eight
-  // hours late.
-  let refusedUntil = "";
+  // A refusal naming a reset is the one observable sign a model's allowance
+  // is exhausted. Two things this has to get right:
+  //
+  //   - the wording. The vendor answers in Chinese on the domestic build
+  //     ("您的使用量已超出频率限制，将在 2026-11-11 21:48:41 UTC+8 重置") and in
+  //     English elsewhere ("reset at ..."). Only the English form used to be
+  //     read, so a Chinese refusal left every model looking available.
+  //   - the scope. An allowance belongs to one model: WorkBuddy refuses the
+  //     model that ran out and keeps serving the others ("您也可以切换其他
+  //     模型继续使用"). One global "exhausted" mark therefore greyed out the
+  //     whole free list, which is not what the upstream said.
+  const refusedByModel = new Map();
   for (const row of statusRows) {
     if (row?.status !== "error" || !isFreeModel(row?.model)) continue;
     const message = String(row?.error || "");
-    const at = /reset at (\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/i.exec(message);
-    if (!at) continue;
-    const offset = /(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?/i.exec(message);
+    const match = RESET_AT.exec(message);
+    if (!match) continue;
+    const parts = resetParts(match);
+    if (!parts) continue;
+    const offset = RESET_OFFSET.exec(message);
     // A reset with no named offset cannot be placed; guessing one would put
     // it hours from where the vendor meant, so it is not surfaced.
     if (!offset) continue;
     const minutes = Number(offset[2]) * 60 + Number(offset[3] ?? 0);
     if (minutes > 14 * 60) continue;
-    const atMs = Date.UTC(+at[1], +at[2] - 1, +at[3], +at[4], +at[5], +at[6])
+    const atMs = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5])
       - (offset[1] === "-" ? -minutes : minutes) * 60_000;
-    if (atMs > now && atMs > (Date.parse(refusedUntil) || 0)) {
-      refusedUntil = new Date(atMs).toISOString();
-    }
+    if (!(atMs > now)) continue;
+    const model = String(row.model);
+    const seen = refusedByModel.get(model);
+    if (!seen || atMs > seen) refusedByModel.set(model, atMs);
   }
+  // The latest reset still in force, for the card's one-line summary. The
+  // per-model map is what the model list reads.
+  let refusedUntil = "";
+  for (const atMs of refusedByModel.values()) {
+    if (atMs > (Date.parse(refusedUntil) || 0)) refusedUntil = new Date(atMs).toISOString();
+  }
+  const refusedModels = {};
+  for (const [model, atMs] of refusedByModel) refusedModels[model] = new Date(atMs).toISOString();
 
   return {
     plan: usage.plan || "Free",
@@ -128,6 +171,11 @@ export function freeAllowance(usage, rows = [], { now = Date.now(), accountId = 
     freeTokensToday: todayTokens,
     freeRequestsTotal: freeRows.length,
     lastFreeAt: freeRows.length ? Math.max(...freeRows.map((row) => Number(row.startedAt) || 0)) : 0,
-    refusedUntil
+    // The latest reset across every exhausted model: the card's one line.
+    refusedUntil,
+    // Per-model, because the vendor refuses only the model that ran out and
+    // tells the user to switch to another ("您也可以切换其他模型继续使用").
+    // The model list reads this; a model absent here is still usable.
+    refusedModels
   };
 }

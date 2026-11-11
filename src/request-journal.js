@@ -8,7 +8,14 @@ import { kindFromText } from "./error-kind.js";
 import { redactForLog } from "./redact.js";
 
 const KEEP_DAYS = 120;
-const MAX_ROWS = 6000;
+// How many rows the journal keeps. This used to be 6000, which silently
+// capped the usage page: the trend chart counts the rows it is given, so once
+// a busy account passed 6000 requests the daily counts stopped rising and the
+// totals froze at whatever the last 6000 rows happened to hold. The window is
+// still bounded — 120 days is the real limit — but the row cap has to sit well
+// above what a normal account produces in that window, or it becomes a data
+// loss the user never sees. Override with LANE_JOURNAL_MAX_ROWS.
+const MAX_ROWS = Number(process.env.LANE_JOURNAL_MAX_ROWS) || 60000;
 // The window polls status every 3 seconds; sending the whole journal each
 // time would repeat tens of kilobytes that only the usage page reads.
 const MAX_RECENT = 20;
@@ -26,18 +33,19 @@ const MAX_RUN_MS = 24 * 60 * 60 * 1000;
 
 // The journal is a log, not a document. A row is rewritten several times
 // over its life (start, note, usage, finish), and the old store wrote the
-// whole array — pretty-printed — on every one of those changes: at 6000
-// rows that is ~1.5 MB of serialisation and disk per request, and it grows
-// with every day of use. One line per change makes each write O(1), and a
-// torn final line from a crash costs one row instead of the entire history.
+// whole array — pretty-printed — on every one of those changes: at thousands
+// of rows that is megabytes of serialisation and disk per request, and it
+// grows with every day of use. One line per change makes each write O(1), and
+// a torn final line from a crash costs one row instead of the entire history.
 const FILE_NAME = "activity.jsonl";
 // The array-in-a-file the first versions wrote. Read once, converted to the
 // log on first load, then removed.
 const LEGACY_NAME = "activity.json";
 // Appends allowed between compactions. Compaction rewrites the file as one
 // line per surviving row; doing it after this many appends keeps the file
-// within roughly twice MAX_ROWS lines.
-const COMPACT_AFTER = MAX_ROWS;
+// within roughly twice MAX_ROWS lines. It scales with MAX_ROWS so raising the
+// row cap does not turn every few hundred requests into a full rewrite.
+const COMPACT_AFTER = Math.max(2000, Math.floor(MAX_ROWS / 6));
 // The floor a charge has to clear before it is examined at all. This is the
 // vendor's own number, so a cheap request is never even compared: below it,
 // being a few times the usual is noise, not money.
