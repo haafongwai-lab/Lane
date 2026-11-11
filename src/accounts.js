@@ -373,7 +373,9 @@ export async function setAccountRoutable(id, routable, env = process.env) {
  */
 export function providerOfSite(site) {
   const value = normalizeSite(site);
-  return value.startsWith("trae") ? "trae" : "workbuddy";
+  if (value.startsWith("trae")) return "trae";
+  if (value.startsWith("qoder")) return "qoder";
+  return "workbuddy";
 }
 
 export async function removeAccount(id, env = process.env) {  return serial(env, async () => {
@@ -435,9 +437,19 @@ export function publicAccount(account) {
  * builds (domestic and international); Trae likewise has trae-cn and
  * trae-global. Anything written before this existed is domestic WorkBuddy.
  */
-export const SITES = ["workbuddy", "workbuddy-ai", "trae-cn", "trae-global"];
+export const SITES = [
+  "workbuddy",
+  "workbuddy-ai",
+  "trae-cn",
+  "trae-global",
+  "qoder",
+  "qoder-cn"
+];
 
 export function normalizeSite(site) {
-  if (site === "workbuddy-ai" || site === "trae-cn" || site === "trae-global") return site;
+  // An unknown site must never fall through to WorkBuddy: the account would
+  // then be signed in to one upstream and routed to another. Every site the
+  // plugins declare is listed above, so this only has to recognise them.
+  if (SITES.includes(site)) return site;
   return "workbuddy";
 }

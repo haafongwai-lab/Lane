@@ -59,15 +59,20 @@ function renderAccounts({ masked, accounts }) {
   const esc = (v) => String(v);
   const checkinChip = () => "";
   const creditsChip = () => "";
+  // The real helpers live outside the sliced body; the assertions here are
+  // about names, ids and the footer, so a stand-in that names the site is
+  // enough to keep the row template rendering.
+  const upstreamLabel = (account) => String(account?.site || "WorkBuddy");
+  const upstreamIcon = () => "assets/upstream.svg";
   const snapshot = {
     accounts, activeId: accounts[0]?.id || "", signInError: "",
     checkin: { accounts: [] }
   };
   const fn = new Function(
-    "$", "snapshot", "enabledPending", "routablePending", "accountMasked", "esc", "checkinChip", "creditsChip", "maskName", "maskId",
+    "$", "snapshot", "enabledPending", "routablePending", "accountMasked", "esc", "checkinChip", "creditsChip", "maskName", "maskId", "upstreamLabel", "upstreamIcon",
     body + "\nreturn renderAccounts;"
   );
-  fn((sel) => nodes[sel], snapshot, new Map(), new Map(), masked, esc, checkinChip, creditsChip, maskName, maskId)();
+  fn((sel) => nodes[sel], snapshot, new Map(), new Map(), masked, esc, checkinChip, creditsChip, maskName, maskId, upstreamLabel, upstreamIcon)();
   return nodes;
 }
 

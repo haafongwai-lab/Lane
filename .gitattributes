@@ -1,0 +1,8 @@
+# Vendored plugin copies must stay byte-identical to their published
+# tarballs: test/vendor-plugin.test.js compares them by SHA-256, and the
+# updater's integrity check would reject a normalised copy. Mark the whole
+# vendor tree as binary so core.autocrlf never rewrites its line endings.
+vendor/** -text
+
+# The archived tarballs are binary by nature.
+vendor/originals/** binary

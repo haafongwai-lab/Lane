@@ -113,7 +113,10 @@ test("the model list's allowance follows the route account, not one fixed accoun
   assert.match(helper, /if \(routeId && !route\) return null/);
   // The route account alone decides; no overseas fallback may leak a
   // WorkBuddy state into a Trae route.
-  assert.match(helper, /const candidates = route\s*\? \[route\]\s*: list\.filter\(\(item\) => item\.provider !== "trae"\)/);
+  // Only WorkBuddy publishes a Free-plan allowance. The fallback used to be
+  // "anything that is not Trae", which would ask a Qoder account for a window
+  // it does not have.
+  assert.match(helper, /const candidates = route\s*\? \[route\]\s*: list\.filter\(\(item\) => item\.provider === "workbuddy"\)/);
   assert.doesNotMatch(helper, /overseas/,
     "a Trae route must not show a WorkBuddy account's allowance");
 });

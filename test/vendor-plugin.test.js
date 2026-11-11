@@ -17,6 +17,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const VENDOR = path.join(ROOT, "vendor/workbuddy-auth");
 const TRAE_VENDOR = path.join(ROOT, "vendor/trae-auth");
+const QODER_VENDOR = path.join(ROOT, "vendor/qoder-auth");
 const ORIGINALS = path.join(ROOT, "vendor/originals");
 const read = (p) => fs.readFileSync(p, "utf8");
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -28,6 +29,7 @@ const PKG = JSON.parse(read(path.join(ROOT, "package.json")));
 const LOCK = JSON.parse(read(path.join(ROOT, "package-lock.json")));
 const INTEGRITY = "sha512-Z9cLrnrok3CsW/c++s1GJRy6EYIgADf/PC0MbplCXa9/Hbh/U6HRqUW+E+Vgfw+cLCOmbWDINex6ahqBfSgGeA==";
 const TRAE_INTEGRITY = "sha512-/qifTc/65BRpHqBNv0UwxM1AUBv01Ax9gQB5fyYd9FnSCtcTCSRzRlsCaogv/60GOXaazpEIDul1fIy31LqB/w==";
+const QODER_INTEGRITY = "sha512-US/0HFWypXGHlLbtdgLpzLsxYe6aHhIUxU7w/neB2icYPUC2+4vvbBkfRrCGqb56n1Hsq/QMjbA0CKYoOfMg5w==";
 
 /** Pull one file out of a gzip tarball without a tar dependency. */
 function untarOne(gz, wanted) {
@@ -87,6 +89,40 @@ test("the Trae copy is traceable, and any local change is recorded", () => {
   const notice = read(path.join(TRAE_VENDOR, "NOTICE.md"));
   assert.match(notice, /Local modifications/);
   assert.match(notice, /None\./);
+});
+
+
+test("the Qoder copy is traceable, and any local change is recorded", async () => {
+  const copy = fs.readFileSync(path.join(QODER_VENDOR, "index.mjs"));
+  const tgz = fs.readFileSync(path.join(ORIGINALS, "opencode-qoder-auth-0.2.65.tgz"));
+  assert.equal(
+    "sha512-" + crypto.createHash("sha512").update(tgz).digest("base64"),
+    QODER_INTEGRITY,
+    "the archived Qoder tarball matches its npm integrity"
+  );
+  const fromTarball = untarOne(tgz, "package/index.mjs");
+  assert.ok(fromTarball, "package/index.mjs is in the Qoder tarball");
+  assert.equal(sha256(copy), sha256(fromTarball), "the vendored Qoder copy is byte-identical");
+  const notice = read(path.join(QODER_VENDOR, "NOTICE.md"));
+  assert.match(notice, /0\.2\.65/);
+  assert.match(notice, /Local modifications/);
+  assert.match(notice, /None\./);
+});
+
+test("the Qoder copy exports the two factories Lane registers", async () => {
+  const mod = await import(pathToFileURL(path.join(QODER_VENDOR, "index.mjs")).href);
+  for (const name of ["QoderAuthPlugin", "QoderCNAuthPlugin"]) {
+    assert.equal(typeof mod[name], "function", name);
+  }
+  // QwenWork's factories are in the bundle but Lane must not register them.
+  const qoder = read(path.join(ROOT, "src/qoder.js"));
+  assert.doesNotMatch(qoder, /QwenWorkAuthPlugin|QwenWorkEnterpriseAuthPlugin/);
+});
+
+test("Lane loads the Qoder copy by path, not from node_modules", () => {
+  const qoder = read(path.join(ROOT, "src/qoder.js"));
+  assert.match(qoder, /pluginEntryUrl\("qoder-auth", this\.env\)/);
+  assert.doesNotMatch(qoder, /node_modules/);
 });
 
 test("the vendored module still exposes what Lane consumes", async () => {

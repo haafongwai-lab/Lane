@@ -198,7 +198,7 @@ export function createControlCenter({
       // could hide the free card whenever that account was paid.
       const candidates = route
         ? [route]
-        : list.filter((item) => item.provider !== "trae");
+        : list.filter((item) => item.provider === "workbuddy");
       for (const source of candidates) {
         const usage = await cachedAccountUsage(instance, source.id);
         const report = freeAllowance(usage, rows, { accountId: source.id });
@@ -521,7 +521,7 @@ export function createControlCenter({
      * one joins the list. It becomes the route only when nothing else is.
      */
     async signIn(options = {}) {
-      const site = ["workbuddy-ai", "trae-cn", "trae-global"].includes(options.site)
+      const site = ["workbuddy-ai", "trae-cn", "trae-global", "qoder", "qoder-cn"].includes(options.site)
         ? options.site
         : "workbuddy";
       // One sign-in per build. A pending domestic sign-in used to swallow an
@@ -533,10 +533,11 @@ export function createControlCenter({
       const result = await instance.authorize(site);
       signInPending.set(site, result);
       signInError = "";
-      // The plugin polls for at most five minutes; a user who never finishes
-      // the browser round trip would otherwise leave this site's sign-in
-      // slot occupied until Lane restarts.
-      const pendingTimeout = setTimeout(() => signInPending.delete(site), 6 * 60 * 1000);
+      // WorkBuddy's plugin polls for at most five minutes and Qoder's for
+      // fifteen; the slot is held a little past the longest of them. A user
+      // who never finishes the browser round trip would otherwise leave this
+      // site's sign-in slot occupied until Lane restarts.
+      const pendingTimeout = setTimeout(() => signInPending.delete(site), 16 * 60 * 1000);
       pendingTimeout.unref?.();
       // No event is sent for the start: the window that asked for the sign-in
       // already opens the URL from this call's return value, and an event

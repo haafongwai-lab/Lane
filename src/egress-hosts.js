@@ -25,6 +25,20 @@ export const ALLOW_HOSTS = new Map([
   ["copilot.tencent.com", "chat, models and usage (domestic)"],
   ["workbuddy.cn", "bare host used by the domestic build"],
   ["workbuddy.ai", "bare host used by the international build"],
+  // ---- Qoder (qoder.com, qoder.cn) ----
+  ["qoder.com", "sign-in page (international)"],
+  ["qoder.cn", "sign-in page (CN)"],
+  ["openapi.qoder.sh", "sign-in, token and usage (international)"],
+  ["api3.qoder.sh", "chat and model catalogue (international)"],
+  ["openapi.qoder.com.cn", "sign-in, token and usage (CN)"],
+  ["gateway.qoder.com.cn", "chat and model catalogue (CN)"],
+  // The vendored file also carries QwenWork's two sites. Lane does not
+  // register them (src/qoder.js exports only the two Qoder factories), so
+  // these hosts are named by the bundle but never reached; listing them keeps
+  // the audit honest about what the file contains.
+  ["gateway.qwenwork.cn", "QwenWork public cloud (present in the bundle, not wired)"],
+  ["your-company.vpc.qwenwork.cn", "QwenWork VPC placeholder (not wired)"],
+  ["your-corp.rdc.aliyuncs.com", "QwenWork dedicated-domain placeholder (not wired)"],
   // ---- Trae CN ----
   ["www.trae.cn", "authorization page"],
   ["api.trae.cn", "tokens, account, credits"],
@@ -47,6 +61,13 @@ export const ALLOW_HOSTS = new Map([
 // do move endpoints, and a stale exact list would otherwise look like an
 // outage.
 export const VENDOR_FAMILIES = [
+  // Qoder's own domains. The CN enterprise VPC builds <instance>.vpc.qoder.com.cn
+  // and its -openapi/-gateway siblings from a sign-in answer, so the family is
+  // what keeps a valid instance from reading as a third party.
+  "qoder.com",
+  "qoder.sh",
+  "qoder.cn",
+  "qoder.com.cn",
   "trae.cn",
   "trae.ai",
   "mchost.guru",

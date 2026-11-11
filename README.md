@@ -5,7 +5,8 @@ Lane is a small, Windows-local desktop gateway for multiple upstreams and four a
 - Upstreams: WorkBuddy — the domestic build (copilot.tencent.com) and the
   international build (www.workbuddy.ai), signed in side by side; Trae CN
   (trae.cn) and Trae Global (trae.ai) as a second upstream via the community
-  Trae auth plugin
+  Trae auth plugin; Qoder (qoder.com) and Qoder CN (qoder.cn) as a third
+  upstream via the community Qoder auth plugin
 - Agents: Claude Desktop, Codex, ZCode and VS Code Chat (local)
 
 It is intentionally independent from magpie. It does not read magpie's data
@@ -15,6 +16,11 @@ Trae support is experimental, following the upstream community plugin's own
 status: Trae CN has not been exercised against a real account here, and Trae
 Global has been tried only with a single SG Free account. Paid-plan and
 enterprise behavior follows the plugin's protocol shapes, not a live account.
+
+Qoder support covers the two Qoder sites (qoder.com and qoder.cn) through the
+same community plugin family. Qoder CN's enterprise VPC and dedicated-domain
+sign-in methods are present in the plugin but not exposed by Lane yet, and
+QwenWork is not wired at all.
 
 ## What is implemented
 
@@ -30,13 +36,15 @@ enterprise behavior follows the plugin's protocol shapes, not a live account.
   handling through the community plugin
 - Trae CN / Trae Global sign-in, model discovery, token refresh and chat
   through the vendored Trae community plugin
+- Qoder / Qoder CN sign-in, model discovery, token refresh, chat and the
+  daily check-in through the vendored Qoder community plugin
 - Reversible Claude Desktop, Codex, ZCode and VS Code Chat wiring
 
 The desktop app keeps the scope intentionally small. It does not implement a
-plugin marketplace, multi-provider routing, WSL, cloud sync, project sessions,
-or a general app auto-updater. The **插件** page does provide an explicit,
-diff-reviewed updater for the two vendored upstream plugins; its automatic
-mode is opt-in and described under Upstream plugins.
+plugin marketplace, WSL, cloud sync, project sessions, or a general app
+auto-updater. The **插件** page does provide an explicit, diff-reviewed
+updater for the vendored upstream plugins; its automatic mode is opt-in and
+described under Upstream plugins.
 
 ## ZCode
 
@@ -323,8 +331,15 @@ The Trae adapter uses a vendored copy of
 handling live in that file; Lane imports it directly by path from
 `src/trae.js`.
 
-Both copies are byte-identical to their published packages, so a fresh clone
-builds and runs without the npm registry. Their original tarballs and
+The Qoder adapter uses a vendored copy of
+`@magpie-community/opencode-qoder-auth` `0.2.65` (MIT), kept at
+`vendor/qoder-auth/`. Qoder-specific sign-in, model discovery, usage, the
+daily check-in and request handling live in that file; Lane imports it
+directly by path from `src/qoder.js`. Only the package's two Qoder factories
+are registered — its QwenWork and QwenWork-enterprise sites are not wired.
+
+All three copies are byte-identical to their published packages, so a fresh
+clone builds and runs without the npm registry. Their original tarballs and
 integrity records are archived in `vendor/originals/`, the upstream MIT
 licenses are at `vendor/*/LICENSE`, and any local changes are recorded in
 `vendor/*/NOTICE.md`. See `THIRD_PARTY_NOTICES.md` for the consolidated notice.

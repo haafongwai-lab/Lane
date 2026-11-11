@@ -38,10 +38,31 @@ Trae Global sign-in, model discovery, usage and chat requests.
 - Loaded directly by `src/trae.js`; the MIT notice and permission text ship
   in the built application through the same `vendor/**/*` rule.
 
+## @magpie-community/opencode-qoder-auth (vendored)
+
+Lane uses a copy of `@magpie-community/opencode-qoder-auth` for Qoder and
+Qoder CN sign-in, model discovery, usage, the daily check-in and chat
+requests.
+
+- Version: `0.2.65`. `index.mjs` SHA-256:
+  `8F56CF8F3CBD702FFF7162AD54F7B61FE2A8E5EB298A392D4234398797F4CF6B`
+- License: MIT. The package ships `LICENSE-CLIProxyAPI`, kept at
+  `vendor/qoder-auth/LICENSE` (Copyright (c) 2025-2005.9 Luis Pater;
+  2025.9-present Router-For.ME)
+- Upstream: <https://github.com/magpie-community/plugins/tree/main/packages/qoder>
+- Local copy: `vendor/qoder-auth/` (`index.mjs`, `opencode.mjs`, `README.md`, `LICENSE`, `NOTICE.md`)
+- Loaded directly by `src/qoder.js`; the MIT notice and permission text ship
+  in the built application through the same `vendor/**/*` rule.
+
+Only the package's two Qoder factories are registered. Its QwenWork and
+QwenWork-enterprise sites are present in the file but never wired, so no
+QwenWork account can be created or routed.
+
 ## Trademarks
 
 Lane is an independent project and is not affiliated with, endorsed by, or
-sponsored by Tencent, ByteDance, Anthropic, OpenAI, or any upstream provider.
+sponsored by Tencent, ByteDance, Alibaba, Anthropic, OpenAI, or any upstream
+provider.
 All product names and logos remain the trademarks of their respective owners;
 the MIT license does not grant any right to use those marks.
 

@@ -24,7 +24,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE = path.join(ROOT, "docs/egress-paths-baseline.txt");
 const PLUGINS = [
   path.join(ROOT, "vendor/workbuddy-auth/index.mjs"),
-  path.join(ROOT, "vendor/trae-auth/index.mjs")
+  path.join(ROOT, "vendor/trae-auth/index.mjs"),
+  path.join(ROOT, "vendor/qoder-auth/index.mjs")
 ];
 
 export function pluginPaths(files = PLUGINS) {

@@ -8,7 +8,7 @@
 
 const URL_RE = /https?:\/\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,}[a-zA-Z0-9._/-]*/g;
 const PATH_RE = /["'`](\/[a-zA-Z0-9][a-zA-Z0-9._\-/{}:]*)/g;
-const API_PREFIXES = ["/v1/", "/v2/", "/v3/", "/trae/", "/api/", "/billing/", "/cloudide/", "/plugin/"];
+const API_PREFIXES = ["/v1/", "/v2/", "/v3/", "/trae/", "/api/", "/algo/", "/sash/", "/billing/", "/cloudide/", "/plugin/"];
 
 export function hostsInSource(text) {
   const hosts = new Set();

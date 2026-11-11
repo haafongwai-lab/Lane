@@ -1,0 +1,22 @@
+{
+  "name": "@lane/qoder-auth",
+  "version": "0.2.65",
+  "description": "Vendored copy of @magpie-community/opencode-qoder-auth 0.2.65 (MIT) for Qoder and Qoder CN",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "opencode.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "magpie",
+    "qoder",
+    "qoder-cn"
+  ],
+  "license": "MIT"
+}

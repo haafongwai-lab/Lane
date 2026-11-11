@@ -8,7 +8,7 @@ import { readSettings } from "./settings.js";
 import { hostsInSource, pathsInSource, diffSets } from "./plugin-source.js";
 
 /**
- * The two vendored upstream plugins, and the updater around them.
+ * The vendored upstream plugins, and the updater around them.
  *
  * The copy shipped in vendor/ is the fallback and the known-good baseline. A
  * newer copy, when the user asks for one, lives under
@@ -30,6 +30,12 @@ export const PLUGINS = {
     packageName: "@magpie-community/opencode-trae-auth",
     builtin: "trae-auth",
     description: "Trae CN / Trae Global 的登录、模型与请求适配"
+  },
+  "qoder-auth": {
+    title: "Qoder Auth",
+    packageName: "@magpie-community/opencode-qoder-auth",
+    builtin: "qoder-auth",
+    description: "Qoder 国际版 / 国内版的登录、模型与请求适配"
   }
 };
 

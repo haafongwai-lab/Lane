@@ -355,9 +355,7 @@ function renderAccountIdentity() {
   const serving = (snapshot?.accounts || []).filter((item) => item.routable === true);
   const view = providerViewAccount();
   const nameOf = (item) => (accountMasked ? maskName(item.label) : item.label);
-  const upstreamOf = (item) => (item.provider === "trae"
-    ? (item.site === "trae-global" ? "Trae Global" : "Trae CN")
-    : (item.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"));
+  const upstreamOf = (item) => upstreamLabel(item);
 
   // The node's own headline follows the account being shown, not the route.
   $("#account-name").textContent = view ? nameOf(view) : (shown || "上游账号");
@@ -376,7 +374,7 @@ function renderAccountIdentity() {
       ? `${name} · ${upstream}（正在查看）`
       : `${name} · ${upstream}，点击查看这个账号的额度`;
     return `<button type="button" class="pool-chip${on ? " on" : ""}" data-provider-account="${esc(item.id)}" data-tip="${esc(tip)}">
-      <img src="${item.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt="">
+      <img src="${upstreamIcon(item)}" alt="">
       <b>${esc(name)}</b>
       <small>${esc(upstream)}</small>
     </button>`;
@@ -431,17 +429,8 @@ function render() {
   // upstream, so a Trae account is not drawn with WorkBuddy's mark.
   const carrier = (snapshot.accounts || []).find((item) => item.id === snapshot.activeId);
   const view = providerViewAccount();
-  const upstreamName = view
-    ? (view.provider === "trae"
-      ? (view.site === "trae-global" ? "Trae Global" : "Trae CN")
-      : (view.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"))
-    : (carrier?.provider === "trae"
-      ? (carrier.site === "trae-global" ? "Trae Global" : "Trae CN")
-      : "WorkBuddy");
-  const logoFor = view?.provider || carrier?.provider;
-  $("#provider-logo").src = logoFor === "trae"
-    ? "assets/trae-official-256.png"
-    : "assets/workbuddy-official.svg";
+  const upstreamName = upstreamLabel(view || carrier);
+  $("#provider-logo").src = upstreamIcon(view || carrier);
   $("#account-plan").textContent = view?.domain || snapshot.domain || upstreamName;
   renderAccountIdentity();
   $("#health-domain").textContent = snapshot.domain || upstreamName;
@@ -607,16 +596,16 @@ function renderAccounts() {
     const tags = [
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
       account.site === "workbuddy-ai" ? '<em class="tag-soft">海外</em>' : "",
-      account.provider === "trae" ? `<em class="tag-soft">${account.site === "trae-global" ? "Trae Global" : "Trae CN"}</em>` : "",
+      (account.provider === "trae" || account.provider === "qoder") ? `<em class="tag-soft">${upstreamLabel(account)}</em>` : "",
       routable ? "" : '<em class="tag-soft">不供模型</em>'
     ].filter(Boolean).join("");
     return `
     <div class="account-row" data-id="${esc(account.id)}">
-      <div class="account-avatar"><img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt=""></div>
+      <div class="account-avatar"><img src="${upstreamIcon(account)}" alt=""></div>
       <div class="account-main">
         <div class="account-title"><b>${esc(shownName(account))}</b>${tags}</div>
         <div class="account-meta">
-          <span class="account-host">${esc(account.domain || (account.provider === "trae" ? "Trae" : "WorkBuddy"))}</span>
+          <span class="account-host">${esc(account.domain || upstreamLabel(account))}</span>
           <i>·</i>
           <code>${esc(accountMasked ? maskId(account.id) : account.id.slice(0, 8))}</code>
           ${checkinChip(checkin.get(account.id))}
@@ -953,6 +942,32 @@ function agentIcon(agent) {
   return AGENT_ICONS[agent] || "";
 }
 
+// Three upstreams now, each with its own sites. The label and the mark live
+// here so every card, row and picker names and draws the same account the
+// same way, instead of each call site repeating a two-way branch.
+const UPSTREAM_LABELS = {
+  workbuddy: "WorkBuddy",
+  "workbuddy-ai": "WorkBuddy AI",
+  "trae-cn": "Trae CN",
+  "trae-global": "Trae Global",
+  qoder: "Qoder",
+  "qoder-cn": "Qoder CN"
+};
+function upstreamLabel(account) {
+  const site = String(account?.site || "");
+  if (UPSTREAM_LABELS[site]) return UPSTREAM_LABELS[site];
+  const provider = String(account?.provider || "");
+  if (provider === "trae") return "Trae";
+  if (provider === "qoder") return "Qoder";
+  return "WorkBuddy";
+}
+function upstreamIcon(account) {
+  const provider = String(account?.provider || "");
+  if (provider === "trae") return "assets/trae-official-256.png";
+  if (provider === "qoder") return "assets/qoder-official.svg";
+  return "assets/workbuddy-official.svg";
+}
+
 
 
 
@@ -1201,11 +1216,9 @@ function renderQuotaAccountPicker() {
   if (key === quotaPickerKey) return;
   quotaPickerKey = key;
   menu.innerHTML = accounts.map((account) => {
-    const upstream = account.provider === "trae"
-      ? (account.site === "trae-global" ? "Trae Global" : "Trae CN")
-      : (account.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy");
+    const upstream = upstreamLabel(account);
     return `<button type="button" data-account="${esc(account.id)}"${account.id === current ? ' class="active"' : ""}>
-      <img src="${account.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt="">
+      <img src="${upstreamIcon(account)}" alt="">
       <span><b>${esc(masked(account))}</b><small>${esc(upstream)}</small></span>
     </button>`;
   }).join("");
@@ -1534,7 +1547,7 @@ async function command(command, options = {}, success = "操作完成") {
 }
 
 async function signIn(site = "workbuddy") {
-  const siteNames = { "workbuddy": "WorkBuddy", "workbuddy-ai": "WorkBuddy AI", "trae-cn": "Trae CN", "trae-global": "Trae Global" };
+  const siteNames = { "workbuddy": "WorkBuddy", "workbuddy-ai": "WorkBuddy AI", "trae-cn": "Trae CN", "trae-global": "Trae Global", "qoder": "Qoder", "qoder-cn": "Qoder CN" };
   try {
     const result = await window.lane.signIn({ site });
     if (result.url) await window.lane.openURL(result.url);
@@ -1765,7 +1778,7 @@ $("#account-list").addEventListener("change", (event) => {
   // rows move together.
   if (on) {
     const clicked = (snapshot?.accounts || []).find((account) => account.id === id);
-    const same = (account) => (account.provider === "trae" ? "trae" : "workbuddy");
+    const same = (account) => account.provider;
     if (clicked) {
       for (const other of snapshot?.accounts || []) {
         if (other.id === id || other.routable !== true) continue;

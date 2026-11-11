@@ -2,14 +2,28 @@
 # Regenerate with: node scripts/egress-paths-audit.mjs --write
 # Review every addition: a path no upstream uses is the shape of a leak.
 
+/algo/api/v1/version
+/algo/api/v2/model/list
+/algo/api/v2/service/ask/queue/status
+/algo/api/v2/service/pro/sse/agent_chat_generation
 /api/agent/v3/llm_utils_chat
 /api/ide/v1/batch_get_detail_param
 /api/ide/v1/get_detail_param
+/api/v1/adapter/user/account-context
+/api/v1/adapter/user/wallets
+/api/v1/deviceToken/poll
+/api/v1/deviceToken/refresh
+/api/v1/jobToken/exchange
+/api/v1/jobToken/refresh
+/api/v1/me/jobToken
+/api/v1/userinfo
 /billing/meter/get-enterprise-user-usage
 /billing/meter/get-user-resource-free-packages
 /billing/meter/get-user-resource-paid-packages
 /billing/meter/get-user-resource-summary
 /cloudide/api/v3/trae/oauth/ExchangeToken
+/sash/api/v1/me/campaigns
+/sash/api/v2/me/usage
 /trae/api/
 /trae/api/v1/pay/user_current_entitlement_list
 /trae/api/v2/pay/ide_user_ent_usage

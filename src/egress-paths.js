@@ -42,6 +42,20 @@ export const KNOWN_PATHS = new Map([
   ["/v2/chat/completions", "chat completion on the domestic v2 surface"],
   ["/plugin/accounts", "account labels (bare host)"],
   ["/v3/config", "model catalogue"],
+  // ---- Qoder ----
+  ["/algo/api/v2/service/pro/sse/agent_chat_generation", "chat completion (SSE)"],
+  ["/algo/api/v2/model/list", "model catalogue"],
+  ["/algo/api/v1/version", "client version probe"],
+  ["/algo/api/v2/service/ask/queue/status", "queue status"],
+  ["/sash/api/v2/me/usage", "credits usage"],
+  ["/sash/api/v1/me/campaigns", "daily check-in campaigns"],
+  ["/api/v1/deviceToken/poll", "device sign-in poll"],
+  ["/api/v1/deviceToken/refresh", "device token refresh"],
+  ["/api/v1/jobToken/exchange", "PAT for a job token"],
+  ["/api/v1/jobToken/refresh", "job token refresh"],
+  ["/api/v1/me/jobToken", "job token read"],
+  ["/api/v1/userinfo", "account profile"],
+  ["/api/v1/adapter/user/wallets", "QwenWork wallets (bundle only)"],
   // ---- OpenAI-shaped loader surface ----
   ["/v1/chat/completions", "chat completion through the plugin loader"],
   ["/v1/models", "model list through the plugin loader"]
@@ -55,6 +69,9 @@ export const KNOWN_PREFIXES = [
   ["/v2/plugin/", "WorkBuddy plugin sign-in surface"],
   ["/plugin/", "WorkBuddy plugin surface"],
   ["/api/agent/", "Trae agent surface"],
+  ["/algo/", "Qoder agent surface"],
+  ["/sash/", "Qoder account surface"],
+  ["/api/v1/", "Qoder token and account surface"],
   ["/api/ide/", "Trae IDE surface"],
   ["/cloudide/api/", "Trae cloud-IDE sign-in surface"],
   ["/v1/", "OpenAI-shaped loader surface"],
@@ -66,6 +83,7 @@ export const KNOWN_PREFIXES = [
 // see only short, structured bodies; a large natural-language payload sent
 // somewhere else is the shape of a leak dressed as a normal call.
 export const CHAT_PATHS = new Set([
+  "/algo/api/v2/service/pro/sse/agent_chat_generation",
   "/api/agent/v3/llm_utils_chat",
   "/v2/chat/completions",
   "/v1/chat/completions"

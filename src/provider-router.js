@@ -4,35 +4,68 @@ import { dataDir } from "./config.js";
 import { writeTextAtomic } from "./agents/store.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
 import { TraeProvider } from "./trae.js";
+import { QoderProvider } from "./qoder.js";
 import { restrictModels } from "./model-gate.js";
 
+/** The upstream a site belongs to. One provider can serve several sites. */
+export const SITE_PROVIDER = {
+  workbuddy: "workbuddy",
+  "workbuddy-ai": "workbuddy",
+  "trae-cn": "trae",
+  "trae-global": "trae",
+  qoder: "qoder",
+  "qoder-cn": "qoder"
+};
+
+export function providerOfSiteName(site) {
+  return SITE_PROVIDER[String(site || "")] || "workbuddy";
+}
+
 /**
- * Lane's second upstream switchboard.
+ * Lane's upstream switchboard.
  *
- * WorkBuddy and Trae keep separate account stores and separate sign-ins; this
- * router is the one object the gateway, control center and CLI talk to. It
- * merges the two account lists for the UI, remembers which account owns the
- * route in provider-route.json, and delegates every provider operation to the
- * owner. Model ids are namespaced by the provider that currently owns the
- * route, so an existing WorkBuddy-only install behaves exactly as before.
+ * Every provider keeps its own account store and its own sign-in; this router
+ * is the one object the gateway, control center and CLI talk to. It merges the
+ * account lists for the UI, remembers which account owns the route in
+ * provider-route.json, and delegates every provider operation to the owner.
+ * Model ids are namespaced by the provider that serves them, so an existing
+ * WorkBuddy-only install behaves exactly as before.
  */
 export class ProviderRouter {
-  constructor({ env = process.env, workbuddy = null, trae = null } = {}) {
+  constructor({ env = process.env, workbuddy = null, trae = null, qoder = null } = {}) {
     this.env = env;
-    this.workbuddy = workbuddy || new WorkBuddyProvider({ env });
-    this.trae = trae || new TraeProvider({ env });
+    this.providers = {
+      workbuddy: workbuddy || new WorkBuddyProvider({ env }),
+      trae: trae || new TraeProvider({ env }),
+      qoder: qoder || new QoderProvider({ env })
+    };
+    // Named handles kept for callers that already reach for one provider.
+    this.workbuddy = this.providers.workbuddy;
+    this.trae = this.providers.trae;
+    this.qoder = this.providers.qoder;
     this.routeFile = path.join(dataDir(env), "provider-route.json");
     this.ready = false;
     this.route = null;
   }
 
+  /** Every provider, in the order the UI lists them. */
+  list() {
+    return Object.values(this.providers);
+  }
+
+  providerNamed(name) {
+    return this.providers[name] || this.providers.workbuddy;
+  }
+
   async init() {
     if (this.ready) return this;
     // A broken optional upstream must not take the primary one down: a
-    // truncated Trae account file is a Trae problem, not a WorkBuddy outage.
+    // truncated Trae or Qoder account file is that provider's problem, not a
+    // WorkBuddy outage.
     await Promise.all([
       this.workbuddy.init(),
-      this.trae.init().catch(() => null)
+      this.trae.init().catch(() => null),
+      this.qoder.init().catch(() => null)
     ]);
     this.route = await this.readRoute();
     this.ready = true;
@@ -43,14 +76,18 @@ export class ProviderRouter {
     try {
       const value = JSON.parse(await fs.readFile(this.routeFile, "utf8"));
       if (value && typeof value === "object" && typeof value.id === "string" && value.id) {
-        return { provider: value.provider === "trae" ? "trae" : "workbuddy", id: value.id };
+        return {
+          provider: this.providers[value.provider] ? value.provider : "workbuddy",
+          id: value.id
+        };
       }
     } catch {}
     return null;
   }
 
   async saveRoute(provider, id) {
-    this.route = id ? { provider: provider === "trae" ? "trae" : "workbuddy", id } : null;
+    const name = this.providers[provider] ? provider : "workbuddy";
+    this.route = id ? { provider: name, id } : null;
     if (!this.route) {
       await fs.rm(this.routeFile, { force: true }).catch(() => {});
       return;
@@ -60,14 +97,13 @@ export class ProviderRouter {
 
   async accounts() {
     await this.init();
-    const [workbuddy, trae] = await Promise.all([
-      this.workbuddy.accounts().catch(() => []),
-      this.trae.accounts().catch(() => [])
-    ]);
-    return [
-      ...workbuddy.map((account) => ({ ...account, provider: "workbuddy" })),
-      ...trae.map((account) => ({ ...account, provider: "trae" }))
-    ];
+    const lists = await Promise.all(
+      Object.entries(this.providers).map(async ([name, provider]) => {
+        const accounts = await provider.accounts().catch(() => []);
+        return accounts.map((account) => ({ ...account, provider: name }));
+      })
+    );
+    return lists.flat();
   }
 
   async accountOf(id) {
@@ -75,7 +111,7 @@ export class ProviderRouter {
   }
 
   providerForAccount(account) {
-    return account?.provider === "trae" ? this.trae : this.workbuddy;
+    return this.providerNamed(account?.provider);
   }
 
   async activeId() {
@@ -86,18 +122,14 @@ export class ProviderRouter {
       const found = await this.accountOf(route.id);
       if (found) return route.id;
     }
-    const workbuddy = await this.workbuddy.activeId().catch(() => "");
-    if (workbuddy) {
+    for (const [name, provider] of Object.entries(this.providers)) {
+      const id = await provider.activeId().catch(() => "");
+      if (!id) continue;
       // Keep the in-memory route in step with the fallback, so cachedModels()
       // does not pick the provider named by a route file whose account is
       // gone. The file itself is left alone until the next explicit switch.
-      this.route = { provider: "workbuddy", id: workbuddy };
-      return workbuddy;
-    }
-    const trae = await this.trae.activeId().catch(() => "");
-    if (trae) {
-      this.route = { provider: "trae", id: trae };
-      return trae;
+      this.route = { provider: name, id };
+      return id;
     }
     return "";
   }
@@ -223,7 +255,7 @@ export class ProviderRouter {
     // allowlist entry read back through a provider that kept it). Strip it
     // first, or the prefix doubles into `trae:trae:…`.
     let name = String(id);
-    for (const known of ["workbuddy", "trae"]) {
+    for (const known of ["workbuddy", "trae", "qoder"]) {
       if (name.startsWith(`${known}:`)) {
         name = name.slice(known.length + 1);
         break;
@@ -399,8 +431,7 @@ export class ProviderRouter {
   }
 
   cachedModels() {
-    const provider = this.route?.provider === "trae" ? this.trae : this.workbuddy;
-    return provider.cachedModels();
+    return this.providerNamed(this.route?.provider).cachedModels();
   }
 
   /**
@@ -409,7 +440,7 @@ export class ProviderRouter {
    * it answers is "what does Lane talk to", not "what does one plugin do".
    */
   egressReport() {
-    const parts = [this.workbuddy, this.trae].map((provider) =>
+    const parts = this.list().map((provider) =>
       (typeof provider?.egressReport === "function"
         ? provider.egressReport()
         : { mode: "off", hosts: [] }));
@@ -454,14 +485,12 @@ export class ProviderRouter {
   }
 
   invalidateModels() {
-    this.workbuddy.invalidateModels();
-    this.trae.invalidateModels();
+    for (const provider of this.list()) provider.invalidateModels();
   }
 
   /** Drop every loaded plugin instance after an update or a rollback. */
   reloadPlugins() {
-    this.workbuddy.reloadPlugins?.();
-    this.trae.reloadPlugins?.();
+    for (const provider of this.list()) provider.reloadPlugins?.();
   }
 
   async activate(id) {
@@ -516,16 +545,15 @@ export class ProviderRouter {
   }
 
   async authorize(site) {
-    return String(site || "").startsWith("trae-")
-      ? this.trae.authorize(site)
-      : this.workbuddy.authorize(site);
+    const provider = this.providerNamed(providerOfSiteName(site));
+    return provider.authorize(site);
   }
 
   async finishSignIn(result, site, auth = null) {
-    const provider = String(site || result?.site || "").startsWith("trae-") ? this.trae : this.workbuddy;
+    const provider = this.providerNamed(providerOfSiteName(site || result?.site));
     const stored = await provider.finishSignIn(result, site, auth);
     const current = await this.activeId();
-    if (!current) await this.saveRoute(provider === this.trae ? "trae" : "workbuddy", stored.id);
-    return { ...stored, provider: provider === this.trae ? "trae" : "workbuddy" };
+    if (!current) await this.saveRoute(stored.provider || providerOfSiteName(stored.site), stored.id);
+    return { ...stored, provider: providerOfSiteName(stored.site) };
   }
 }

@@ -23,7 +23,7 @@ function usage() {
   lane disconnect zcode
   lane autostart install [--addr 127.0.0.1:3426]
   lane autostart uninstall
-  lane login [--site workbuddy|workbuddy-ai|trae-cn|trae-global]
+  lane login [--site workbuddy|workbuddy-ai|trae-cn|trae-global|qoder|qoder-cn]
   lane logout
   lane accounts
   lane use <account>
@@ -141,7 +141,7 @@ async function doctor() {
 }
 
 async function login(options = {}) {
-  const site = ["workbuddy-ai", "trae-cn", "trae-global"].includes(options.site) ? options.site : "workbuddy";
+  const site = ["workbuddy-ai", "trae-cn", "trae-global", "qoder", "qoder-cn"].includes(options.site) ? options.site : "workbuddy";
   const provider = new ProviderRouter();
   await provider.init();
   const result = await provider.authorize(site);

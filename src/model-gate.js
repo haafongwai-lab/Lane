@@ -37,7 +37,7 @@ function providerOf(model) {
 // "enabled" while every request for it was refused.
 function bareOf(id) {
   const name = String(id);
-  for (const known of ["workbuddy", "trae"]) {
+  for (const known of ["workbuddy", "trae", "qoder"]) {
     if (name.startsWith(`${known}:`)) return name.slice(known.length + 1);
   }
   return name;
@@ -129,7 +129,7 @@ export function normaliseIds(ids = []) {
     const name = String(raw || "");
     if (!name) continue;
     // A stacked prefix names nothing; drop it instead of guessing.
-    if (/^(workbuddy|trae):(workbuddy|trae):/.test(name)) continue;
+    if (/^(workbuddy|trae|qoder):(workbuddy|trae|qoder):/.test(name)) continue;
     if (seen.has(name)) continue;
     seen.add(name);
     out.push(name);

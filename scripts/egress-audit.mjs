@@ -23,7 +23,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE = path.join(ROOT, "docs/egress-baseline.txt");
 const PLUGINS = [
   path.join(ROOT, "vendor/workbuddy-auth/index.mjs"),
-  path.join(ROOT, "vendor/trae-auth/index.mjs")
+  path.join(ROOT, "vendor/trae-auth/index.mjs"),
+  path.join(ROOT, "vendor/qoder-auth/index.mjs")
 ];
 
 const URL_RE = /https?:\/\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,}[a-zA-Z0-9._/-]*/g;

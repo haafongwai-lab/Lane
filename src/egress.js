@@ -4,7 +4,7 @@ import { inspectRequest } from "./egress-paths.js";
 /**
  * The outbound guard for vendored plugin traffic.
  *
- * The two plugins are whole, third-party files. They receive the full prompt
+ * The vendored plugins are whole, third-party files. They receive the full prompt
  * and the account tokens, and in Node they can call `fetch` on anything. This
  * module is the one place that decides which hosts that traffic may reach, so
  * "trust the plugin" becomes "trust the plugin plus this list".
