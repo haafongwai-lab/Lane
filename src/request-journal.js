@@ -555,7 +555,7 @@ export class RequestJournal {
     ).length;
   }
 
-  start({ agent, endpoint, requestedModel, model, accountId, rate, rateUnit, contextWindow, project, projectName }) {
+  start({ agent, endpoint, requestedModel, model, accountId, rate, contextWindow, project, projectName }) {
     const request = {
       id: randomUUID().replaceAll("-", ""),
       owner: process.pid,
@@ -572,10 +572,6 @@ export class RequestJournal {
       // The model's credit multiple at the time of the request: a catalogue
       // that changes later must not rewrite what this request already cost.
       rate: Number.isFinite(rate) ? rate : null,
-      // What that multiple means. "request" says the figure is the credits one
-      // request takes (Qoder publishes this); anything else, or nothing, is a
-      // relative multiple that cannot cost a row on its own.
-      rateUnit: rateUnit === "request" ? "request" : null,
       // The model's context window under the same rule: the request's tokens
       // are read against the window it was actually served in. The upstream
       // reports 0 when it cannot say, which reads as unknown here.
@@ -701,19 +697,12 @@ export class RequestJournal {
       // too. `judge` owns the comparison.
       this.judge(request);
       this.noteBilled();
-    } else if (request.rateUnit === "request" && Number.isFinite(request.rate) && request.rate >= 0) {
-      // An upstream that publishes a per-request price but never says what a
-      // request cost: Qoder lists each model with the credits one request
-      // takes (its client shows "0.8×"), and reports only token counts back.
-      // Recording that published figure is not an estimate — it is the
-      // vendor's own tariff, applied to the request that was made.
-      request.credits = request.rate;
-      request.creditsSource = "catalogue";
     } else {
       // No upstream number: the token formula fills in, priced at the
       // model's calibrated credits-per-million. Without a calibrated price
-      // the row stays uncosted — the catalogue's relative multiple is not a
-      // price, and a fabricated one understates the charge wildly.
+      // the row stays uncosted — a catalogue `rate` is a relative multiple
+      // (Qoder's "0.8×", WorkBuddy's "×0.08"), not a credits-per-request
+      // price, and costing with it invented a number that had no unit.
       request.credits = estimatedCredits(request, this.calibratedPrice(request.model));
       request.creditsSource = "estimate";
     }

@@ -117,20 +117,16 @@ function accumulate(row, { input, output, total, cached, credits, estimatedCredi
 /**
  * What one request cost, split by where the number came from.
  *
- * A row the upstream cost carries `creditsSource: "upstream"`, and a row costed
- * from a vendor's published per-request price carries `"catalogue"` — Qoder
- * lists each model with the credits one request takes. Both are real charges
- * and both count as billed. Rows written before `creditsSource` existed carry
- * no source at all, and every one of them was costed by the token formula — so
- * those, and `"estimate"`, are the estimated side. The formula's price comes
- * from `rateFor` alone: a row's `rate` is a relative multiple (×0.08) unless
- * `rateUnit` says it is a per-request figure.
+ * A row the upstream cost carries `creditsSource: "upstream"`; rows written
+ * before that field existed carry no source at all, and every one of them was
+ * costed by the token formula — so both read as estimates, and only the
+ * upstream's own number counts as billed. The formula's price comes from
+ * `rateFor` alone: the row's own `rate` field is the catalogue's relative
+ * multiple (Qoder's "0.8×", WorkBuddy's "×0.08"), not a credits price, so it
+ * never costs anything here.
  */
 function creditSplit(request, rateFor) {
   if (request.creditsSource === "upstream" && Number.isFinite(request.credits)) {
-    return { credits: request.credits, estimatedCredits: 0 };
-  }
-  if (request.creditsSource === "catalogue" && Number.isFinite(request.credits)) {
     return { credits: request.credits, estimatedCredits: 0 };
   }
   const price = Number(rateFor(request.model)) || 0;

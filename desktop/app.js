@@ -1500,22 +1500,26 @@ function renderUsageRecent() {
     const cacheKnown = item.cachedTokens != null && item.cacheUnknown !== true;
     const cache = cacheKnown && item.inputTokens ? item.cachedTokens / item.inputTokens : 0;
     const state = requestState(item);
-    // A billed credit is the upstream's own number and the only one shown. An
-    // upstream that reports no per-request charge but publishes one in its
-    // catalogue (Qoder lists the credits a request takes) is billed at that
-    // figure instead — `catalogue` says so, so the row is not passed off as a
-    // measured charge. An upstream that gives neither (Trae) still has a real
-    // token count: show that rather than a bare dash, so the row does not read
-    // as untracked.
-    const measured = item.creditsSource === "upstream" || item.creditsSource === "catalogue";
+    // A billed credit is the upstream's own number and the only one shown as
+    // credits. An upstream that bills by cycle (Qoder, Trae) returns no
+    // per-request charge, so the column falls back to its real token count
+    // rather than a bare dash. The model's multiplier — Qoder's "0.8×", the
+    // price its own client prints — goes in the tooltip: it is a multiple, not
+    // an amount, so printing it in the credit column would have claimed a
+    // charge nobody measured.
+    const measured = item.creditsSource === "upstream";
+    const tokens = item.totalTokens || item.inputTokens + item.outputTokens || 0;
     const cost = measured
       ? credits(item.credits ?? 0)
-      : (item.totalTokens || item.inputTokens + item.outputTokens || 0
-        ? `${compact(item.totalTokens || item.inputTokens + item.outputTokens)} tk`
-        : "—");
-    const costTip = item.creditsSource === "catalogue"
-      ? "按上游公布的「每次请求消耗」计价"
-      : "";
+      : (tokens ? `${compact(tokens)} tk` : "—");
+    const multiple = Number.isFinite(item.rate) ? `×${item.rate}` : "";
+    const costTip = measured
+      ? ""
+      : [
+        "上游按周期额度结算，未逐请求计费",
+        multiple ? `模型倍率 ${multiple}` : "",
+        tokens ? `本机统计 ${compact(tokens)} tokens` : ""
+      ].filter(Boolean).join(" · ");
     // A live request cannot be deleted; its box says so by being disabled.
     const running = item.status === "running";
     return `<div class="recent-row" data-id="${esc(item.id)}">

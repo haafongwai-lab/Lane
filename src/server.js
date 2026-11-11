@@ -223,7 +223,6 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           // several accounts live, the journal's cost belongs to the payer.
           accountId: resolved?.accountId || await activeAccountId(provider),
           rate: meta.rate,
-          rateUnit: meta.rateUnit,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
         });
@@ -291,7 +290,6 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           model: body.model,
           accountId: servedCodex?.accountId || await activeAccountId(provider),
           rate: meta.rate,
-          rateUnit: meta.rateUnit,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
         });
@@ -396,7 +394,6 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
           model: body.model,
           accountId: served?.accountId || await activeAccountId(provider),
           rate: meta.rate,
-          rateUnit: meta.rateUnit,
           contextWindow: meta.contextWindow,
           ...projectFields(projectOf(body, req.headers))
         });
@@ -476,12 +473,9 @@ async function servedModel(provider, requested, agent) {
 async function modelMeta(provider, id) {
   try {
     const model = (await provider.listModels()).find((model) => model.id === id);
-    // `rateUnit` says what the catalogue's `rate` means. WorkBuddy publishes a
-    // relative multiple that is not a price; Qoder publishes the credits a
-    // request costs, so its rows can be costed from it.
-    return { rate: model?.rate, rateUnit: model?.rateUnit, contextWindow: model?.context };
+    return { rate: model?.rate, contextWindow: model?.context };
   } catch {
-    return { rate: undefined, rateUnit: undefined, contextWindow: undefined };
+    return { rate: undefined, contextWindow: undefined };
   }
 }
 
