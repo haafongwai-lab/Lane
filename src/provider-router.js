@@ -341,6 +341,18 @@ export class ProviderRouter {
       return account ? answer(model, account, model.bareId) : { known: false };
     }
 
+    // An agent that namespaces its own models sends that namespace back. VS
+    // Code's Chat writes every entry as `lane/<id>` and sends exactly that,
+    // so a request arriving as `lane/trae:glm-5.3` has to be read as
+    // `trae:glm-5.3` or every VS Code turn is refused as an unknown model.
+    const stripped = wanted.replace(/^lane\//i, "");
+    if (stripped !== wanted) {
+      const inner = await this.resolveModel(stripped);
+      // The reply keeps the id the caller asked with, so a client that
+      // matches responses by its own model name still recognises them.
+      return inner.known ? { ...inner, requested: wanted } : inner;
+    }
+
     // A bare id a client still carries from before the ids were namespaced
     // (Claude Desktop keeps the chosen model in the conversation, and an
     // agent's config names it). Refusing it turned a working setup into a

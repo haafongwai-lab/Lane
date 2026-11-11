@@ -209,6 +209,26 @@ test("a stale stacked prefix is dropped instead of stuck on", async (t) => {
   assert.deepEqual(ids.sort(), ["hy4free", "workbuddy:hy3"].sort(), "the stuck entry is gone, real ones stay");
 });
 
+test("a client's own namespace is stripped before matching", async (t) => {
+  const env = await tempEnv(t);
+  const workbuddy = fakeProvider("wb", [], {});
+  const trae = fakeProvider("trae", [
+    { id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }
+  ], {
+    "tr-1": [{ id: "glm-5.3" }]
+  });
+  const r = new ProviderRouter({ env, workbuddy, trae });
+
+  // VS Code's Chat writes every entry as `lane/<id>` and sends that back.
+  const direct = await r.resolveModel("trae:glm-5.3");
+  assert.equal(direct.known, true);
+  const namespaced = await r.resolveModel("lane/trae:glm-5.3");
+  assert.equal(namespaced.known, true, "the lane/ namespace must not turn into a 400");
+  assert.equal(namespaced.accountId, "tr-1");
+  assert.equal(namespaced.id, "glm-5.3", "the upstream gets its own id");
+  assert.equal(namespaced.requested, "lane/trae:glm-5.3", "the caller's own name is echoed back");
+});
+
 test("every protocol path converts the model AFTER resolving its account", async () => {
   const server = await fs.readFile(new URL("../src/server.js", import.meta.url), "utf8");
   // The converted body carries the model id to the upstream. Converting
