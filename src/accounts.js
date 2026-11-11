@@ -388,7 +388,12 @@ export function publicAccount(account) {
     // Distinct from `enabled`: an account can stay signed in and keep its
     // check-in while being left out of the model pool (a nearly spent
     // balance, a team account that should not serve personal work).
-    routable: account.routable !== false,
+    //
+    // Off unless explicitly switched on. Adding an account is a sign-in, not
+    // a decision to let it serve models: turning it on by default put every
+    // account in the pool before the user had chosen anything, which is the
+    // opposite of an opt-in.
+    routable: account.routable === true,
     addedAt: account.addedAt || "",
     lastUsedAt: account.lastUsedAt || "",
     expiresAt: expires || null,

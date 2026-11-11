@@ -40,12 +40,38 @@ function router(env, { workbuddy, trae }) {
   return new ProviderRouter({ env, workbuddy, trae });
 }
 
+test("the model pool is off until an account is explicitly switched in", async (t) => {
+  const env = await tempEnv(t);
+  // No `routable` field at all: an account that was signed in before this
+  // existed. Adding an account is a sign-in, not a decision to serve models,
+  // so it must start out of the pool.
+  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "Fresh", provider: "workbuddy", enabled: true }], {
+    "wb-1": [{ id: "hy3" }]
+  });
+  const r = router(env, { workbuddy, trae: fakeProvider("trae", [], {}) });
+  assert.deepEqual(await r.catalogue(), [], "a fresh account contributes nothing yet");
+  assert.equal((await r.resolveModel("hy3")).known, false);
+});
+
+test("an account switched into the pool starts serving its models", async (t) => {
+  const env = await tempEnv(t);
+  let routable = false;
+  const accounts = [{ id: "wb-1", label: "Fresh", provider: "workbuddy", enabled: true }];
+  const workbuddy = fakeProvider("wb", accounts, { "wb-1": [{ id: "hy3" }] });
+  // Mirror the real store: the public shape derives `routable` from the field.
+  workbuddy.accounts = async () => accounts.map((a) => ({ ...a, routable }));
+  const r = router(env, { workbuddy, trae: fakeProvider("trae", [], {}) });
+  assert.deepEqual(await r.catalogue(), []);
+  routable = true;
+  assert.deepEqual((await r.catalogue()).map((m) => m.id), ["hy3"]);
+});
+
 test("every routable account contributes its models", async (t) => {
   const env = await tempEnv(t);
-  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true }], {
+  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }], {
     "wb-1": [{ id: "hy3", name: "Hy3" }]
   });
-  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true }], {
+  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }], {
     "tr-1": [{ id: "gpt-5.4", name: "GPT-5.4" }]
   });
   const r = router(env, { workbuddy, trae });
@@ -57,7 +83,7 @@ test("every routable account contributes its models", async (t) => {
 test("an account with routable off keeps its sign-in but leaves the pool", async (t) => {
   const env = await tempEnv(t);
   const workbuddy = fakeProvider("wb", [
-    { id: "wb-1", label: "On", provider: "workbuddy", enabled: true },
+    { id: "wb-1", label: "On", provider: "workbuddy", enabled: true, routable: true },
     { id: "wb-2", label: "Off", provider: "workbuddy", enabled: true, routable: false }
   ], {
     "wb-1": [{ id: "hy3" }],
@@ -71,7 +97,7 @@ test("an account with routable off keeps its sign-in but leaves the pool", async
 test("a switched-off account is never routable", async (t) => {
   const env = await tempEnv(t);
   const workbuddy = fakeProvider("wb", [
-    { id: "wb-1", label: "On", provider: "workbuddy", enabled: true },
+    { id: "wb-1", label: "On", provider: "workbuddy", enabled: true, routable: true },
     { id: "wb-2", label: "Disabled", provider: "workbuddy", enabled: false }
   ], {
     "wb-1": [{ id: "hy3" }],
@@ -83,10 +109,10 @@ test("a switched-off account is never routable", async (t) => {
 
 test("an id two providers share is namespaced, and both stay selectable", async (t) => {
   const env = await tempEnv(t);
-  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true }], {
+  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }], {
     "wb-1": [{ id: "glm-5.3", name: "GLM-5.3" }]
   });
-  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true }], {
+  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }], {
     "tr-1": [{ id: "glm-5.3", name: "GLM-5.3" }]
   });
   const r = router(env, { workbuddy, trae });
@@ -103,8 +129,8 @@ test("an id two providers share is namespaced, and both stay selectable", async 
 test("a second account serving one id is folded into the first row", async (t) => {
   const env = await tempEnv(t);
   const workbuddy = fakeProvider("wb", [
-    { id: "wb-1", label: "First", provider: "workbuddy", enabled: true },
-    { id: "wb-2", label: "Second", provider: "workbuddy", enabled: true }
+    { id: "wb-1", label: "First", provider: "workbuddy", enabled: true, routable: true },
+    { id: "wb-2", label: "Second", provider: "workbuddy", enabled: true, routable: true }
   ], {
     "wb-1": [{ id: "hy3", name: "Hy3" }],
     "wb-2": [{ id: "hy3", name: "Hy3" }]
@@ -130,7 +156,7 @@ test("a second account serving one id is folded into the first row", async (t) =
 
 test("an unknown model resolves to nothing rather than to an arbitrary account", async (t) => {
   const env = await tempEnv(t);
-  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true }], {
+  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }], {
     "wb-1": [{ id: "hy3" }]
   });
   const r = router(env, { workbuddy, trae: fakeProvider("trae", [], {}) });
@@ -140,10 +166,10 @@ test("an unknown model resolves to nothing rather than to an arbitrary account",
 
 test("the allowlist still gates what agents see", async (t) => {
   const env = await tempEnv(t);
-  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true }], {
+  const workbuddy = fakeProvider("wb", [{ id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }], {
     "wb-1": [{ id: "hy3" }]
   });
-  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true }], {
+  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }], {
     "tr-1": [{ id: "gpt-5.4" }]
   });
   const r = router(env, { workbuddy, trae });
@@ -157,8 +183,8 @@ test("a failure is never retried on another account", async (t) => {
   const env = await tempEnv(t);
   let calls = 0;
   const workbuddy = fakeProvider("wb", [
-    { id: "wb-1", label: "First", provider: "workbuddy", enabled: true },
-    { id: "wb-2", label: "Second", provider: "workbuddy", enabled: true }
+    { id: "wb-1", label: "First", provider: "workbuddy", enabled: true, routable: true },
+    { id: "wb-2", label: "Second", provider: "workbuddy", enabled: true, routable: true }
   ], {
     "wb-1": [{ id: "hy3" }],
     "wb-2": [{ id: "hy3" }]
@@ -178,7 +204,7 @@ test("the router's chatOn sends the bare id to the resolved provider", async (t)
   const env = await tempEnv(t);
   let seen = null;
   const workbuddy = fakeProvider("wb", [], {});
-  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true }], {
+  const trae = fakeProvider("trae", [{ id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }], {
     "tr-1": [{ id: "gpt-5.4" }]
   });
   trae.chat = async (body) => {

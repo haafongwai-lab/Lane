@@ -182,17 +182,18 @@ export class ProviderRouter {
 
   /**
    * The accounts that contribute models to the merged catalogue, in a stable
-   * order: the route account first, then WorkBuddy, then the rest by sign-in
-   * order.
+   * order: WorkBuddy first (its ids stay unqualified), then the route account
+   * among them, then the rest by sign-in order.
    *
-   * `routable` is separate from `enabled`: an account can stay signed in and
-   * keep its check-in while being left out of the model pool. An account that
-   * is switched off entirely is never routable.
+   * Only accounts explicitly switched into the pool take part. `routable` is
+   * separate from `enabled`: an account can stay signed in and keep its
+   * check-in while being left out of the pool, and a switched-off account is
+   * never routable either way.
    */
   async routableAccounts() {
     const accounts = await this.accounts();
     const activeId = await this.activeId();
-    const pool = accounts.filter((account) => account.enabled && account.routable !== false);
+    const pool = accounts.filter((account) => account.enabled && account.routable === true);
     // Provider first, route second. WorkBuddy has to lead even when the route
     // is a Trae account: its ids are the ones every existing models.json
     // names, so they keep the plain id, while Trae's are namespaced. Within
@@ -446,6 +447,24 @@ export class ProviderRouter {
     if (!enabled && (this.route?.id === id || (await this.activeId()) === id)) {
       await this.saveRoute(null, "");
     }
+    return { ...updated, provider: account.provider };
+  }
+
+  /**
+   * Takes one account in or out of the model pool.
+   *
+   * Forwarded here because the account page talks to the router, not to a
+   * provider: without this the switch had no effect and the pool stayed
+   * empty no matter what the user did.
+   */
+  async setRoutable(id, routable) {
+    const account = await this.accountOf(id);
+    if (!account) throw new Error(`unknown account: ${id}`);
+    const provider = this.providerForAccount(account);
+    if (typeof provider.setRoutable !== "function") {
+      throw new Error(`${account.provider} accounts cannot join the model pool`);
+    }
+    const updated = await provider.setRoutable(id, routable);
     return { ...updated, provider: account.provider };
   }
 

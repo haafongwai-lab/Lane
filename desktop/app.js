@@ -540,7 +540,7 @@ function renderAccounts() {
     // An enable toggle still waiting on its command shows the state the user
     // asked for, not the snapshot from before the click.
     const enabled = enabledPending.get(account.id) ?? account.enabled;
-    const routable = routablePending.get(account.id) ?? account.routable !== false;
+    const routable = routablePending.get(account.id) ?? account.routable === true;
     const tags = [
       active ? '<em class="tag-on">默认</em>' : "",
       account.enterpriseId ? '<em class="tag-soft">企业</em>' : "",
@@ -562,13 +562,13 @@ function renderAccounts() {
         </div>
       </div>
       <div class="account-actions">
-        <label class="switch small" data-tip="${routable ? "不把它作为模型提供方" : "把它作为模型提供方"}">
-          <input type="checkbox" data-act="routable"${routable ? " checked" : ""}>
-          <span></span>
+        <label class="account-toggle" data-tip="${routable ? "该账号的模型可供客户端使用，点此退出模型池" : "该账号的模型不参与路由，点此加入模型池"}">
+          <span class="account-toggle-label">供模型</span>
+          <span class="switch small"><input type="checkbox" data-act="routable"${routable ? " checked" : ""}><span></span></span>
         </label>
-        <label class="switch small" data-tip="${enabled ? "关闭该账号" : "启用该账号"}">
-          <input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}>
-          <span></span>
+        <label class="account-toggle" data-tip="${enabled ? "关闭该账号（保留登录，退出签到与路由）" : "启用该账号"}">
+          <span class="account-toggle-label">启用</span>
+          <span class="switch small"><input type="checkbox" data-act="enabled"${enabled ? " checked" : ""}><span></span></span>
         </label>
         <button class="icon-mini" data-act="remove" data-tip="移除账号" aria-label="移除账号">✕</button>
       </div>

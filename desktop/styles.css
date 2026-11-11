@@ -1804,10 +1804,15 @@ h1 {
 .account-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
   margin-left: auto;
   flex: 0 0 auto;
 }
+/* Two switches per account, each with its own word: a bare pair of toggles
+   left the user guessing which one puts the account in the model pool. */
+.account-toggle { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.account-toggle-label { color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.account-toggle:hover .account-toggle-label { color: var(--ink-soft); }
 .mini {
   padding: 5px 11px;
   border: 1px solid var(--line);
