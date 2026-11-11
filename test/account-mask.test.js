@@ -73,14 +73,16 @@ function renderAccounts({ masked, accounts }) {
 
 const ACCOUNTS = [{
   id: "18e67930e1fc4fb49fab123491576353", label: "DDmao", domain: "copilot.tencent.com",
-  enabled: true, site: "workbuddy", enterpriseId: ""
+  enabled: true, site: "workbuddy", enterpriseId: "", routable: true
 }];
 
 test("the list shows real names by default and masked names when on", () => {
   const open = renderAccounts({ masked: false, accounts: ACCOUNTS });
   assert.match(open["#account-list"].innerHTML, /DDmao/);
   assert.match(open["#account-list"].innerHTML, /18e67930/);
-  assert.match(open["#accounts-foot"].textContent, /DDmao 正在承载请求/);
+  // The footer names the accounts in the pool, not one "carrier": a request
+  // goes to whichever account owns its model, so no single one carries all.
+  assert.match(open["#accounts-foot"].textContent, /1 个账号供模型：DDmao/);
   assert.equal(open["#account-mask"].textContent, "打码");
   assert.equal(open["#account-mask"].attrs["aria-pressed"], "false");
 
@@ -93,9 +95,17 @@ test("the list shows real names by default and masked names when on", () => {
   assert.equal(title, "D***o");
   assert.equal(code, "18****");
   assert.doesNotMatch(hidden["#accounts-foot"].textContent, /DDmao/);
-  assert.match(hidden["#accounts-foot"].textContent, /D\*\*\*o 正在承载请求/);
+  assert.match(hidden["#accounts-foot"].textContent, /1 个账号供模型：D\*\*\*o/);
   assert.equal(hidden["#account-mask"].textContent, "显示");
   assert.equal(hidden["#account-mask"].attrs["aria-pressed"], "true");
+});
+
+test("the footer says when nothing serves models", () => {
+  const idle = renderAccounts({
+    masked: false,
+    accounts: [{ ...ACCOUNTS[0], routable: false }]
+  });
+  assert.match(idle["#accounts-foot"].textContent, /还没有账号供模型/);
 });
 
 test("the toggle is wired, persisted and present in the panel head", () => {

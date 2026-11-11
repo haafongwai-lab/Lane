@@ -563,7 +563,6 @@ function render() {
 // it only has to show the schedule and the day's progress.
 function renderAccounts() {
   const accounts = snapshot.accounts || [];
-  const activeId = snapshot.activeId || "";
   $("#account-count").textContent = accounts.length ? `${accounts.length} 个` : "";
   // A sign-in that failed leaves a line here: the toast is gone after three
   // seconds, and a missing account otherwise looks like nothing happened.
@@ -585,9 +584,15 @@ function renderAccounts() {
     foot.textContent = "";
     return;
   }
-  const carrier = accounts.find((account) => account.id === activeId);
   const shownName = (account) => (accountMasked ? maskName(account.label) : account.label);
-  foot.textContent = carrier ? `${shownName(carrier)} 正在承载请求` : "没有账号承载请求";
+  // No single account carries requests any more: a request goes to whichever
+  // account owns the model it names, so naming one here was a leftover from
+  // the single-route design and pointed at an account that may serve nothing.
+  // What is worth saying is which accounts are in the pool at all.
+  const serving = accounts.filter((account) => (routablePending.get(account.id) ?? account.routable === true));
+  foot.textContent = serving.length
+    ? `${serving.length} 个账号供模型${serving.length <= 2 ? `：${serving.map(shownName).join("、")}` : ""}`
+    : "还没有账号供模型，客户端读不到模型";
   const checkin = new Map((snapshot.checkin?.accounts || []).map((item) => [item.id, item]));
   list.innerHTML = accounts.map((account) => {
     const routable = routablePending.get(account.id) ?? account.routable === true;
