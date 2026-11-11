@@ -128,6 +128,44 @@ test("the daily check-in claims through the plugin's hook, credit included", asy
   assert.equal(state.accounts["q-1"].reward, "50");
 });
 
+test("a Qoder check-in reports the vendor's credit, not a fixed number", async (t) => {
+  const env = await tempEnv(t);
+  const account = { id: "q-3", label: "Qoder", enabled: true };
+  const provider = {
+    accounts: async () => [account],
+    session: async (id) => ({
+      id,
+      auth: { type: "oauth", access: "a", uid: "q-3", domain: "qoder.com" },
+      hooks: {
+        auth: {
+          // The shape the vendored plugin returns for a fresh claim: the
+          // campaign's benefit.amount read as credit. Qoder pays 100 today;
+          // the number must come from the answer, not from Lane.
+          checkin: async () => ({ outcome: "claimed", credit: 100 })
+        }
+      }
+    }),
+    refreshIfNeeded: async () => ({}),
+    siteOf: async () => "qoder"
+  };
+  const run = await runCheckins({
+    provider,
+    env,
+    now: new Date("2026-11-12T10:00:00"),
+    force: true,
+    fetchImpl: async () => { throw new Error("the WorkBuddy HTTP path must not run"); }
+  });
+  assert.equal(run.results[0].status, "done");
+  assert.equal(run.results[0].reward, "100");
+  const state = await readCheckin(env);
+  assert.equal(state.accounts["q-3"].reward, "100");
+});
+
+test("the account row prints the credit the vendor reported", async () => {
+  const app = await fs.readFile(new URL("../desktop/app.js", import.meta.url), "utf8");
+  assert.match(app, /已签到 \+\$\{esc\(item\.reward\)\}/);
+});
+
 test("a Qoder account with no check-in activity is recorded as unavailable, not failed", async (t) => {
   const env = await tempEnv(t);
   const account = { id: "q-2", label: "Qoder CN", enabled: true };
