@@ -80,7 +80,11 @@ test("the model list carries a per-model add switch and only added models are se
 test("account masking reaches the route and health cards too", () => {
   assert.match(app, /function renderAccountIdentity\(\)/);
   assert.match(app, /const shown = accountMasked \? maskName\(account\) : account/);
-  assert.match(app, /\$\("#account-name"\)\.textContent = shown/);
+  // The PROVIDER node names the account it is describing (the first one
+  // switched into the pool unless another is picked), and masking applies to
+  // that name as much as to the account list's.
+  assert.match(app, /const nameOf = \(item\) => \(accountMasked \? maskName\(item\.label\) : item\.label\)/);
+  assert.match(app, /\$\("#account-name"\)\.textContent = view \? nameOf\(view\) : \(shown \|\| "上游账号"\)/);
   assert.match(app, /\$\("#health-account"\)\.textContent = shown/);
   assert.match(app, /renderAccounts\(\);\s*renderAccountIdentity\(\)/);
 });

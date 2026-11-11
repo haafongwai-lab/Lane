@@ -88,6 +88,11 @@ function creditNumber(value) {
 // The plugin's usage hook reports the cycle's credits used against what it
 // grants, as a percent plus the two counts, and when the credits run out.
 // `creditView` in format.js picks the window and reads it.
+//
+// `usage` here is the account the node is describing: each account carries
+// its own figures in the status snapshot, so switching the chip switches the
+// number rather than leaving the route account's balance under another
+// account's name.
 function renderCredits(usage) {
   const credits = creditView(usage);
   // The meter reports what the cycle has spent; the card answers the question
@@ -326,30 +331,55 @@ const REASON_LABELS = {
   "unexpected-chat-fields": "聊天请求含未知字段"
 };
 
+// Which account the PROVIDER node is describing. The node used to name the
+// route account, which is the one left over from the single-account design
+// and never changes on its own: with several accounts serving models the
+// card sat on a stale name. It now follows the pool, defaulting to the first
+// account switched in, and a click picks another.
+let providerViewId = "";
+
+function providerViewAccount() {
+  const serving = (snapshot?.accounts || []).filter((item) => item.routable === true);
+  if (!serving.length) return null;
+  const picked = serving.find((item) => item.id === providerViewId);
+  return picked || serving[0];
+}
+
 function renderAccountIdentity() {
   // The route/health cards name the account too; masking is a whole-page
   // display preference, not just an account-list one.
   const account = snapshot?.account || "";
   const shown = accountMasked ? maskName(account) : account;
-  $("#account-name").textContent = shown || "上游账号";
   $("#health-account").textContent = shown || "未登录";
 
+  const serving = (snapshot?.accounts || []).filter((item) => item.routable === true);
+  const view = providerViewAccount();
+  const nameOf = (item) => (accountMasked ? maskName(item.label) : item.label);
+  const upstreamOf = (item) => (item.provider === "trae"
+    ? (item.site === "trae-global" ? "Trae Global" : "Trae CN")
+    : (item.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"));
+
+  // The node's own headline follows the account being shown, not the route.
+  $("#account-name").textContent = view ? nameOf(view) : (shown || "上游账号");
+
   // Every account that serves models, not just the route one: with several
-  // upstreams live at once, the provider node has to show which ones.
+  // upstreams live at once, the provider node has to show which ones — and
+  // which of them the card is describing.
   const pool = $("#provider-pool");
   if (!pool) return;
-  const serving = (snapshot?.accounts || []).filter((item) => item.routable === true);
   pool.hidden = serving.length === 0;
   pool.innerHTML = serving.map((item) => {
-    const name = accountMasked ? maskName(item.label) : item.label;
-    const upstream = item.provider === "trae"
-      ? (item.site === "trae-global" ? "Trae Global" : "Trae CN")
-      : (item.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy");
-    return `<span class="pool-chip" data-tip="${esc(`${name} · ${upstream} 供模型`)}">
+    const on = Boolean(view) && item.id === view.id;
+    const name = nameOf(item);
+    const upstream = upstreamOf(item);
+    const tip = on
+      ? `${name} · ${upstream}（正在查看）`
+      : `${name} · ${upstream}，点击查看这个账号的额度`;
+    return `<button type="button" class="pool-chip${on ? " on" : ""}" data-provider-account="${esc(item.id)}" data-tip="${esc(tip)}">
       <img src="${item.provider === "trae" ? "assets/trae-official-256.png" : "assets/workbuddy-official.svg"}" alt="">
       <b>${esc(name)}</b>
       <small>${esc(upstream)}</small>
-    </span>`;
+    </button>`;
   }).join("");
 }
 
@@ -391,16 +421,23 @@ function render() {
   $("#lane-state").textContent = snapshot.starting ? "启动中…" : "运行中";
   $("#provider-state").textContent = signedIn ? "已登录" : "未登录";
   $("#provider-state").previousElementSibling.classList.toggle("off", !signedIn);
-  // The route node names whichever upstream currently carries requests; the
-  // icon follows that upstream so a Trae route is not drawn with WorkBuddy's.
+  // The route node names the account being shown — the first one switched
+  // into the pool unless another is picked — and its icon follows that
+  // upstream, so a Trae account is not drawn with WorkBuddy's mark.
   const carrier = (snapshot.accounts || []).find((item) => item.id === snapshot.activeId);
-  const upstreamName = carrier?.provider === "trae"
-    ? (carrier.site === "trae-global" ? "Trae Global" : "Trae CN")
-    : "WorkBuddy";
-  $("#provider-logo").src = carrier?.provider === "trae"
+  const view = providerViewAccount();
+  const upstreamName = view
+    ? (view.provider === "trae"
+      ? (view.site === "trae-global" ? "Trae Global" : "Trae CN")
+      : (view.site === "workbuddy-ai" ? "WorkBuddy AI" : "WorkBuddy"))
+    : (carrier?.provider === "trae"
+      ? (carrier.site === "trae-global" ? "Trae Global" : "Trae CN")
+      : "WorkBuddy");
+  const logoFor = view?.provider || carrier?.provider;
+  $("#provider-logo").src = logoFor === "trae"
     ? "assets/trae-official-256.png"
     : "assets/workbuddy-official.svg";
-  $("#account-plan").textContent = snapshot.domain || upstreamName;
+  $("#account-plan").textContent = view?.domain || snapshot.domain || upstreamName;
   renderAccountIdentity();
   $("#health-domain").textContent = snapshot.domain || upstreamName;
   $("#health-codex").textContent = codexOn ? "已接入" : "未接入";
@@ -497,7 +534,11 @@ function render() {
   setAgentPath("zcode-path", agents?.zcode?.configPath);
   setAgentPath("vscode-path", agents?.vscode?.configPath);
   setAgentPath("dsh-path", agents?.dsh?.configPath);
-  renderCredits(signedIn ? snapshot.usage : null);
+  // The account the node describes, not the route: each account's own
+  // figures ride in the snapshot, so the card shows the balance that belongs
+  // to the name above it.
+  const shownAccount = providerViewAccount();
+  renderCredits(shownAccount ? (shownAccount.credits || null) : (signedIn ? snapshot.usage : null));
   $("#data-path").textContent = snapshot.dataDir || "%LOCALAPPDATA%\\lane";
   $("#log-name").textContent = snapshot.ownsGateway === false ? "lane.log" : "desktop.log";
   $("#app-version").textContent = snapshot.version ? `v${snapshot.version}` : "—";
@@ -1609,8 +1650,11 @@ $("#usage-account-menu")?.addEventListener("click", (event) => {
   const pick = event.target.closest("button[data-account]");
   if (!pick) return;
   usageAccountId = pick.dataset.account || "";
+  // Keep the route card on the same account: one choice, shown twice.
+  providerViewId = usageAccountId;
   $("#usage-account-menu").hidden = true;
   $("#usage-account-button")?.setAttribute("aria-expanded", "false");
+  renderAccountIdentity();
   loadUsage();
 });
 // A click anywhere else closes the menu, the same way the add-account one
@@ -1621,6 +1665,19 @@ document.addEventListener("click", (event) => {
   if (event.target.closest(".quota-account-picker")) return;
   menu.hidden = true;
   $("#usage-account-button")?.setAttribute("aria-expanded", "false");
+});
+// The PROVIDER node's chips pick which serving account the card describes.
+// This changes nothing about routing — the model still decides that — it only
+// answers "whose balance am I looking at".
+$("#provider-pool")?.addEventListener("click", (event) => {
+  const chip = event.target.closest("button[data-provider-account]");
+  if (!chip) return;
+  providerViewId = chip.dataset.providerAccount || "";
+  renderAccountIdentity();
+  // The quota card's own switch follows the same choice, so the two views of
+  // "which account" never disagree.
+  usageAccountId = providerViewId;
+  loadUsage();
 });
 $("#codex-connect").addEventListener("click", () => command("connect", { agent: "codex" }, "Codex 已接入，请新建会话"));
 $("#codex-disconnect").addEventListener("click", () => command("disconnect", { agent: "codex" }, "Codex 已断开"));

@@ -578,9 +578,16 @@ h1 {
   border: 1px solid var(--line-soft);
   border-radius: 999px;
   background: var(--recess);
+  color: inherit;
   font-size: 10px;
   line-height: 1.5;
+  transition: border-color .15s ease, background .15s ease;
 }
+.pool-chip:hover { border-color: var(--line-strong); background: var(--hover-bg); }
+/* The chip the card is describing: filled rather than outlined, so "which
+   account is this balance" needs no reading. */
+.pool-chip.on { border-color: var(--green-bg); background: var(--green-bg); }
+.pool-chip.on b { color: var(--green); }
 .pool-chip img { width: 12px; height: 12px; flex: 0 0 auto; object-fit: contain; }
 .pool-chip b {
   min-width: 0;
