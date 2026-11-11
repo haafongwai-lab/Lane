@@ -98,6 +98,74 @@ test("the providers honour the account they are given", async () => {
   }
 });
 
+test("a bare id a client still carries resolves to its namespaced row", async (t) => {
+  const env = await tempEnv(t);
+  const workbuddy = fakeProvider("wb", [
+    { id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }
+  ], {
+    "wb-1": [{ id: "hy3" }]
+  });
+  const trae = fakeProvider("trae", [
+    { id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }
+  ], {
+    "tr-1": [{ id: "glm-5.3" }]
+  });
+  const r = new ProviderRouter({ env, workbuddy, trae });
+
+  // Claude Desktop keeps the chosen model in the conversation and an agent's
+  // config names it; both still say `glm-5.3` from before ids were namespaced.
+  const namespaced = await r.resolveModel("trae:glm-5.3");
+  assert.equal(namespaced.known, true);
+  const bare = await r.resolveModel("glm-5.3");
+  assert.equal(bare.known, true, "an old bare id must not turn into a 400");
+  assert.equal(bare.accountId, "tr-1");
+  assert.equal(bare.id, "glm-5.3", "the upstream still gets its own id");
+});
+
+test("a bare id the default provider owns stays on the default provider", async (t) => {
+  const env = await tempEnv(t);
+  const workbuddy = fakeProvider("wb", [
+    { id: "wb-1", label: "WB", provider: "workbuddy", enabled: true, routable: true }
+  ], {
+    "wb-1": [{ id: "glm-5.3" }]
+  });
+  const trae = fakeProvider("trae", [
+    { id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }
+  ], {
+    "tr-1": [{ id: "glm-5.3" }]
+  });
+  const r = new ProviderRouter({ env, workbuddy, trae });
+  // Both serve it; the unprefixed row is WorkBuddy's, so the bare id is
+  // unambiguous — it means that one.
+  const bare = await r.resolveModel("glm-5.3");
+  assert.equal(bare.accountId, "wb-1");
+  const prefixed = await r.resolveModel("trae:glm-5.3");
+  assert.equal(prefixed.accountId, "tr-1");
+});
+
+test("enabling a namespaced model does not stack the prefix in models.json", async (t) => {
+  const env = await tempEnv(t);
+  const workbuddy = fakeProvider("wb", [], {});
+  const trae = fakeProvider("trae", [
+    { id: "tr-1", label: "Trae", provider: "trae", enabled: true, routable: true }
+  ], {
+    "tr-1": [{ id: "glm-5.3" }]
+  });
+  const r = new ProviderRouter({ env, workbuddy, trae });
+  const [row] = await r.catalogue();
+  assert.equal(row.id, "trae:glm-5.3");
+
+  // The page sends the row's id plus its provider, exactly as the checkbox
+  // carries them.
+  const { setModelEnabled, restrictModels } = await import("../src/model-gate.js");
+  await setModelEnabled(row.id, true, env, "trae");
+  const saved = JSON.parse(await fs.readFile(path.join(env.LANE_DATA_DIR, "models.json"), "utf8"));
+  assert.deepEqual(saved.ids, ["trae:glm-5.3"], "the prefix is not stacked into trae:trae:…");
+
+  const served = await restrictModels(await r.catalogue(), env);
+  assert.deepEqual(served.map((m) => m.id), ["trae:glm-5.3"]);
+});
+
 test("the Anthropic and Responses routes resolve the account too", async () => {
   const server = await fs.readFile(new URL("../src/server.js", import.meta.url), "utf8");
   // Three request paths reach a provider: OpenAI chat, Anthropic messages and

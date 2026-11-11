@@ -31,8 +31,20 @@ function providerOf(model) {
   return String(model?.owned_by || model?.provider || "workbuddy");
 }
 
+// A provider may already hand back an id that carries its own prefix (a saved
+// allowlist entry read back through a provider that kept it). The key must not
+// stack the prefix on top: `trae:trae:glm-5.3` matched nothing and read as
+// "enabled" while every request for it was refused.
+function bareOf(id) {
+  const name = String(id);
+  for (const known of ["workbuddy", "trae"]) {
+    if (name.startsWith(`${known}:`)) return name.slice(known.length + 1);
+  }
+  return name;
+}
+
 function keyOf(id, provider = "") {
-  return provider ? `${provider}:${String(id)}` : String(id);
+  return provider ? `${provider}:${bareOf(id)}` : String(id);
 }
 
 async function readModels(env = process.env) {

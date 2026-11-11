@@ -314,38 +314,48 @@ export class ProviderRouter {
     const wanted = String(requested || "");
     if (!wanted) return { known: false };
     const catalogue = await this.catalogueMerged();
-    const hit = catalogue.find((model) => model.id === wanted);
-    if (!hit) {
-      // A `#suffix` id names one folded account specifically; it is not a row
-      // of its own, so it is matched against the folded list.
-      for (const model of catalogue) {
-        const folded = (model.sharedWith || []).find((item) => item.id === wanted);
-        if (!folded) continue;
-        const account = (await this.accounts()).find((item) => item.id === folded.ownerAccountId);
-        if (!account) return { known: false };
-        return {
-          known: true,
-          id: model.bareId,
-          requested: wanted,
-          provider: account.provider,
-          accountId: account.id,
-          providerInstance: this.providerForAccount(account),
-          model
-        };
-      }
-      return { known: false };
-    }
-    const account = (await this.accounts()).find((item) => item.id === hit.ownerAccountId);
-    if (!account) return { known: false };
-    return {
+    const accounts = await this.accounts();
+
+    const answer = (model, account, id) => ({
       known: true,
-      id: hit.bareId,
+      id,
       requested: wanted,
       provider: account.provider,
       accountId: account.id,
       providerInstance: this.providerForAccount(account),
-      model: hit
-    };
+      model
+    });
+
+    const hit = catalogue.find((model) => model.id === wanted);
+    if (hit) {
+      const account = accounts.find((item) => item.id === hit.ownerAccountId);
+      return account ? answer(hit, account, hit.bareId) : { known: false };
+    }
+
+    // A `#suffix` id names one folded account specifically; it is not a row
+    // of its own, so it is matched against the folded list.
+    for (const model of catalogue) {
+      const folded = (model.sharedWith || []).find((item) => item.id === wanted);
+      if (!folded) continue;
+      const account = accounts.find((item) => item.id === folded.ownerAccountId);
+      return account ? answer(model, account, model.bareId) : { known: false };
+    }
+
+    // A bare id a client still carries from before the ids were namespaced
+    // (Claude Desktop keeps the chosen model in the conversation, and an
+    // agent's config names it). Refusing it turned a working setup into a
+    // 400 the moment the pool listed that model under a prefixed id.
+    //
+    // A bare id that more than one provider serves is ambiguous: the
+    // unprefixed row is the default provider's, and the first match in the
+    // pool order wins, which is exactly the row that kept the plain id.
+    const byBare = catalogue.find((model) => model.bareId === wanted && model.id === wanted)
+      || catalogue.find((model) => model.bareId === wanted);
+    if (byBare) {
+      const account = accounts.find((item) => item.id === byBare.ownerAccountId);
+      return account ? answer(byBare, account, byBare.bareId) : { known: false };
+    }
+    return { known: false };
   }
 
   async signedIn() {
