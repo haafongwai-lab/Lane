@@ -2437,8 +2437,6 @@ body.view-chat .chat-shell { min-height: 100vh; }
   gap: 8px;
 }
 .chat-clear {
-  padding: 4px 10px;
-  font-size: 11.5px;
   /* A clear gap from 历史: they are two different actions, not a pair. */
   margin-left: 6px;
 }
@@ -2650,14 +2648,18 @@ body.view-chat .chat-shell { min-height: 100vh; }
    Each switch is a real checkbox with a drawn track, so keyboard and
    screen-reader behaviour survive while it looks like Lane. */
 .chat-mcp { position: relative; }
-.chat-mcp-trigger {
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 28px; padding: 0 10px;
+/* 工具 / 历史 / 清空 are one family: same height, border, radius, weight and
+   hover, so the top bar reads as a single row of controls. */
+.chat-mcp-trigger, .chat-history-trigger, .chat-clear {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 28px; padding: 0 11px;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--surface-raised); color: var(--ink-soft);
-  font: 600 11.5px/1.3 var(--font-sans); cursor: pointer; transition: .15s;
+  font: 600 11.5px/1.3 var(--font-sans);
+  cursor: pointer; transition: border-color .15s, color .15s, background .15s;
 }
-.chat-mcp-trigger:hover, .chat-mcp-trigger[aria-expanded='true'] {
+.chat-mcp-trigger:hover, .chat-history-trigger:hover, .chat-clear:hover,
+.chat-mcp-trigger[aria-expanded='true'], .chat-history-trigger[aria-expanded='true'] {
   border-color: var(--line-strong); color: var(--ink);
 }
 /* A count, drawn as a chip rather than a badge: Lane never uses a coloured dot
@@ -2728,19 +2730,21 @@ body.view-chat .chat-shell { min-height: 100vh; }
 .chat-menu-check {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
 }
+/* Same geometry and colour as Lane's own switch (.switch): a 35x20 track,
+   a 14px knob inset 3px, and #2d6f4a when on. */
 .chat-menu-track {
-  flex: none; width: 30px; height: 18px; border-radius: 9px;
+  flex: none; width: 35px; height: 20px; border-radius: 20px;
   background: var(--switch-track); position: relative;
-  transition: background .15s;
+  transition: background .18s;
 }
 .chat-menu-knob {
-  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
   border-radius: 50%; background: var(--switch-knob);
-  box-shadow: 0 1px 2px rgba(25, 27, 25, .28);
-  transition: transform .15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .14);
+  transition: transform .18s;
 }
-.chat-menu-check:checked + .chat-menu-track { background: var(--green); }
-.chat-menu-check:checked + .chat-menu-track .chat-menu-knob { transform: translateX(12px); }
+.chat-menu-check:checked + .chat-menu-track { background: #2d6f4a; }
+.chat-menu-check:checked + .chat-menu-track .chat-menu-knob { transform: translateX(15px); }
 .chat-menu-check:focus-visible + .chat-menu-track {
   outline: 2px solid var(--green); outline-offset: 2px;
 }
@@ -3068,7 +3072,7 @@ body.view-chat .chat-shell { min-height: 100vh; }
 /* Saved conversations: a quiet trigger and a list panel, matching the工具
    popover's surface. */
 .chat-history { position: relative; display: inline-flex; }
-.chat-history-trigger { padding: 4px 10px; font-size: 11.5px; }
+
 .chat-history-panel {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
   width: min(280px, calc(100vw - 32px)); max-height: 380px; overflow-y: auto;
@@ -3121,13 +3125,20 @@ body.view-chat .chat-shell { min-height: 100vh; }
 .chat-history-search::placeholder { color: var(--chat-muted); }
 
 /* The attach button sits left of the model picker, quiet like the others. */
+/* A plus sign, not an icon: a 28px square that lines up with the model
+   trigger on the same row. The glyph is centered by flex and lifted one
+   pixel so its optical centre matches the text beside it. */
 .chat-attach {
   flex: none; width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0; border: 0; border-radius: 8px; background: transparent;
-  color: var(--chat-muted); cursor: pointer; transition: background .15s, color .15s;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted); cursor: pointer; transition: background .15s, color .15s;
 }
-.chat-attach:hover { background: var(--chat-hover); color: var(--chat-ink); }
+.chat-attach span {
+  font: 400 19px/1 var(--font-sans);
+  transform: translateY(-1px);
+}
+.chat-attach:hover { background: var(--hover-bg); color: var(--ink); }
 .chat-file-input { display: none; }
 
 /* The pending-attachment tray, above the composer card. */

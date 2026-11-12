@@ -50,6 +50,31 @@ test("历史 and 清空 are visually separated", () => {
   assert.match(clear, /margin-left: 6px/);
 });
 
+test("工具, 历史 and 清空 are one family of controls", () => {
+  // One rule shapes all three, so the row reads as a single control set.
+  const group = /\.chat-mcp-trigger, \.chat-history-trigger, \.chat-clear \{[\s\S]*?\}/.exec(CSS);
+  assert.ok(group, "the shared rule exists");
+  assert.match(group[0], /height: 28px/);
+  assert.match(group[0], /border: 1px solid var\(--line\)/);
+  assert.match(group[0], /border-radius: var\(--radius-sm\)/);
+  assert.match(group[0], /font: 600 11\.5px/);
+  // The old per-button overrides are gone, or they would undo the shared rule.
+  assert.equal(/\.chat-history-trigger \{ padding: 4px 10px/.test(CSS), false);
+});
+
+test("the attach control is a plus, aligned with the model name", () => {
+  const html = fs.readFileSync(path.join(HERE, "..", "desktop", "index.html"), "utf8");
+  const attach = html.slice(html.indexOf('id="chat-attach"') - 120, html.indexOf('id="chat-attach"') + 220);
+  assert.match(attach, /<span aria-hidden="true">\+<\/span>/);
+  assert.equal(/<svg/.test(attach), false, "the paperclip icon is gone");
+  const btn = rule(".chat-attach {");
+  assert.match(btn, /width: 28px/);
+  assert.match(btn, /height: 28px/);
+  assert.match(btn, /align-items: center/);
+  assert.match(btn, /justify-content: center/);
+  assert.match(CSS, /\.chat-attach span \{/);
+});
+
 test("回到底部 is fixed to the viewport", () => {
   const button = rule(".chat-to-bottom {");
   assert.match(button, /position: fixed/);

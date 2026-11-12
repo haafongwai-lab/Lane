@@ -55,9 +55,10 @@ test("the 工具 sheet is grouped, titled, and uses drawn switches", () => {
   // Two real checkboxes with a drawn track beside each.
   assert.equal((HTML.match(/class="chat-menu-check"/g) || []).length >= 2, true);
   assert.equal((HTML.match(/class="chat-menu-track"/g) || []).length >= 2, true);
-  // Lane's own green, not the DSH blue.
-  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: var\(--green\); \}/);
-  assert.match(CSS, /\.chat-menu-knob \{[\s\S]*?transform: translateX\(12px\)/);
+  // The exact switch geometry and 'on' colour Lane's settings page uses.
+  assert.match(CSS, /\.chat-menu-track \{[\s\S]*?width: 35px; height: 20px/);
+  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: #2d6f4a; \}/);
+  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \.chat-menu-knob \{ transform: translateX\(15px\); \}/);
 });
 
 test("server rows show their transport and dim when MCP is off", () => {
