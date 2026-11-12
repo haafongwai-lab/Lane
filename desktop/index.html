@@ -29,26 +29,38 @@
 
     <main id="main">
       <section class="view" id="view-chat">
-        <div class="heading-row">
-          <div>
+        <div class="chat-shell">
+          <div class="chat-topbar">
             <div class="eyebrow">自带问答</div>
-            <h1>直接问一句</h1>
-            <p class="sub">和客户端走同一个本地网关、同一个账号、同一套请求，上游看到的东西没有区别。</p>
+            <button class="ghost chat-clear" id="chat-clear">清空</button>
           </div>
-          <div class="heading-actions">
-            <select id="chat-model" class="chat-model" aria-label="选择模型"></select>
-            <button class="ghost" id="chat-clear">清空</button>
+          <div class="chat-scroll" id="chat-log">
+            <div class="chat-empty">
+              <h2>直接问一句</h2>
+              <p>和客户端走同一个本地网关、同一个账号、同一套请求，上游看到的东西没有区别。</p>
+            </div>
+          </div>
+          <div class="chat-dock">
+            <div class="chat-card">
+              <textarea id="chat-input" rows="1" placeholder="问点什么…"></textarea>
+              <div class="chat-card-row">
+                <div class="chat-model-picker" id="chat-model-picker">
+                  <button type="button" class="chat-model-trigger" id="chat-model-button" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="chat-model-label">选择模型</span>
+                    <svg class="chat-model-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <div class="chat-model-menu" id="chat-model-menu" role="listbox" hidden></div>
+                </div>
+                <span class="chat-spacer"></span>
+                <button class="chat-send" id="chat-send" aria-label="发送">
+                  <svg viewBox="0 0 20 20" width="18" height="18" fill="none" aria-hidden="true"><path d="M10 15.5V4.5M10 4.5L5 9.5M10 4.5l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="chat-stop" id="chat-stop" hidden aria-label="停止"><span></span></button>
+              </div>
+            </div>
+            <p class="chat-note">一次只发一条、失败不自动重试、回答长度有限制；沿用当前账号和模型，不额外增加上游可见的标识。</p>
           </div>
         </div>
-        <article class="panel chat-panel">
-          <div class="chat-log" id="chat-log"><div class="empty">选好模型，在下面输入问题，回车发送。</div></div>
-          <div class="chat-compose">
-            <textarea id="chat-input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
-            <button class="primary" id="chat-send">发送</button>
-            <button class="ghost" id="chat-stop" hidden>停止</button>
-          </div>
-          <p class="chat-note">一次只发一条、失败不自动重试、回答长度有限制；沿用当前账号和模型，不额外增加上游可见的标识。</p>
-        </article>
       </section>
 
       <section class="view active" id="view-routing">

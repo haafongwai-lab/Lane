@@ -558,67 +558,83 @@ function render() {
 
 // ---- 问答 -----------------------------------------------------------------
 //
-// Lane's own console: the same loopback request a client makes, so the
-// upstream sees nothing new. The risk controls live here — one request at a
-// time, a minimum gap between sends, no retry, and a token cap — because a
-// burst of tiny probes is the one pattern that reads as a script rather than
-// a person.
+// Lane's own console. The look follows DSH's chat: a centred content column,
+// assistant text flowing without a bubble, the user's own words in a soft
+// bubble on the right, and a floating rounded card at the bottom that holds
+// the input, the model picker and a circular send button.
+//
+// The risk controls stay in the code — one request at a time, a minimum gap
+// between sends, no retry, and a token cap — because a burst of tiny probes is
+// the one pattern that reads as a script rather than a person.
 const CHAT_MIN_GAP_MS = 2000;
 const CHAT_MAX_TOKENS = 1024;
 let chatHistory = [];
 let chatBusy = false;
 let chatLastSentAt = 0;
 let chatCurrentId = "";
+let chatSelectedModel = "";
 let chatModelsKey = "";
+
+const CHAT_CHECK_SVG = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 7.5l2.5 2.5L11 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function chatModelList() {
   return (snapshot?.models || []).filter((model) => model && model.id);
 }
 
-// The dropdown follows the enabled models (the same allowlist the agents read).
-// A selection the user made survives a poll; a selection whose model was
-// removed falls back to the first, so Send never sends an unserved id.
+// The picker lists the enabled models (the same allowlist the agents read).
+// The selection survives a poll; if its model disappears it falls back to the
+// first, so Send never sends an unserved id.
 function renderChatModels() {
-  const select = $("#chat-model");
-  if (!select) return;
+  const label = $("#chat-model-label");
+  const button = $("#chat-model-button");
+  const menu = $("#chat-model-menu");
+  if (!label || !button || !menu) return;
   const models = chatModelList();
-  const key = models.map((m) => m.id).join("|");
+  if (!models.some((m) => m.id === chatSelectedModel)) chatSelectedModel = models[0]?.id || "";
+  const current = models.find((m) => m.id === chatSelectedModel);
+  label.textContent = current ? (current.name || current.id) : (models.length ? "选择模型" : "无可用模型");
+  button.disabled = !models.length || chatBusy;
+
+  const key = `${models.map((m) => `${m.id}:${m.name || ""}`).join("|")}#${chatSelectedModel}`;
   if (key !== chatModelsKey) {
     chatModelsKey = key;
-    const keep = select.value;
-    select.innerHTML = models.map((model) =>
-      `<option value="${esc(model.id)}">${esc(model.name || model.id)}</option>`
-    ).join("");
-    if (models.some((m) => m.id === keep)) select.value = keep;
+    menu.innerHTML = models.length
+      ? models.map((m) => {
+        const on = m.id === chatSelectedModel;
+        return `<button type="button" class="chat-model-option${on ? " selected" : ""}" role="option" aria-selected="${on}" data-model="${esc(m.id)}"><span class="chat-model-name">${esc(m.name || m.id)}</span><span class="chat-model-check">${on ? CHAT_CHECK_SVG : ""}</span></button>`;
+      }).join("")
+      : '<div class="chat-model-none">还没有启用任何模型</div>';
   }
-  const usable = models.length > 0;
-  select.disabled = !usable || chatBusy;
+
   const send = $("#chat-send");
-  if (send) send.disabled = !usable || chatBusy;
-  if (!usable) {
-    // No model is enabled: the panel cannot serve a request, and the empty
-    // state says where to fix that rather than failing on send.
+  if (send) send.disabled = !models.length || chatBusy;
+  if (!models.length) {
     const log = $("#chat-log");
     if (log && !chatHistory.length) {
-      log.innerHTML = '<div class="empty">还没有启用任何模型。先到「模型」页打开一个。</div>';
+      log.innerHTML = '<div class="chat-empty"><h2>没有可用模型</h2><p>先到「模型」页打开一个。</p></div>';
     }
   }
+}
+
+function chatMenuOpen(open) {
+  const menu = $("#chat-model-menu");
+  const button = $("#chat-model-button");
+  if (!menu || !button) return;
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", String(Boolean(open)));
 }
 
 function chatBubble(role, text = "") {
   const log = $("#chat-log");
   if (!log) return null;
-  const empty = log.querySelector(".empty");
+  const empty = log.querySelector(".chat-empty");
   if (empty) empty.remove();
   const node = document.createElement("div");
   node.className = `chat-msg ${role}`;
-  const who = document.createElement("span");
-  who.className = "chat-who";
-  who.textContent = role === "user" ? "你" : "Lane";
   const body = document.createElement("div");
   body.className = "chat-text";
   body.textContent = text;
-  node.append(who, body);
+  node.append(body);
   log.append(node);
   chatScroll();
   return body;
@@ -629,7 +645,7 @@ function chatBubble(role, text = "") {
 function chatScroll() {
   const log = $("#chat-log");
   if (!log) return;
-  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   if (near) log.scrollTop = log.scrollHeight;
 }
 
@@ -638,6 +654,7 @@ function chatSetBusy(busy) {
   const send = $("#chat-send");
   const stop = $("#chat-stop");
   const input = $("#chat-input");
+  if (send) send.hidden = busy;
   if (send) send.disabled = busy || !chatModelList().length;
   if (stop) stop.hidden = !busy;
   if (input) input.disabled = busy;
@@ -647,10 +664,9 @@ function chatSetBusy(busy) {
 async function sendChat() {
   if (chatBusy) return;
   const input = $("#chat-input");
-  const select = $("#chat-model");
   const text = String(input?.value || "").trim();
   if (!text) return;
-  const model = String(select?.value || "");
+  const model = chatSelectedModel;
   if (!model) { toast("先在「模型」页启用一个模型", true); return; }
   // A minimum gap: two questions a second apart is a script's cadence, not a
   // person's, and it is the cheapest signal to keep clean.
@@ -665,6 +681,7 @@ async function sendChat() {
 
   chatBubble("user", text);
   const answer = chatBubble("assistant", "");
+  if (answer) answer.classList.add("streaming");
   const messages = [...chatHistory, { role: "user", content: text }];
   const id = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
   chatCurrentId = id;
@@ -678,24 +695,26 @@ async function sendChat() {
       if (answer) { answer.textContent = streamed; chatScroll(); }
     } else if (msg.reasoning && !streamed && answer) {
       answer.textContent = msg.reasoning;
+      chatScroll();
     }
   });
   try {
     const result = await window.lane.consoleChat({ id, model, messages, maxTokens: CHAT_MAX_TOKENS });
     if (result?.ok) {
       const final = result.text || streamed;
-      if (answer) answer.textContent = final || "（空回答）";
+      if (answer) { answer.textContent = final || "（空回答）"; answer.classList.remove("streaming"); }
       // Remember the turn only when it succeeded: a failed turn is not
       // context the model should carry into the next question.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
     } else if (!result?.cancelled) {
-      if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); }
+      if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
       toast(result?.error || "请求失败", true);
-    } else if (answer && !streamed) {
-      answer.textContent = "已停止";
+    } else if (answer) {
+      answer.classList.remove("streaming");
+      if (!streamed) answer.textContent = "已停止";
     }
   } catch (error) {
-    if (answer) { answer.textContent = error.message || "请求失败"; answer.classList.add("error"); }
+    if (answer) { answer.textContent = error.message || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
     toast(error.message || "请求失败", true);
   } finally {
     off?.();
@@ -712,13 +731,28 @@ $("#chat-stop")?.addEventListener("click", () => {
 $("#chat-clear")?.addEventListener("click", () => {
   chatHistory = [];
   const log = $("#chat-log");
-  if (log) log.innerHTML = '<div class="empty">选好模型，在下面输入问题，回车发送。</div>';
+  if (log) log.innerHTML = '<div class="chat-empty"><h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p></div>';
   renderChatModels();
+});
+$("#chat-model-button")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  chatMenuOpen($("#chat-model-menu")?.hidden);
+});
+$("#chat-model-menu")?.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-model]");
+  if (!option) return;
+  chatSelectedModel = option.dataset.model || "";
+  chatMenuOpen(false);
+  renderChatModels();
+  $("#chat-input")?.focus();
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
 });
 $("#chat-input")?.addEventListener("keydown", (event) => {
   // Enter sends, Shift+Enter breaks the line: a one-line question is the
   // common case, and the textarea still grows with its content.
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendChat();
   }
@@ -726,9 +760,8 @@ $("#chat-input")?.addEventListener("keydown", (event) => {
 $("#chat-input")?.addEventListener("input", (event) => {
   const el = event.target;
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
 });
-
 
 // ---- accounts -------------------------------------------------------------
 
