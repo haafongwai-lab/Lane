@@ -49,6 +49,23 @@
   --font-sans: "Segoe UI Variable Text", "Aptos", "Microsoft YaHei UI", sans-serif;
   --font-display: "Segoe UI Variable Display", "Aptos Display", "Microsoft YaHei UI", sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Menu chrome, copied from DeepSeek Harness's own theme so Lane's popovers
+     are the same surface: a translucent fill over a 40px frost, a hairline
+     stroke that is part of the shadow, and the lg radius. Values read from
+     dsh-client-ui-theme: --dsw-specific-menu, --dsw-menu-backdrop-filter,
+     --dsw-elevation-prominent, --dsw-radius-lg, --dsw-alias-border-l4. */
+  --dsh-menu-surface: rgba(252, 253, 254, .7);
+  --dsh-menu-group-fill: rgba(248, 249, 250, .94);
+  --dsh-menu-frost: blur(40px) saturate(150%);
+  --dsh-menu-stroke: rgba(0, 0, 0, .16);
+  --dsh-menu-shadow: 0 0 0 .5px var(--dsh-menu-stroke), 0 3px 8px 0 rgba(0, 0, 0, .04), 0 0 20px 0 rgba(0, 0, 0, .05);
+  --dsh-menu-radius: 16px;
+  --dsh-row-hover: #f1f3f5;
+  --dsh-row-active: #ebeef2;
+  --dsh-ink: #0f1115;
+  --dsh-ink-2: #61666b;
+  --dsh-accent: #4176e6;
 }
 
 /* The dark palette mirrors DeepSeek Harness's dark theme exactly.
@@ -93,6 +110,16 @@
   --primary-hover: #ebeef2;
   --primary-sub: #81858c;
   --switch-track: #43454a;
+  /* The same menu surface in DSH's dark theme: #303136 at 64%, stroke #fff3. */
+  --dsh-menu-surface: rgba(48, 49, 54, .64);
+  --dsh-menu-group-fill: rgba(48, 49, 54, .94);
+  --dsh-menu-stroke: rgba(255, 255, 255, .2);
+  --dsh-menu-shadow: 0 0 0 .5px var(--dsh-menu-stroke), 0 3px 8px 0 rgba(0, 0, 0, .04), 0 0 20px 0 rgba(0, 0, 0, .05);
+  --dsh-row-hover: #353638;
+  --dsh-row-active: #2c2c2e;
+  --dsh-ink: #f9fafb;
+  --dsh-ink-2: #adb2b8;
+  --dsh-accent: #7aaaff;
   --switch-knob: #adb2b8;
   --chip-bg: #2c2c2e;
   --track: #353638;
@@ -2436,11 +2463,27 @@ body.view-chat .chat-shell { min-height: 100vh; }
   background: linear-gradient(to bottom, var(--canvas) 60%, transparent);
   gap: 8px;
 }
+/* 工具 / 历史 / 清空 are DSH ghost buttons: no border, an 8px radius, a fill
+   on hover and while their menu is open, 12.5px medium type. A bordered pill
+   is DSH's shape for a *field*, not for a toolbar action. */
+.chat-mcp-trigger, .chat-history-trigger, .chat-clear {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 9px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--dsh-ink-2);
+  font: 500 12.5px/20px var(--font-sans);
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.chat-mcp-trigger:hover, .chat-history-trigger:hover, .chat-clear:hover {
+  background: var(--dsh-row-hover); color: var(--dsh-ink);
+}
+.chat-mcp-trigger[aria-expanded='true'], .chat-history-trigger[aria-expanded='true'] {
+  background: var(--dsh-row-active); color: var(--dsh-ink);
+}
 .chat-clear {
   /* A clear gap from 历史: they are two different actions, not a pair. */
-  margin-left: 6px;
+  margin-left: 4px;
 }
-
 .chat-scroll {
   flex: 1 1 auto;
   /* No inner scrollbar: the transcript grows and Lane's own page scrollbar
@@ -2642,123 +2685,131 @@ body.view-chat .chat-shell { min-height: 100vh; }
 /* Says the answer was cut at the token limit, rather than letting it just stop. */
 .chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; align-self: flex-start; }
 
-/* The 工具 popover, in Lane's own language: the panel surface with its hairline
-   border and 14px radius, the sidebar's eyebrow for the title, the green
-   accent for a live switch, and the same muted greys the rest of the app uses.
-   Each switch is a real checkbox with a drawn track, so keyboard and
-   screen-reader behaviour survive while it looks like Lane. */
-.chat-mcp { position: relative; }
-/* 工具 / 历史 / 清空 are one family: same height, border, radius, weight and
-   hover, so the top bar reads as a single row of controls. */
-.chat-mcp-trigger, .chat-history-trigger, .chat-clear {
-  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  height: 28px; padding: 0 11px;
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--surface-raised); color: var(--ink-soft);
-  font: 600 11.5px/1.3 var(--font-sans);
-  cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+/* The 工具 trigger and its popover, built to DeepSeek Harness's own menu
+   spec rather than a lookalike. Every number below comes from
+   dsh-client-ui-theme:
+
+     surface      --dsw-specific-menu #fcfdfeb3 over blur(40px) saturate(150%)
+     shadow       --dsw-elevation-prominent (a 0 0 0 .5px stroke baked in,
+                  then 0 3px 8px and 0 0 20px at 4-5% black)
+     radius       --dsw-radius-lg 16px
+     row hover    --dsw-alias-interactive-bg-hover-solid #f1f3f5
+     label        --dsw-alias-label-primary / -secondary
+     accent       --dsw-static-deepseek-500 #4176e6
+
+   The trigger is a quiet ghost button that fills on hover, the way DSH's
+   own toolbar buttons behave; nothing about it is a bordered pill. */
+.chat-mcp { position: relative; display: inline-flex; }
+.chat-mcp-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 9px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--dsh-ink-2);
+  font: 500 12.5px/20px var(--font-sans);
+  cursor: pointer; transition: background .12s, color .12s;
 }
-.chat-mcp-trigger:hover, .chat-history-trigger:hover, .chat-clear:hover,
-.chat-mcp-trigger[aria-expanded='true'], .chat-history-trigger[aria-expanded='true'] {
-  border-color: var(--line-strong); color: var(--ink);
-}
-/* A count, drawn as a chip rather than a badge: Lane never uses a coloured dot
-   for a number. */
+
+/* A count, drawn as a quiet chip: DSH never uses a saturated badge for a
+   number in a trigger. */
 .chat-mcp-count {
-  min-width: 16px; height: 16px; padding: 0 5px; border-radius: 5px;
+  min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px;
   box-sizing: border-box;
-  background: var(--green-bg); color: var(--green);
-  font: 700 10px/1 var(--font-sans); line-height: 1; font-variant-numeric: tabular-nums;
+  background: var(--dsh-row-active); color: var(--dsh-ink-2);
+  font: 600 10px/16px var(--font-sans); font-variant-numeric: tabular-nums;
   display: inline-flex; align-items: center; justify-content: center;
-  vertical-align: middle;
+  line-height: 1; vertical-align: middle;
 }
+.chat-mcp-trigger[aria-expanded='true'] .chat-mcp-count {
+  background: var(--dsh-accent); color: #fff;
+}
+
 .chat-mcp-menu {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
-  width: 304px; padding: 0;
-  border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--panel-bg); box-shadow: var(--shadow);
-  color: var(--ink); overflow: hidden;
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  width: 292px; padding: 6px;
+  border: 0; border-radius: var(--dsh-menu-radius);
+  background: var(--dsh-menu-surface);
+  -webkit-backdrop-filter: var(--dsh-menu-frost);
+  backdrop-filter: var(--dsh-menu-frost);
+  box-shadow: var(--dsh-menu-shadow);
+  color: var(--dsh-ink-2);
+  overflow: hidden auto; max-height: min(420px, 70vh);
+  /* DSH opens a popover with a short scale-and-fade from the trigger. */
+  transform-origin: top left;
+  animation: chat-menu-in .13s cubic-bezier(.2, .8, .3, 1);
 }
-@supports (backdrop-filter: blur(1px)) {
-  .chat-mcp-menu { backdrop-filter: blur(18px) saturate(120%); }
+@keyframes chat-menu-in {
+  from { opacity: 0; transform: scale(.97) translateY(-3px); }
+  to { opacity: 1; transform: none; }
 }
-/* Title block, set like the page eyebrows: small, spaced, muted. */
-.chat-menu-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-  padding: 11px 13px 9px;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--glass-soft);
-}
-.chat-menu-title {
-  color: var(--ink);
-  font: 700 10px/14px var(--font-sans);
-  letter-spacing: 1.2px; text-transform: uppercase;
-}
-.chat-menu-sub { color: var(--faint); font-size: 10.5px; }
-.chat-menu-group { padding: 9px 8px 10px; }
-.chat-menu-group + .chat-menu-group { border-top: 1px solid var(--line-soft); }
+/* Group header: a sticky strip in its own tint, exactly as DSH does it
+   (--dsw-alias-menu-group-header-fill #f8f9faf0). */
+.chat-menu-group { padding: 0; }
+.chat-menu-group + .chat-menu-group { margin-top: 4px; }
 .chat-menu-group-title {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 1px 6px 7px;
-  color: var(--faint);
-  font: 700 9.5px/13px var(--font-sans);
-  letter-spacing: 1px; text-transform: uppercase;
+  padding: 7px 10px 5px;
+  color: var(--dsh-ink-2);
+  font: 500 11px/16px var(--font-sans);
+  letter-spacing: .2px;
+  background: var(--dsh-menu-group-fill);
+  border-radius: 8px;
 }
 .chat-menu-gcount {
-  color: var(--muted); font-size: 10px; letter-spacing: 0;
-  text-transform: none; font-variant-numeric: tabular-nums;
+  color: var(--dsh-ink-2); font-size: 10.5px;
+  font-variant-numeric: tabular-nums; opacity: .8;
 }
-/* A switch row: label on the left, track on the right. */
+/* A menu row: DSH's item shape - 32px tall, 8px radius, fill on hover, a
+   title and an optional second line. */
 .chat-menu-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 7px 6px; border-radius: 8px; cursor: pointer;
-  transition: background .12s;
+  min-height: 32px; padding: 5px 10px; border-radius: 8px;
+  cursor: pointer; transition: background .1s;
 }
-.chat-menu-row:hover { background: var(--glass-soft); }
-.chat-menu-row.sub { padding-left: 15px; }
-.chat-menu-row.muted { opacity: .48; }
-.chat-menu-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.chat-menu-row:hover { background: var(--dsh-row-hover); }
+.chat-menu-row.sub { padding-left: 16px; }
+.chat-menu-row.muted { opacity: .5; }
+.chat-menu-row-main { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .chat-menu-row-main b {
-  font: 600 12px/17px var(--font-sans); color: var(--ink);
+  font: 400 13px/19px var(--font-sans); color: var(--dsh-ink);
 }
 .chat-menu-row-main small {
-  color: var(--faint); font: 400 10.5px/15px var(--font-sans);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--dsh-ink-2); font: 400 11px/15px var(--font-sans);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85;
 }
-/* The checkbox is real but invisible; the track beside it draws the state, in
-   the same green the rest of Lane uses for 'on'. */
+/* The switch, to DSH's proportions: a 32x18 track with a 14px knob, the
+   accent when on. */
 .chat-menu-check {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
 }
-/* Same geometry and colour as Lane's own switch (.switch): a 35x20 track,
-   a 14px knob inset 3px, and #2d6f4a when on. */
 .chat-menu-track {
-  flex: none; width: 35px; height: 20px; border-radius: 20px;
+  flex: none; width: 32px; height: 18px; border-radius: 9px;
   background: var(--switch-track); position: relative;
-  transition: background .18s;
+  transition: background .16s;
 }
 .chat-menu-knob {
-  position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
-  border-radius: 50%; background: var(--switch-knob);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .14);
-  transition: transform .18s;
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+  transition: transform .16s cubic-bezier(.2, .8, .3, 1);
 }
-.chat-menu-check:checked + .chat-menu-track { background: #2d6f4a; }
-.chat-menu-check:checked + .chat-menu-track .chat-menu-knob { transform: translateX(15px); }
+.chat-menu-check:checked + .chat-menu-track { background: var(--dsh-accent); }
+.chat-menu-check:checked + .chat-menu-track .chat-menu-knob { transform: translateX(14px); }
 .chat-menu-check:focus-visible + .chat-menu-track {
-  outline: 2px solid var(--green); outline-offset: 2px;
+  outline: 2px solid var(--dsh-accent); outline-offset: 2px;
 }
 .chat-menu-check:disabled + .chat-menu-track { opacity: .45; }
 .chat-mcp-servers {
-  display: flex; flex-direction: column; gap: 1px;
-  max-height: 210px; overflow-y: auto; margin-top: 2px;
+  display: flex; flex-direction: column; gap: 0;
+  max-height: 220px; overflow-y: auto;
 }
-.chat-menu-empty { margin: 2px 6px 6px; padding: 8px 0; color: var(--faint); font-size: 11.5px; }
+.chat-menu-empty {
+  margin: 0; padding: 9px 10px; color: var(--dsh-ink-2);
+  font-size: 12px; opacity: .8;
+}
 .chat-mcp-note {
-  margin: 0; padding: 8px 13px 10px;
-  border-top: 1px solid var(--line-soft);
-  background: var(--glass-soft);
-  color: var(--faint); font-size: 10.5px; line-height: 1.55;
+  margin: 4px 0 0; padding: 8px 10px 6px;
+  border-top: .5px solid var(--dsh-menu-stroke);
+  color: var(--dsh-ink-2); font-size: 10.5px; line-height: 1.55; opacity: .8;
 }
 /* One line per tool call, inside the assistant message so it reads in order. */
 .chat-tool { margin-top: 6px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.6; }
@@ -3073,36 +3124,47 @@ body.view-chat .chat-shell { min-height: 100vh; }
    popover's surface. */
 .chat-history { position: relative; display: inline-flex; }
 
+/* The 历史 panel is the same DSH popover surface as the 工具 sheet: one
+   translucent frosted layer, the same radius, the same elevation. */
 .chat-history-panel {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
-  width: min(280px, calc(100vw - 32px)); max-height: 380px; overflow-y: auto;
-  padding: 6px; border: 1px solid var(--chat-menu-border); border-radius: 12px;
-  background: var(--chat-menu-bg); box-shadow: var(--chat-shadow-menu);
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+  width: min(292px, calc(100vw - 32px)); max-height: 400px; overflow-y: auto;
+  padding: 6px; border: 0; border-radius: var(--dsh-menu-radius);
+  background: var(--dsh-menu-surface);
+  -webkit-backdrop-filter: var(--dsh-menu-frost);
+  backdrop-filter: var(--dsh-menu-frost);
+  box-shadow: var(--dsh-menu-shadow);
+  transform-origin: top right;
+  animation: chat-menu-in .13s cubic-bezier(.2, .8, .3, 1);
 }
 .chat-history-new {
-  width: 100%; padding: 7px 10px; margin-bottom: 4px;
-  border: 1px dashed var(--chat-card-border); border-radius: 8px;
-  background: transparent; color: var(--chat-ink-soft);
-  font: 12.5px/20px var(--font-sans); text-align: left; cursor: pointer;
+  width: 100%; min-height: 32px; padding: 5px 10px; margin: 0 0 2px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--dsh-ink);
+  font: 400 13px/19px var(--font-sans); text-align: left; cursor: pointer;
+  transition: background .1s;
 }
-.chat-history-new:hover { background: var(--chat-hover); color: var(--chat-ink); }
-.chat-history-item { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
-.chat-history-item.active { background: var(--chat-hover); }
+.chat-history-new:hover { background: var(--dsh-row-hover); }
+.chat-history-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.chat-history-item.active { background: var(--dsh-row-active); }
 .chat-history-open {
   flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px;
-  padding: 7px 8px; border: 0; background: transparent;
-  color: var(--chat-ink); font: 12.5px/20px var(--font-sans);
-  text-align: left; cursor: pointer;
+  min-height: 32px; padding: 6px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--dsh-ink);
+  font: 400 13px/19px var(--font-sans);
+  text-align: left; cursor: pointer; transition: background .1s;
 }
 .chat-history-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-history-meta { flex: none; color: var(--chat-muted); font-size: 11px; }
+.chat-history-meta { flex: none; color: var(--dsh-ink-2); font-size: 11px; opacity: .8; }
 .chat-history-del {
   flex: none; width: 22px; height: 22px; margin-right: 4px;
   border: 0; border-radius: 6px; background: transparent;
-  color: var(--chat-muted); font-size: 11px; cursor: pointer;
+  color: var(--dsh-ink-2); font-size: 11px; cursor: pointer;
+  opacity: 0; transition: opacity .1s, background .1s;
 }
-.chat-history-del:hover { background: var(--chat-hover); color: var(--red); }
-.chat-history-empty { margin: 0; padding: 12px 10px; color: var(--chat-muted); font-size: 12px; text-align: center; }
+.chat-history-item:hover .chat-history-del { opacity: 1; }
+.chat-history-del:hover { background: var(--dsh-row-hover); color: var(--red); }
+.chat-history-empty { margin: 0; padding: 14px 10px; color: var(--dsh-ink-2); font-size: 12px; text-align: center; opacity: .8; }
 /* Separates the local-tools switch from the MCP list in the 工具 menu. */
 .chat-mcp-divider { height: 1px; margin: 4px 2px 6px; background: var(--line-soft); }
 
@@ -3116,13 +3178,14 @@ body.view-chat .chat-shell { min-height: 100vh; }
 }
 /* The history search box, above the list. */
 .chat-history-search {
-  width: 100%; margin: 4px 0 6px; padding: 6px 9px;
-  border: 1px solid var(--chat-card-border); border-radius: 8px;
-  background: transparent; color: var(--chat-ink);
-  font: 12.5px/20px var(--font-sans); outline: none;
+  width: calc(100% - 4px); margin: 2px 2px 4px; padding: 6px 9px;
+  border: .5px solid var(--dsh-menu-stroke); border-radius: 8px;
+  background: var(--dsh-menu-group-fill); color: var(--dsh-ink);
+  font: 400 12.5px/20px var(--font-sans); outline: none;
+  transition: border-color .12s;
 }
-.chat-history-search:focus { border-color: var(--chat-accent); }
-.chat-history-search::placeholder { color: var(--chat-muted); }
+.chat-history-search:focus { border-color: var(--dsh-accent); }
+.chat-history-search::placeholder { color: var(--dsh-ink-2); opacity: .7; }
 
 /* The attach button sits left of the model picker, quiet like the others. */
 /* A plus sign, not an icon: a 28px square that lines up with the model

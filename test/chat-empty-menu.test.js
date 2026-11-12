@@ -48,22 +48,27 @@ test("rebuilding the empty state keeps the floating button", () => {
 });
 
 test("the 工具 sheet is grouped, titled, and uses drawn switches", () => {
-  assert.match(HTML, /class="chat-menu-head"/);
-  assert.match(HTML, /class="chat-menu-title">工具/);
+  assert.match(HTML, /class="chat-menu-group-title">本地工具/);
   assert.match(HTML, /class="chat-menu-group-title">本地/);
   assert.match(HTML, /class="chat-menu-group-title">/);
   // Two real checkboxes with a drawn track beside each.
   assert.equal((HTML.match(/class="chat-menu-check"/g) || []).length >= 2, true);
   assert.equal((HTML.match(/class="chat-menu-track"/g) || []).length >= 2, true);
-  // The exact switch geometry and 'on' colour Lane's settings page uses.
-  assert.match(CSS, /\.chat-menu-track \{[\s\S]*?width: 35px; height: 20px/);
-  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: #2d6f4a; \}/);
-  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \.chat-menu-knob \{ transform: translateX\(15px\); \}/);
+  // DSH's switch: a 32x18 track lit with the DeepSeek accent.
+  assert.match(CSS, /\.chat-menu-track \{[\s\S]*?width: 32px; height: 18px/);
+  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: var\(--dsh-accent\); \}/);
+  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \.chat-menu-knob \{ transform: translateX\(14px\); \}/);
 });
 
 test("server rows show their transport and dim when MCP is off", () => {
   assert.match(APP, /const kind = server\.transport === "http" \? "HTTP" : "STDIO"/);
   assert.match(APP, /chat-menu-row sub' \+ \(master\.checked \? "" : " muted"\)/);
   assert.match(APP, /if \(hint\) hint\.textContent = master\.checked \?/);
-  assert.match(CSS, /\.chat-menu-row\.muted \{ opacity: \.48; \}/);
+  assert.match(CSS, /\.chat-menu-row\.muted \{ opacity: \.5; \}/);
+  // The popover is DSH's own surface: 70% fill over a 40px frost, 16px radius,
+  // and an elevation whose first layer is the hairline stroke.
+  assert.match(CSS, /\.chat-mcp-menu \{[\s\S]*?background: var\(--dsh-menu-surface\)/);
+  assert.match(CSS, /--dsh-menu-frost: blur\(40px\) saturate\(150%\);/);
+  assert.match(CSS, /--dsh-menu-radius: 16px;/);
+  assert.match(CSS, /--dsh-menu-shadow: 0 0 0 \.5px var\(--dsh-menu-stroke\)/);
 });

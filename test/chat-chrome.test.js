@@ -47,17 +47,18 @@ test("the view's top padding is removed so the bar never slides on first scroll"
 
 test("历史 and 清空 are visually separated", () => {
   const clear = rule(".chat-clear {");
-  assert.match(clear, /margin-left: 6px/);
+  assert.match(clear, /margin-left: 4px/);
 });
 
-test("工具, 历史 and 清空 are one family of controls", () => {
+test("工具, 历史 and 清空 are DSH ghost buttons", () => {
   // One rule shapes all three, so the row reads as a single control set.
   const group = /\.chat-mcp-trigger, \.chat-history-trigger, \.chat-clear \{[\s\S]*?\}/.exec(CSS);
   assert.ok(group, "the shared rule exists");
   assert.match(group[0], /height: 28px/);
-  assert.match(group[0], /border: 1px solid var\(--line\)/);
-  assert.match(group[0], /border-radius: var\(--radius-sm\)/);
-  assert.match(group[0], /font: 600 11\.5px/);
+  // Ghost, not a bordered pill: DSH reserves borders for fields.
+  assert.match(group[0], /border: 0/);
+  assert.match(group[0], /border-radius: 8px/);
+  assert.match(group[0], /font: 500 12\.5px/);
   // The old per-button overrides are gone, or they would undo the shared rule.
   assert.equal(/\.chat-history-trigger \{ padding: 4px 10px/.test(CSS), false);
 });
