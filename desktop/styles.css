@@ -2639,36 +2639,90 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 .chat-tool.ok { color: var(--green); }
 .chat-tool.bad { color: var(--red); }
 
-/* Rendered answer formatting. The model writes Markdown; these make it
-   read as such instead of showing the raw asterisks and backticks. */
-.chat-text p { margin: 0 0 8px; }
-.chat-text > *:last-child { margin-bottom: 0; }
-.chat-text h3, .chat-text h4, .chat-text h5, .chat-text h6 {
-  margin: 14px 0 6px; font-size: 14px; font-weight: 650; color: var(--chat-ink);
+/* Rendered answer formatting, matched to DSH's markdown surface: 14px/24px
+   body, h1 21 / h2 19 / h3 18 / h4 14, 16px block gaps, 18px list indent,
+   a header'd 16px code card, 13px tables, and dotted-underline links. The
+   palette is DSH's bluish neutrals mapped onto Lane's light/dark themes. */
+.chat-msg.assistant .chat-text {
+  --md-code-bg: #f9fafb;
+  --md-code-border: rgba(0, 0, 0, .05);
+  --md-inline-bg: #f1f3f5;
+  --md-line: rgba(0, 0, 0, .1);
+  min-width: 0; overflow-wrap: anywhere; white-space: normal;
+  color: var(--chat-ink);
+  font: 14px/24px var(--font-sans);
 }
-.chat-text ul, .chat-text ol { margin: 6px 0 10px; padding-left: 20px; }
-.chat-text li { margin: 3px 0; }
-.chat-text li > p { margin: 0; }
-.chat-text pre {
-  margin: 10px 0; padding: 10px 12px; border-radius: 10px;
-  background: var(--recess); overflow-x: auto;
+:root[data-theme="dark"] .chat-msg.assistant .chat-text {
+  --md-code-bg: #1b1d21;
+  --md-code-border: rgba(255, 255, 255, .07);
+  --md-inline-bg: #26282d;
+  --md-line: rgba(255, 255, 255, .12);
 }
-.chat-text pre code {
-  font-family: var(--font-mono); font-size: 12px; color: var(--code);
-  background: transparent; padding: 0; border-radius: 0; white-space: pre;
+.chat-text strong { font-weight: 600; }
+.chat-text h1 { font: 700 21px/30px var(--font-sans); margin: 32px 0 16px; }
+.chat-text h2 { font: 700 19px/28px var(--font-sans); margin: 32px 0 16px; }
+.chat-text h3 { font: 700 18px/26px var(--font-sans); margin: 32px 0 16px; }
+.chat-text h4 { font: 600 14px/24px var(--font-sans); margin: 16px 0; }
+.chat-text h5, .chat-text h6 { font: 600 14px/24px var(--font-sans); margin: 16px 0; }
+.chat-text :where(h1,h2,h3,h4,h5,h6) strong { font-weight: inherit; }
+.chat-text p { margin: 16px 0; }
+.chat-text > :first-child, .chat-text p:first-child { margin-top: 0 !important; }
+.chat-text > :last-child, .chat-text p:last-child { margin-bottom: 0 !important; }
+.chat-text :where(ul,ol) { margin: 16px 0; padding-left: 18px; }
+.chat-text li:not(:first-child) { margin-top: 6px; }
+.chat-text li::marker { line-height: 24px; color: var(--chat-muted); }
+.chat-text li > p { margin: 8px 0; }
+.chat-text input[type=checkbox] { margin: 0 8px 0 0; accent-color: var(--chat-muted); }
+.chat-text hr { display: block; border: 0; height: .5px; margin: 32px 0; background: var(--md-line); }
+.chat-text blockquote { border-left: 2px solid var(--chat-muted); margin: 16px 0 0; padding-left: 14px; }
+.chat-text blockquote p { margin: 8px 0; }
+.chat-text a.chat-link { color: var(--chat-accent); font-weight: 500; text-decoration: none; }
+.chat-text a.chat-link:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.chat-text :not(pre) > code {
+  display: inline-flex; align-items: center; box-sizing: border-box;
+  font: 12px/19px var(--font-mono); font-size: .875em;
+  color: var(--chat-ink); background: var(--md-inline-bg);
+  border: .5px solid var(--md-code-border); border-radius: 8px; padding: 0 5px;
+  white-space: normal;
 }
-.chat-text code {
-  font-family: var(--font-mono); font-size: 12px;
-  background: var(--recess); color: var(--code);
-  padding: 1px 5px; border-radius: 5px;
+.chat-text :where(h1,h2,h3,h4,h5,h6) code { font: inherit; font-family: var(--font-mono); }
+/* The code card: a banner with the language and a copy button, then the
+   scrollable pre. DSH uses 16px radius, 11px/19px monospace, 16px gaps. */
+.chat-code {
+  margin: 16px 0; border-radius: 16px; overflow: hidden;
+  background: var(--md-code-bg); border: .5px solid var(--md-code-border);
 }
-.chat-text blockquote {
-  margin: 10px 0; padding-left: 10px;
-  border-left: 2px solid var(--line-strong); color: var(--chat-muted);
+.chat-code-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px 6px 16px;
+  font: 11px/18px var(--font-sans); color: var(--chat-muted);
+  border-bottom: .5px solid var(--md-code-border);
 }
-.chat-text blockquote p { margin: 0 0 6px; }
-.chat-text hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
-.chat-link { color: var(--chat-accent); text-decoration: none; }
-.chat-link:hover { text-decoration: underline; }
+.chat-code-lang { text-transform: lowercase; letter-spacing: .3px; }
+.chat-code-copy {
+  border: 0; background: transparent; color: var(--chat-muted);
+  font: 11px/18px var(--font-sans); cursor: pointer; padding: 0 2px;
+}
+.chat-code-copy:hover { color: var(--chat-ink); }
+.chat-code pre {
+  margin: 0; padding: 10px 16px 16px; background: transparent;
+  overflow-x: auto; font: 11px/19px var(--font-mono);
+}
+.chat-code pre code {
+  font: inherit; color: var(--chat-ink); background: transparent;
+  padding: 0; border: 0; border-radius: 0; white-space: pre;
+}
+.chat-table-scroll { margin: 16px 0; overflow-x: auto; }
+.chat-text table { border-collapse: collapse; width: 100%; }
+.chat-text th {
+  text-align: start; padding: 10px 16px;
+  font: 500 13px/22px var(--font-sans); color: var(--chat-ink);
+  border-bottom: .5px solid var(--md-line);
+}
+.chat-text td {
+  padding: 10px 16px;
+  font: 13px/22px var(--font-sans); color: var(--chat-ink-soft);
+  border-bottom: .5px solid var(--md-line);
+}
 /* The in-flight tool call, shown above the composer only while it runs. */
 .chat-tool-status { margin: 0 6px 8px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.5; }

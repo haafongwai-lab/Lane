@@ -720,25 +720,39 @@ function chatToolStatus(text) {
 }
 
 // A small, safe Markdown renderer: no HTML from the model is trusted; every
-// text run becomes a node directly. Covers what answers actually use —
-// headings, lists, fenced and inline code, bold/italic, quotes, rules, links.
+// text run becomes a node directly. The shapes and spacing follow DSH's
+// markdown surface: real h1–h6 sizes, 16px block gaps, a header'd code card,
+// tables, and task lists. A model writing markup only ever produces text.
 function chatInline(text) {
   const frag = document.createDocumentFragment();
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(~~[^~]+~~)|(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
   let last = 0;
   let m;
   const push = (str) => { if (str) frag.append(document.createTextNode(str)); };
   while ((m = pattern.exec(text))) {
     push(text.slice(last, m.index));
-    if (m[1]) { const c = document.createElement("code"); c.textContent = m[1].slice(1, -1); frag.append(c); }
-    else if (m[2]) { const b = document.createElement("strong"); b.append(chatInline(m[2].slice(2, -2))); frag.append(b); }
-    else if (m[3]) { const it = document.createElement("em"); it.append(chatInline(m[3].slice(1, -1))); frag.append(it); }
-    else if (m[4]) {
-      const at = m[4].indexOf("](");
+    if (m[1]) {
+      const c = document.createElement("code");
+      c.textContent = m[1].slice(1, -1);
+      frag.append(c);
+    } else if (m[2]) {
+      const b = document.createElement("strong");
+      b.append(chatInline(m[2].slice(2, -2)));
+      frag.append(b);
+    } else if (m[3]) {
+      const it = document.createElement("em");
+      it.append(chatInline(m[3].slice(1, -1)));
+      frag.append(it);
+    } else if (m[4]) {
+      const s = document.createElement("s");
+      s.append(chatInline(m[4].slice(2, -2)));
+      frag.append(s);
+    } else if (m[5]) {
+      const at = m[5].indexOf("](");
       const a = document.createElement("a");
       a.className = "chat-link";
-      a.dataset.url = m[4].slice(at + 2, -1);
-      a.textContent = m[4].slice(1, at);
+      a.dataset.url = m[5].slice(at + 2, -1);
+      a.textContent = m[5].slice(1, at);
       a.href = "#";
       frag.append(a);
     }
@@ -748,47 +762,148 @@ function chatInline(text) {
   return frag;
 }
 
+function chatList(ordered) {
+  return document.createElement(ordered ? "ol" : "ul");
+}
+
+function chatListItem(text) {
+  const li = document.createElement("li");
+  const task = /^\[([ xX])\]\s+([\s\S]*)$/.exec(text);
+  if (task) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = task[1].toLowerCase() === "x";
+    box.disabled = true;
+    li.append(box, chatInline(task[2]));
+  } else {
+    li.append(chatInline(text));
+  }
+  return li;
+}
+
+function chatCodeCard(lang, source) {
+  const card = document.createElement("div");
+  card.className = "chat-code";
+  const head = document.createElement("div");
+  head.className = "chat-code-head";
+  const label = document.createElement("span");
+  label.className = "chat-code-lang";
+  label.textContent = lang || "text";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "chat-code-copy";
+  copy.textContent = "复制";
+  head.append(label, copy);
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  if (lang) code.className = `lang-${lang}`;
+  code.textContent = source;
+  pre.append(code);
+  card.append(head, pre);
+  return card;
+}
+
+function chatTable(rows) {
+  const split = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  const scroll = document.createElement("div");
+  scroll.className = "chat-table-scroll";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const cell of split(rows[0])) {
+    const th = document.createElement("th");
+    th.append(chatInline(cell));
+    headRow.append(th);
+  }
+  head.append(headRow);
+  table.append(head);
+  const body = document.createElement("tbody");
+  for (const line of rows.slice(2)) {
+    const tr = document.createElement("tr");
+    for (const cell of split(line)) {
+      const td = document.createElement("td");
+      td.append(chatInline(cell));
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+  table.append(body);
+  scroll.append(table);
+  return scroll;
+}
+
+const CHAT_TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
 function renderMarkdown(src) {
   const root = document.createDocumentFragment();
   const lines = String(src || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").split("\n");
-  const isBlock = (ln) => /^\s*```/.test(ln) || /^#{1,6}\s+/.test(ln) || /^\s*([-*+]|\d+[.)])\s+/.test(ln) || /^>\s?/.test(ln) || /^\s*(---|\*\*\*|___)\s*$/.test(ln);
+  const isBlock = (ln) => /^\s*```/.test(ln) || /^#{1,6}\s+/.test(ln) ||
+    /^\s*([-*+]|\d+[.)])\s+/.test(ln) || /^>\s?/.test(ln) ||
+    /^\s*(---|\*\*\*|___)\s*$/.test(ln) || /^\s*\|/.test(ln);
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i += 1; continue; }
-    const fence = /^\s*```(\w*)/.exec(line);
+
+    const fence = /^\s*```([\w+-]*)/.exec(line);
     if (fence) {
-      const lang = fence[1] || "";
       i += 1;
       const buf = [];
       while (i < lines.length && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i += 1; }
       i += 1;
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      if (lang) code.className = `lang-${lang}`;
-      code.textContent = buf.join("\n");
-      pre.append(code);
-      root.append(pre);
+      root.append(chatCodeCard(fence[1] || "", buf.join("\n")));
       continue;
     }
+
+    // A table starts with a header row followed by a |---|---| separator.
+    if (/^\s*\|/.test(line) && i + 1 < lines.length && CHAT_TABLE_SEP.test(lines[i + 1])) {
+      const rows = [line];
+      i += 1;
+      while (i < lines.length && /^\s*\|/.test(lines[i]) && lines[i].includes("|")) { rows.push(lines[i]); i += 1; }
+      root.append(chatTable(rows));
+      continue;
+    }
+
     const head = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (head) { const el = document.createElement(`h${Math.min(head[1].length + 2, 6)}`); el.append(chatInline(head[2])); root.append(el); i += 1; continue; }
+    if (head) {
+      const el = document.createElement(`h${head[1].length}`);
+      el.append(chatInline(head[2]));
+      root.append(el);
+      i += 1;
+      continue;
+    }
     if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) { root.append(document.createElement("hr")); i += 1; continue; }
     if (/^>\s?/.test(line)) {
       const quote = document.createElement("blockquote");
-      while (i < lines.length && /^>\s?/.test(lines[i])) { const para = document.createElement("p"); para.append(chatInline(lines[i].replace(/^>\s?/, ""))); quote.append(para); i += 1; }
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        const para = document.createElement("p");
+        para.append(chatInline(lines[i].replace(/^>\s?/, "")));
+        quote.append(para);
+        i += 1;
+      }
       root.append(quote);
       continue;
     }
-    if (/^\s*([-*+])\s+/.test(line)) {
-      const ul = document.createElement("ul");
-      while (i < lines.length && /^\s*([-*+])\s+/.test(lines[i])) { const li = document.createElement("li"); li.append(chatInline(lines[i].replace(/^\s*[-*+]\s+/, ""))); ul.append(li); i += 1; }
+    const unordered = /^\s*([-*+])\s+(.*)$/.exec(line);
+    if (unordered) {
+      const ul = chatList(false);
+      while (i < lines.length) {
+        const item = /^\s*([-*+])\s+(.*)$/.exec(lines[i]);
+        if (!item) break;
+        ul.append(chatListItem(item[2]));
+        i += 1;
+      }
       root.append(ul);
       continue;
     }
     if (/^\s*\d+[.)]\s+/.test(line)) {
-      const ol = document.createElement("ol");
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { const li = document.createElement("li"); li.append(chatInline(lines[i].replace(/^\s*\d+[.)]\s+/, ""))); ol.append(li); i += 1; }
+      const ol = chatList(true);
+      while (i < lines.length) {
+        const item = /^\s*\d+[.)]\s+(.*)$/.exec(lines[i]);
+        if (!item) break;
+        ol.append(chatListItem(item[1]));
+        i += 1;
+      }
       root.append(ol);
       continue;
     }
@@ -976,6 +1091,17 @@ $("#chat-mcp-servers")?.addEventListener("change", (event) => {
   saveChatPrefs({ mcpServers: [...chosen] });
 });
 document.addEventListener("click", (event) => {
+  const copyButton = event.target.closest(".chat-code-copy");
+  if (copyButton) {
+    const code = copyButton.closest(".chat-code")?.querySelector("pre code");
+    if (code) {
+      navigator.clipboard.writeText(code.textContent || "").then(() => {
+        copyButton.textContent = "已复制";
+        setTimeout(() => { copyButton.textContent = "复制"; }, 1600);
+      }).catch(() => toast("复制失败", true));
+    }
+    return;
+  }
   const link = event.target.closest("a.chat-link");
   if (link) {
     event.preventDefault();
