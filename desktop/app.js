@@ -184,7 +184,7 @@ function go(view) {
   if (view === "activity") loadUsage();
   if (view === "extensions") loadExtensions();
   if (view === "plugins") loadPlugins();
-  if (view === "chat") renderChatModels();
+  if (view === "chat") { renderChatModels(); loadChatPrefs(); chatScroll(true); }
   $$(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
@@ -558,22 +558,31 @@ function render() {
 
 // ---- 问答 -----------------------------------------------------------------
 //
-// Lane's own console. The look follows DSH's chat: a centred content column,
-// assistant text flowing without a bubble, the user's own words in a soft
-// bubble on the right, and a floating rounded card at the bottom that holds
-// the input, the model picker and a circular send button.
+// Lane's own console. The look follows DSH's chat: the assistant's text flows
+// without a bubble, the user's words sit in a soft bubble on the right, and the
+// composer is a floating card docked at the bottom. The page scrolls as one -
+// there is no scrollbar of its own inside the transcript.
 //
-// The risk controls stay in the code — one request at a time, a minimum gap
-// between sends, no retry, and a token cap — because a burst of tiny probes is
-// the one pattern that reads as a script rather than a person.
+// Two sets of limits live here rather than in the page's markup: the context
+// kept between turns (so a long conversation does not blow the model's window)
+// and the send cadence. The tool-loop budgets (rounds, tokens, time) are
+// enforced in the main process, where the loop actually runs.
 const CHAT_MIN_GAP_MS = 2000;
 const CHAT_MAX_TOKENS = 8192;
+const CHAT_DEFAULT_HISTORY_TURNS = 10;
+// Roughly half a typical context window; the trim below drops the oldest turns
+// until the carried text fits, so the request never grows without bound.
+const CHAT_CONTEXT_TOKEN_CEILING = 6000;
+
 let chatHistory = [];
 let chatBusy = false;
 let chatLastSentAt = 0;
 let chatCurrentId = "";
 let chatSelectedModel = "";
 let chatModelsKey = "";
+let chatPrefs = null;
+let chatMcpServers = [];
+let chatMcpKey = "";
 
 const CHAT_CHECK_SVG = '<svg viewBox="0 0 14 14" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 7.5l2.5 2.5L11 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -581,9 +590,13 @@ function chatModelList() {
   return (snapshot?.models || []).filter((model) => model && model.id);
 }
 
+function chatRoughTokens(text) {
+  const s = String(text || "");
+  const cjk = (s.match(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+  return Math.ceil(cjk + (s.length - cjk) / 4);
+}
+
 // The picker lists the enabled models (the same allowlist the agents read).
-// The selection survives a poll; if its model disappears it falls back to the
-// first, so Send never sends an unserved id.
 function renderChatModels() {
   const label = $("#chat-model-label");
   const button = $("#chat-model-button");
@@ -624,11 +637,57 @@ function chatMenuOpen(open) {
   button.setAttribute("aria-expanded", String(Boolean(open)));
 }
 
+// ---- MCP picker -----------------------------------------------------------
+async function loadChatPrefs() {
+  try { chatPrefs = await window.lane.consolePrefs(); } catch { chatPrefs = chatPrefs || { mcpEnabled: false, mcpServers: [] }; }
+  try { chatMcpServers = (await window.lane.mcpList())?.servers || []; } catch { chatMcpServers = []; }
+  renderChatMcp();
+}
+
+function renderChatMcp() {
+  const master = $("#chat-mcp-enabled");
+  const list = $("#chat-mcp-servers");
+  const count = $("#chat-mcp-count");
+  if (!master || !list) return;
+  const usable = chatMcpServers.filter((server) => server && !server.off);
+  master.checked = chatPrefs?.mcpEnabled === true;
+  master.disabled = chatBusy;
+  const chosen = Array.isArray(chatPrefs?.mcpServers) ? chatPrefs.mcpServers : [];
+  const key = `${usable.map((s) => s.name).join("|")}#${chosen.join(",")}#${master.checked}`;
+  if (key !== chatMcpKey) {
+    chatMcpKey = key;
+    list.innerHTML = usable.length
+      ? usable.map((server) => `<label class="chat-mcp-server"><input type="checkbox" data-mcp-server="${esc(server.name)}"${chosen.includes(server.name) ? " checked" : ""}${master.checked ? "" : " disabled"}><span>${esc(server.name)}</span></label>`).join("")
+      : '<p class="chat-mcp-none">扩展页里没有已启用的 MCP 服务器。</p>';
+  }
+  if (count) {
+    const n = master.checked ? chosen.length : 0;
+    count.hidden = n === 0;
+    count.textContent = n ? String(n) : "";
+  }
+}
+
+async function saveChatPrefs(patch) {
+  try {
+    chatPrefs = await window.lane.consolePrefs(patch);
+    chatMcpKey = "";
+    renderChatMcp();
+  } catch (error) {
+    toast(error.message || "保存失败", true);
+  }
+}
+
+// ---- transcript -----------------------------------------------------------
+function chatAtBottom() {
+  return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
+}
+
 function chatBubble(role, text = "") {
   const log = $("#chat-log");
   if (!log) return null;
   const empty = log.querySelector(".chat-empty");
   if (empty) empty.remove();
+  const follow = chatAtBottom();
   const node = document.createElement("div");
   node.className = `chat-msg ${role}`;
   const body = document.createElement("div");
@@ -636,17 +695,27 @@ function chatBubble(role, text = "") {
   body.textContent = text;
   node.append(body);
   log.append(node);
-  chatScroll();
+  if (follow) chatScroll(true);
   return body;
 }
 
-// Follow the answer only while the reader is at the bottom: jumping down when
-// they scrolled up to re-read something is worse than a little lag.
-function chatScroll() {
+// Follow the answer only while the reader is at the bottom.
+function chatScroll(force = false) {
+  if (force || chatAtBottom()) window.scrollTo(0, document.documentElement.scrollHeight);
+}
+
+function chatToolLine(name, args) {
   const log = $("#chat-log");
-  if (!log) return;
-  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-  if (near) log.scrollTop = log.scrollHeight;
+  if (!log) return null;
+  const last = [...log.querySelectorAll(".chat-msg.assistant")].pop();
+  const box = last || log;
+  const line = document.createElement("div");
+  line.className = "chat-tool";
+  const detail = args && Object.keys(args).length ? `(${JSON.stringify(args).slice(0, 120)})` : "";
+  line.textContent = `⚙ 调用 ${name}${detail}`;
+  box.append(line);
+  chatScroll();
+  return line;
 }
 
 function chatSetBusy(busy) {
@@ -659,6 +728,25 @@ function chatSetBusy(busy) {
   if (stop) stop.hidden = !busy;
   if (input) input.disabled = busy;
   renderChatModels();
+  renderChatMcp();
+}
+
+function chatTrimHistory() {
+  const turns = chatPrefs?.historyTurns || CHAT_DEFAULT_HISTORY_TURNS;
+  const limit = Math.max(1, Number(turns)) * 2;
+  if (chatHistory.length > limit) chatHistory = chatHistory.slice(-limit);
+}
+
+function chatBuildMessages(text) {
+  chatTrimHistory();
+  let hist = chatHistory.slice();
+  // Token guard on top of the turn guard: drop the oldest pairs until the
+  // carried context fits, so a few huge turns cannot fill the window either.
+  const chars = (rows) => rows.reduce((sum, row) => sum + chatRoughTokens(row.content), 0);
+  while (hist.length >= 2 && chars(hist) + chatRoughTokens(text) > CHAT_CONTEXT_TOKEN_CEILING) {
+    hist = hist.slice(2);
+  }
+  return [...hist, { role: "user", content: text }];
 }
 
 async function sendChat() {
@@ -668,8 +756,6 @@ async function sendChat() {
   if (!text) return;
   const model = chatSelectedModel;
   if (!model) { toast("先在「模型」页启用一个模型", true); return; }
-  // A minimum gap: two questions a second apart is a script's cadence, not a
-  // person's, and it is the cheapest signal to keep clean.
   const since = Date.now() - chatLastSentAt;
   if (since < CHAT_MIN_GAP_MS) {
     toast(`请稍等 ${Math.ceil((CHAT_MIN_GAP_MS - since) / 1000)} 秒再发`);
@@ -682,22 +768,35 @@ async function sendChat() {
   chatBubble("user", text);
   const answer = chatBubble("assistant", "");
   if (answer) answer.classList.add("streaming");
-  const messages = [...chatHistory, { role: "user", content: text }];
+  const messages = chatBuildMessages(text);
   const id = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
   chatCurrentId = id;
   chatSetBusy(true);
+  chatScroll(true);
 
   let streamed = "";
   let reasoned = "";
   const off = window.lane.onConsoleDelta((msg) => {
     if (!msg || msg.id !== id) return;
+    if (msg.toolServers) {
+      if (msg.toolServers.error) toast(`MCP「${msg.toolServers.name}」未打开：${msg.toolServers.error}`, true);
+      return;
+    }
+    if (msg.tool) {
+      if (msg.tool.phase === "start") chatToolLine(msg.tool.name, msg.tool.args);
+      else {
+        const line = chatToolLine(msg.tool.name, null);
+        if (line) {
+          line.textContent = `${msg.tool.ok ? "✓" : "✕"} ${msg.tool.name}：${String(msg.tool.text || "").slice(0, 120)}`;
+          line.classList.add(msg.tool.ok ? "ok" : "bad");
+        }
+      }
+      return;
+    }
     if (msg.text) {
       streamed += msg.text;
       if (answer) { answer.textContent = streamed; answer.classList.remove("reasoning"); chatScroll(); }
     } else if (msg.reasoning) {
-      // Reasoning streams before the answer. Accumulate it and show it dimmed
-      // until the first real token replaces it — assigning each chunk over the
-      // last would show only the newest fragment.
       reasoned += msg.reasoning;
       if (answer && !streamed) { answer.textContent = reasoned; answer.classList.add("reasoning"); chatScroll(); }
     }
@@ -707,25 +806,21 @@ async function sendChat() {
     if (result?.ok) {
       const final = result.text || streamed;
       if (answer) {
-        answer.textContent = final || "（空回答）";
+        answer.textContent = final || (result.rounds > 1 ? "（工具已执行，模型未给出文字）" : "（空回答）");
         answer.classList.remove("streaming", "reasoning");
-        // Say so when the upstream cut the answer at the token limit: an
-        // answer that just stops mid-sentence otherwise reads as a bug.
-        if (result.truncated) {
-          const note = document.createElement("div");
-          note.className = "chat-truncated";
-          note.textContent = "回答达到长度上限，已被截断";
-          answer.parentElement?.appendChild(note);
-        }
+        if (result.truncated) chatNote(answer, "回答达到长度上限，已被截断");
+        else if (result.stopped === "rounds") chatNote(answer, `已达工具轮数上限（${result.rounds} 轮）`);
+        else if (result.stopped === "tokens") chatNote(answer, "已达本次提问的 token 预算");
+        else if (result.stopped === "time") chatNote(answer, "已达本次提问的耗时上限");
       }
-      // Remember the turn only when it succeeded: a failed turn is not
-      // context the model should carry into the next question.
+      // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
+      chatTrimHistory();
     } else if (!result?.cancelled) {
       if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
       toast(result?.error || "请求失败", true);
     } else if (answer) {
-      answer.classList.remove("streaming");
+      answer.classList.remove("streaming", "reasoning");
       if (!streamed) answer.textContent = "已停止";
     }
   } catch (error) {
@@ -737,6 +832,14 @@ async function sendChat() {
     chatSetBusy(false);
     $("#chat-input")?.focus();
   }
+}
+
+function chatNote(anchor, text) {
+  if (!anchor) return;
+  const note = document.createElement("div");
+  note.className = "chat-truncated";
+  note.textContent = text;
+  anchor.parentElement?.appendChild(note);
 }
 
 $("#chat-send")?.addEventListener("click", sendChat);
@@ -761,12 +864,34 @@ $("#chat-model-menu")?.addEventListener("click", (event) => {
   renderChatModels();
   $("#chat-input")?.focus();
 });
+$("#chat-mcp-button")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("#chat-mcp-menu");
+  const button = $("#chat-mcp-button");
+  if (!menu || !button) return;
+  menu.hidden = !menu.hidden;
+  button.setAttribute("aria-expanded", String(!menu.hidden));
+  if (!menu.hidden) loadChatPrefs();
+});
+$("#chat-mcp-enabled")?.addEventListener("change", (event) => {
+  saveChatPrefs({ mcpEnabled: event.target.checked });
+});
+$("#chat-mcp-servers")?.addEventListener("change", (event) => {
+  const box = event.target.closest("[data-mcp-server]");
+  if (!box) return;
+  const chosen = new Set(Array.isArray(chatPrefs?.mcpServers) ? chatPrefs.mcpServers : []);
+  if (box.checked) chosen.add(box.dataset.mcpServer); else chosen.delete(box.dataset.mcpServer);
+  saveChatPrefs({ mcpServers: [...chosen] });
+});
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
+  if (!event.target.closest("#chat-mcp")) {
+    const menu = $("#chat-mcp-menu");
+    const button = $("#chat-mcp-button");
+    if (menu && !menu.hidden) { menu.hidden = true; button?.setAttribute("aria-expanded", "false"); }
+  }
 });
 $("#chat-input")?.addEventListener("keydown", (event) => {
-  // Enter sends, Shift+Enter breaks the line: a one-line question is the
-  // common case, and the textarea still grows with its content.
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendChat();

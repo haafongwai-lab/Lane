@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld("lane", {
   pluginRollback: (key) => ipcRenderer.invoke("lane:plugin-rollback", { key }),
   consoleChat: (request) => ipcRenderer.invoke("lane:console-chat", request),
   consoleCancel: (id) => ipcRenderer.invoke("lane:console-cancel", { id }),
+  consolePrefs: (patch) => ipcRenderer.invoke("lane:console-prefs", patch === undefined ? {} : { patch }),
   onConsoleDelta: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("lane:console-delta", listener);

@@ -31,7 +31,20 @@
       <section class="view" id="view-chat">
         <div class="chat-shell">
           <div class="chat-topbar">
-            <div class="eyebrow">自带问答</div>
+            <div class="chat-mcp" id="chat-mcp">
+              <button type="button" class="chat-mcp-trigger" id="chat-mcp-button" aria-haspopup="true" aria-expanded="false">
+                <span>工具</span><span class="chat-mcp-count" id="chat-mcp-count" hidden></span>
+              </button>
+              <div class="chat-mcp-menu" id="chat-mcp-menu" hidden>
+                <label class="chat-mcp-master">
+                  <input type="checkbox" id="chat-mcp-enabled">
+                  <span>允许问答调用 MCP 工具</span>
+                </label>
+                <div class="chat-mcp-servers" id="chat-mcp-servers"></div>
+                <p class="chat-mcp-note">工具在本机执行；每次调用都会显示在对话里。</p>
+              </div>
+            </div>
+            <span class="chat-spacer"></span>
             <button class="ghost chat-clear" id="chat-clear">清空</button>
           </div>
           <div class="chat-scroll" id="chat-log">
@@ -58,7 +71,7 @@
                 <button class="chat-stop" id="chat-stop" hidden aria-label="停止"><span></span></button>
               </div>
             </div>
-            <p class="chat-note">一次只发一条、失败不自动重试、回答长度有限制；沿用当前账号和模型，不额外增加上游可见的标识。</p>
+            <p class="chat-note">一次只发一条、失败不自动重试；沿用当前账号和模型，不额外增加上游可见的标识。</p>
           </div>
         </div>
       </section>

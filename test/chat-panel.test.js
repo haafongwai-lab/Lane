@@ -66,7 +66,7 @@ test("the answer length is capped and the cadence is throttled", () => {
 
 test("a truncated answer says so, and a dropped stream tail is not lost", () => {
   // finish_reason "length" travels back so the panel can tell the user.
-  assert.match(MAIN, /truncated: out\.finish === "length"/);
+  assert.match(MAIN, /truncated: lastFinish === "length"/);
   assert.match(APP, /result\.truncated/);
   // The last SSE frame may arrive without its blank-line terminator.
   assert.match(MAIN, /if \(buffer\.trim\(\)\) handleFrame\(buffer\.replace\(\/\\r\\n\/g, "\\n"\)\)/);

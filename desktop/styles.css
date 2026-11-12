@@ -2390,24 +2390,17 @@ h1 {
 }
 
 #view-chat { display: none; }
-#view-chat.active {
-  display: flex;
-  flex-direction: column;
-  /* Fill the viewport so the composer sits at the bottom like DSH's, rather
-     than floating just under the last message. 42px is this view's top
-     padding; main's own bottom padding only adds scroll buffer below. */
-  height: calc(100vh - 42px);
-  padding-bottom: 0;
-}
+#view-chat.active { display: flex; flex-direction: column; padding-bottom: 0; }
 .chat-shell {
-  flex: 1 1 auto;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   max-width: 900px;
   width: 100%;
   margin: 0 auto;
   padding: 0 8px;
+  /* A floor, not a fixed height: a short conversation still puts the
+     composer at the bottom, and a long one simply grows the page. */
+  min-height: calc(100vh - 60px);
 }
 .chat-topbar {
   flex: none;
@@ -2420,8 +2413,9 @@ h1 {
 
 .chat-scroll {
   flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+  /* No inner scrollbar: the transcript grows and Lane's own page scrollbar
+     moves it, which is the one the user asked to keep. */
+  overflow: visible;
   padding: 20px 2px 12px;
   display: flex;
   flex-direction: column;
@@ -2474,7 +2468,11 @@ h1 {
 
 .chat-dock {
   flex: none;
-  padding: 6px 0 14px;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 10px 0 14px;
+  background: linear-gradient(to bottom, transparent, var(--canvas) 22px);
 }
 .chat-card {
   display: flex;
@@ -2595,3 +2593,36 @@ h1 {
 .chat-text.reasoning { color: var(--chat-muted); }
 /* Says the answer was cut at the token limit, rather than letting it just stop. */
 .chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; }
+
+/* MCP picker: a small pill in the top-left, its menu a flat sheet with a
+   master toggle and one row per enabled server. */
+.chat-mcp { position: relative; }
+.chat-mcp-trigger {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--chat-card-border); border-radius: var(--chat-radius-trigger);
+  background: transparent; color: var(--chat-ink-soft); font: 13px/20px var(--font-sans); cursor: pointer;
+}
+.chat-mcp-trigger:hover, .chat-mcp-trigger[aria-expanded='true'] { background: var(--chat-hover); }
+.chat-mcp-count {
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--chat-accent); color: #fff; font-size: 10.5px; font-weight: 600;
+  display: grid; place-items: center;
+}
+.chat-mcp-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 40;
+  width: 260px; padding: 8px;
+  border: 1px solid var(--chat-menu-border); border-radius: var(--chat-radius-option);
+  background: var(--chat-menu-bg); box-shadow: var(--chat-shadow-menu);
+  color: var(--chat-ink); font-size: 12.5px;
+}
+.chat-mcp-master { display: flex; align-items: center; gap: 7px; padding: 4px 4px 8px; cursor: pointer; }
+.chat-mcp-servers { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.chat-mcp-server { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 8px; cursor: pointer; }
+.chat-mcp-server:hover { background: var(--chat-hover); }
+.chat-mcp-none { padding: 6px 4px; color: var(--chat-muted); }
+.chat-mcp-note { margin: 8px 4px 2px; color: var(--chat-muted); font-size: 10.5px; line-height: 1.6; }
+/* One line per tool call, inside the assistant message so it reads in order. */
+.chat-tool { margin-top: 6px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.6; }
+.chat-tool.ok { color: var(--green); }
+.chat-tool.bad { color: var(--red); }

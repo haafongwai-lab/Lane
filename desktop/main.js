@@ -11,6 +11,9 @@ import { claimOwnership, releaseOwnership } from "../src/owner.js";
 import { readSettings, writeSettings, writeSetting } from "../src/settings.js";
 import { readState, restrictToOwner } from "../src/agents/store.js";
 import { openableUrl } from "./openable.js";
+import { openMcpSession } from "../src/mcp-session.js";
+import { readServers } from "../src/mcp-servers.js";
+import { readConsolePrefs, writeConsolePrefs } from "../src/console-prefs.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -495,18 +498,64 @@ handleIpc("lane:plugin-rollback", async (_event, { key } = {}) => {
 // the same loopback request any client would make, with one marker header so
 // the journal owes it its own source ("lane") and no agent's stats absorb it.
 //
-// Risk control is built in here rather than left to the page: one request at a
-// time, no retry, and a token cap. The panel is a convenience over the same
-// account and the same plugin request shape as a coding agent, so the upstream
-// sees nothing new; what it must not see is a burst of tiny probes.
+// MCP tools are opt-in (console.json). When on, the selected servers are opened
+// once per question, their tools are offered to the model, and a returned
+// tool_call is executed here and fed back. Every budget is enforced in this
+// loop, not in the page: rounds, total tokens and wall-clock time - so a model
+// that keeps asking for tools stops instead of spending the account.
 const consoleControllers = new Map();
 let consoleBusy = false;
 
-// SSE from the gateway: `data: {json}` lines, `[DONE]` to end. Only the text
-// and reasoning deltas matter to the panel. Frames end with a blank line, but
-// the last one can arrive without it, and some proxies use CRLF, so the tail is
-// flushed and the separator normalised — a dropped tail reads as "the answer
-// stopped halfway".
+// MCP tool names must be [A-Za-z0-9_-]{1,64} for the OpenAI schema; a server's
+// own name and tool are folded into one and mapped back for the call.
+function consoleToolName(serverName, toolName) {
+  const cleaned = `${serverName}__${toolName}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+  return cleaned || "tool";
+}
+
+function roughTokens(text) {
+  const s = String(text || "");
+  const cjk = (s.match(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+  return Math.ceil(cjk + (s.length - cjk) / 4);
+}
+
+// Opens the selected servers and turns their tools into OpenAI tool defs.
+// A server that fails to open is reported, never fatal: the question still runs.
+async function openConsoleTools(prefs, emit) {
+  const chosen = Array.isArray(prefs.mcpServers) ? prefs.mcpServers : [];
+  const servers = (await readServers())
+    .filter((server) => server && !server.off && chosen.includes(server.name));
+  const defs = [];
+  const byName = new Map();
+  const sessions = [];
+  for (const server of servers) {
+    try {
+      const session = await openMcpSession(server, { timeoutMs: 15_000 });
+      sessions.push(session);
+      for (const tool of session.tools) {
+        let name = consoleToolName(server.name, tool.name);
+        let n = 2;
+        while (byName.has(name)) { name = consoleToolName(server.name, `${tool.name}_${n}`); n += 1; }
+        byName.set(name, { session, tool: tool.name });
+        defs.push({
+          type: "function",
+          function: {
+            name,
+            description: tool.description || `${server.name} / ${tool.name}`,
+            parameters: tool.inputSchema || { type: "object", properties: {} }
+          }
+        });
+      }
+    } catch (error) {
+      emit({ toolServers: { name: server.name, error: error?.message || String(error) } });
+    }
+  }
+  return { defs, byName, sessions };
+}
+
+// SSE from the gateway: `data: {json}` lines, `[DONE]` to end. Collects the
+// text, any reasoning, the finish reason, any usage block, and the tool calls
+// the model asked for (arguments arrive as fragments keyed by index).
 async function pumpConsoleStream(body, onDelta, signal) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -514,6 +563,8 @@ async function pumpConsoleStream(body, onDelta, signal) {
   let said = "";
   let reasoning = "";
   let finish = "";
+  let usage = null;
+  const calls = [];
   const handleFrame = (frame) => {
     for (const rawLine of frame.split("\n")) {
       const line = rawLine.replace(/\r$/, "");
@@ -522,9 +573,19 @@ async function pumpConsoleStream(body, onDelta, signal) {
       if (!payload || payload === "[DONE]") continue;
       let event;
       try { event = JSON.parse(payload); } catch { continue; }
+      if (event.usage && typeof event.usage === "object") usage = event.usage;
       const choice = event?.choices?.[0];
       if (choice?.finish_reason) finish = String(choice.finish_reason);
       const delta = choice?.delta || {};
+      if (Array.isArray(delta.tool_calls)) {
+        for (const part of delta.tool_calls) {
+          const index = Number.isInteger(part?.index) ? part.index : calls.length;
+          const current = calls[index] || (calls[index] = { id: "", name: "", arguments: "" });
+          if (part?.id) current.id = part.id;
+          if (part?.function?.name) current.name += part.function.name;
+          if (part?.function?.arguments) current.arguments += part.function.arguments;
+        }
+      }
       if (typeof delta.content === "string" && delta.content) {
         said += delta.content;
         onDelta({ text: delta.content });
@@ -547,8 +608,24 @@ async function pumpConsoleStream(body, onDelta, signal) {
     }
   }
   if (buffer.trim()) handleFrame(buffer.replace(/\r\n/g, "\n"));
-  return { text: said, reasoning, finish };
+  return { text: said, reasoning, finish, usage, calls: calls.filter((c) => c && (c.name || c.id)) };
 }
+
+function parseToolArgs(raw) {
+  if (!raw || typeof raw !== "string") return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+handleIpc("lane:console-prefs", async (_event, { patch } = {}) => {
+  await startGateway();
+  if (patch && typeof patch === "object") return writeConsolePrefs(patch);
+  return readConsolePrefs();
+});
 
 handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } = {}) => {
   await startGateway();
@@ -564,19 +641,20 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   const emit = (payload) => {
     if (!sender.isDestroyed()) sender.send("lane:console-delta", { id: requestId, ...payload });
   };
+  const prefs = await readConsolePrefs().catch(() => null);
+  const rounds = prefs?.maxRounds || 6;
+  const tokenBudget = prefs?.maxTokens || 24_000;
+  const durationBudget = prefs?.maxDurationMs || 180_000;
   // A chat answer must not be cut at a few hundred characters: 1024 tokens
   // truncated Chinese mid-sentence and read as "stopped halfway". 8192 leaves
   // room for a long answer; the ceiling stays well under a context window.
   const cap = Math.min(Math.max(Number(maxTokens) || 8192, 256), 16384);
-  const send = (withCap) => fetch(`${GATEWAY}/v1/chat/completions`, {
+  const started = Date.now();
+
+  const send = (withCap, body) => fetch(`${GATEWAY}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-lane-client": "lane" },
-    body: JSON.stringify({
-      model: model || undefined,
-      messages: Array.isArray(messages) ? messages : [],
-      ...(withCap ? { max_tokens: cap } : {}),
-      stream: true
-    }),
+    body: JSON.stringify({ model: model || undefined, ...body, ...(withCap ? { max_tokens: cap } : {}), stream: true }),
     signal: controller.signal
   });
   const failure = async (response) => {
@@ -585,29 +663,85 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
     try { message = JSON.parse(text)?.error?.message || text; } catch {}
     return { ok: false, error: String(message || `HTTP ${response.status}`) };
   };
+
+  let toolSet = { defs: [], byName: new Map(), sessions: [] };
   try {
-    let response = await send(true);
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      // A model whose own output ceiling is below `cap` refuses the whole
-      // request with a max_tokens error before generating anything. Nothing was
-      // produced, so resending once without the cap is not a replay of a
-      // charge — it is the same question in a form the model accepts.
-      if (/max_tokens|max output|maximum context/i.test(text)) {
-        response = await send(false);
-        if (!response.ok) return failure(response);
-      } else {
-        let message = text;
-        try { message = JSON.parse(text)?.error?.message || text; } catch {}
-        return { ok: false, error: String(message || `HTTP ${response.status}`) };
+    if (prefs?.mcpEnabled) toolSet = await openConsoleTools(prefs, emit);
+    const convo = Array.isArray(messages) ? messages.slice() : [];
+    let text = "";
+    let totalTokens = 0;
+    let lastFinish = "";
+
+    for (let round = 1; round <= rounds; round += 1) {
+      if (Date.now() - started > durationBudget) {
+        return { ok: true, text, stopped: "time", rounds: round - 1 };
       }
+      const body = { messages: convo };
+      if (toolSet.defs.length) { body.tools = toolSet.defs; body.tool_choice = "auto"; }
+      let response = await send(true, body);
+      if (!response.ok) {
+        const raw = await response.text().catch(() => "");
+        // A model whose own output ceiling is below `cap` refuses the whole
+        // request with a max_tokens error before generating anything. Nothing
+        // was produced, so resending once without the cap is not a replay of a
+        // charge - it is the same question in a form the model accepts.
+        if (/max_tokens|max output|maximum context/i.test(raw)) {
+          response = await send(false, body);
+          if (!response.ok) return failure(response);
+        } else {
+          let message = raw;
+          try { message = JSON.parse(raw)?.error?.message || raw; } catch {}
+          return { ok: false, error: String(message || `HTTP ${response.status}`) };
+        }
+      }
+      const out = await pumpConsoleStream(response.body, emit, controller.signal);
+      text = out.text;
+      lastFinish = out.finish;
+      totalTokens += out.usage?.total_tokens != null ? Number(out.usage.total_tokens) : roughTokens(out.text);
+
+      if (out.calls.length) {
+        // Record what the model asked for, then run each call in order.
+        convo.push({
+          role: "assistant",
+          content: out.text || null,
+          tool_calls: out.calls.map((call) => ({
+            id: call.id || `call_${consoleToolName("t", call.name)}`,
+            type: "function",
+            function: { name: call.name, arguments: call.arguments || "{}" }
+          }))
+        });
+        for (const call of out.calls) {
+          const target = toolSet.byName.get(call.name);
+          const args = parseToolArgs(call.arguments);
+          emit({ tool: { phase: "start", name: call.name, args } });
+          let result;
+          try {
+            result = target
+              ? await target.session.callTool(target.tool, args)
+              : { ok: false, text: `未知工具：${call.name}` };
+          } catch (error) {
+            result = { ok: false, text: error?.message || String(error) };
+          }
+          emit({ tool: { phase: "end", name: call.name, ok: result.ok, text: String(result.text || "").slice(0, 400) } });
+          convo.push({
+            role: "tool",
+            tool_call_id: call.id || `call_${consoleToolName("t", call.name)}`,
+            content: String(result.text || "")
+          });
+        }
+        if (totalTokens > tokenBudget) return { ok: true, text, stopped: "tokens", rounds: round };
+        if (Date.now() - started > durationBudget) return { ok: true, text, stopped: "time", rounds: round };
+        continue;
+      }
+      return { ok: true, text, truncated: lastFinish === "length", rounds: round };
     }
-    const out = await pumpConsoleStream(response.body, emit, controller.signal);
-    return { ok: true, text: out.text, reasoning: out.reasoning, truncated: out.finish === "length" };
+    // Ran out of rounds with the model still asking for tools.
+    return { ok: true, text, stopped: "rounds", rounds };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
     return { ok: false, error: error?.message || String(error) };
   } finally {
+    for (const session of toolSet.sessions) { try { session.close(); } catch {} }
     consoleControllers.delete(requestId);
     consoleBusy = false;
   }
@@ -618,6 +752,7 @@ handleIpc("lane:console-cancel", async (_event, { id } = {}) => {
   if (controller) controller.abort();
   return { ok: true };
 });
+
 handleIpc("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   const wanted = Array.isArray(ids) ? ids : null;
