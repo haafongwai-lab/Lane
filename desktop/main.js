@@ -643,12 +643,13 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   };
   const prefs = await readConsolePrefs().catch(() => null);
   const rounds = prefs?.maxRounds || 6;
-  const tokenBudget = prefs?.maxTokens || 24_000;
+  const tokenBudget = prefs?.maxTokens || 32_000;
   const durationBudget = prefs?.maxDurationMs || 180_000;
-  // A chat answer must not be cut at a few hundred characters: 1024 tokens
-  // truncated Chinese mid-sentence and read as "stopped halfway". 8192 leaves
-  // room for a long answer; the ceiling stays well under a context window.
-  const cap = Math.min(Math.max(Number(maxTokens) || 8192, 256), 16384);
+  // A chat answer must not be cut short. 32768 output tokens leaves room for a
+  // long answer while staying well under the models' context windows. A model
+  // with a lower own ceiling refuses this before generating anything; the
+  // max_tokens fallback below resends without the cap in that case.
+  const cap = Math.min(Math.max(Number(maxTokens) || 32768, 256), 32768);
   const started = Date.now();
 
   const send = (withCap, body) => fetch(`${GATEWAY}/v1/chat/completions`, {

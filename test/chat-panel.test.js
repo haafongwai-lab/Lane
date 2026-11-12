@@ -55,11 +55,11 @@ test("it marks the request as Lane's own, and never forwards that marker", () =>
   assert.match(SERVER, /isLaneConsole\(req\) \? "lane"/);
 });
 
-test("the answer length is capped and the cadence is throttled", () => {
-  // The cap must be room for a full answer: 1024 tokens truncated Chinese
-  // mid-sentence, which read as "the model stopped halfway".
-  assert.match(MAIN, /const cap = Math\.min\(Math\.max\(Number\(maxTokens\) \|\| 8192, 256\), 16384\)/);
-  assert.match(APP, /const CHAT_MAX_TOKENS = 8192/);
+test("the answer length is capped at 32k and the cadence is throttled", () => {
+  // 1024 tokens truncated Chinese mid-sentence and read as a stopped answer;
+  // the cap is 32768 now, matching the total per-question token budget.
+  assert.match(MAIN, /const cap = Math\.min\(Math\.max\(Number\(maxTokens\) \|\| 32768, 256\), 32768\)/);
+  assert.match(APP, /const CHAT_MAX_TOKENS = 32768/);
   assert.match(APP, /const CHAT_MIN_GAP_MS = 2000/);
   assert.match(APP, /if \(since < CHAT_MIN_GAP_MS\)/);
 });

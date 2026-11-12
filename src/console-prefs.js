@@ -18,7 +18,7 @@ export const DEFAULTS = {
   mcpEnabled: false,
   mcpServers: [],
   maxRounds: 6,          // tool rounds per question
-  maxTokens: 24_000,     // total tokens across every round of one question
+  maxTokens: 32_000,     // total tokens across every round of one question
   maxDurationMs: 180_000, // wall-clock ceiling for one question
   historyTurns: 10       // message pairs kept as context
 };

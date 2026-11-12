@@ -572,7 +572,7 @@ function render() {
 // and the send cadence. The tool-loop budgets (rounds, tokens, time) are
 // enforced in the main process, where the loop actually runs.
 const CHAT_MIN_GAP_MS = 2000;
-const CHAT_MAX_TOKENS = 8192;
+const CHAT_MAX_TOKENS = 32768;
 const CHAT_DEFAULT_HISTORY_TURNS = 10;
 // Roughly half a typical context window; the trim below drops the oldest turns
 // until the carried text fits, so the request never grows without bound.

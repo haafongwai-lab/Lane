@@ -21,9 +21,9 @@ const read = (rel) => readFileSync(path.join(HERE, "..", rel), "utf8");
 const MAIN = read("desktop/main.js");
 const APP = read("desktop/app.js");
 
-test("default budgets are 6 rounds, a token ceiling and a time ceiling", () => {
+test("default budgets are 6 rounds, a 32k token ceiling and a time ceiling", () => {
   assert.equal(DEFAULTS.maxRounds, 6);
-  assert.equal(DEFAULTS.maxTokens, 24_000);
+  assert.equal(DEFAULTS.maxTokens, 32_000);
   assert.equal(DEFAULTS.maxDurationMs, 180_000);
   assert.equal(DEFAULTS.historyTurns, 10);
   assert.equal(DEFAULTS.mcpEnabled, false, "tools are opt-in");
@@ -52,7 +52,7 @@ test("prefs round-trip through console.json", async (t) => {
 
 test("the tool loop enforces all three budgets", () => {
   assert.match(MAIN, /const rounds = prefs\?\.maxRounds \|\| 6/);
-  assert.match(MAIN, /const tokenBudget = prefs\?\.maxTokens \|\| 24_000/);
+  assert.match(MAIN, /const tokenBudget = prefs\?\.maxTokens \|\| 32_000/);
   assert.match(MAIN, /const durationBudget = prefs\?\.maxDurationMs \|\| 180_000/);
   assert.match(MAIN, /for \(let round = 1; round <= rounds; round \+= 1\)/);
   assert.match(MAIN, /stopped: "rounds"/);
