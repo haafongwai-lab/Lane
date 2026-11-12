@@ -2466,7 +2466,7 @@ body.view-chat .chat-shell { min-height: 100vh; }
 /* 工具 / 历史 / 清空 are DSH ghost buttons: no border, an 8px radius, a fill
    on hover and while their menu is open, 12.5px medium type. A bordered pill
    is DSH's shape for a *field*, not for a toolbar action. */
-.chat-mcp-trigger, .chat-history-trigger, .chat-clear {
+.chat-mcp-trigger, .chat-clear {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 28px; padding: 0 9px;
   border: 0; border-radius: 8px;
@@ -2474,10 +2474,10 @@ body.view-chat .chat-shell { min-height: 100vh; }
   font: 500 12.5px/20px var(--font-sans);
   cursor: pointer; transition: background .12s, color .12s;
 }
-.chat-mcp-trigger:hover, .chat-history-trigger:hover, .chat-clear:hover {
+.chat-mcp-trigger:hover, .chat-clear:hover {
   background: var(--dsh-row-hover); color: var(--dsh-ink);
 }
-.chat-mcp-trigger[aria-expanded='true'], .chat-history-trigger[aria-expanded='true'] {
+.chat-mcp-trigger[aria-expanded='true'] {
   background: var(--dsh-row-active); color: var(--dsh-ink);
 }
 .chat-clear {
@@ -2711,17 +2711,6 @@ body.view-chat .chat-shell { min-height: 100vh; }
 
 /* A count, drawn as a quiet chip: DSH never uses a saturated badge for a
    number in a trigger. */
-.chat-mcp-count {
-  min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px;
-  box-sizing: border-box;
-  background: var(--dsh-row-active); color: var(--dsh-ink-2);
-  font: 600 10px/16px var(--font-sans); font-variant-numeric: tabular-nums;
-  display: inline-flex; align-items: center; justify-content: center;
-  line-height: 1; vertical-align: middle;
-}
-.chat-mcp-trigger[aria-expanded='true'] .chat-mcp-count {
-  background: var(--dsh-accent); color: #fff;
-}
 
 .chat-mcp-menu {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
@@ -3120,51 +3109,10 @@ body.view-chat .chat-shell { min-height: 100vh; }
   animation: chat-caret 1s steps(2, start) infinite;
 }
 
-/* Saved conversations: a quiet trigger and a list panel, matching the工具
-   popover's surface. */
-.chat-history { position: relative; display: inline-flex; }
+
 
 /* The 历史 panel is the same DSH popover surface as the 工具 sheet: one
    translucent frosted layer, the same radius, the same elevation. */
-.chat-history-panel {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
-  width: min(292px, calc(100vw - 32px)); max-height: 400px; overflow-y: auto;
-  padding: 6px; border: 0; border-radius: var(--dsh-menu-radius);
-  background: var(--dsh-menu-surface);
-  -webkit-backdrop-filter: var(--dsh-menu-frost);
-  backdrop-filter: var(--dsh-menu-frost);
-  box-shadow: var(--dsh-menu-shadow);
-  transform-origin: top right;
-  animation: chat-menu-in .13s cubic-bezier(.2, .8, .3, 1);
-}
-.chat-history-new {
-  width: 100%; min-height: 32px; padding: 5px 10px; margin: 0 0 2px;
-  border: 0; border-radius: 8px;
-  background: transparent; color: var(--dsh-ink);
-  font: 400 13px/19px var(--font-sans); text-align: left; cursor: pointer;
-  transition: background .1s;
-}
-.chat-history-new:hover { background: var(--dsh-row-hover); }
-.chat-history-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
-.chat-history-item.active { background: var(--dsh-row-active); }
-.chat-history-open {
-  flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px;
-  min-height: 32px; padding: 6px 10px; border: 0; border-radius: 8px;
-  background: transparent; color: var(--dsh-ink);
-  font: 400 13px/19px var(--font-sans);
-  text-align: left; cursor: pointer; transition: background .1s;
-}
-.chat-history-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-history-meta { flex: none; color: var(--dsh-ink-2); font-size: 11px; opacity: .8; }
-.chat-history-del {
-  flex: none; width: 22px; height: 22px; margin-right: 4px;
-  border: 0; border-radius: 6px; background: transparent;
-  color: var(--dsh-ink-2); font-size: 11px; cursor: pointer;
-  opacity: 0; transition: opacity .1s, background .1s;
-}
-.chat-history-item:hover .chat-history-del { opacity: 1; }
-.chat-history-del:hover { background: var(--dsh-row-hover); color: var(--red); }
-.chat-history-empty { margin: 0; padding: 14px 10px; color: var(--dsh-ink-2); font-size: 12px; text-align: center; opacity: .8; }
 /* Separates the local-tools switch from the MCP list in the 工具 menu. */
 .chat-mcp-divider { height: 1px; margin: 4px 2px 6px; background: var(--line-soft); }
 
@@ -3177,15 +3125,6 @@ body.view-chat .chat-shell { min-height: 100vh; }
   font-variant-numeric: tabular-nums;
 }
 /* The history search box, above the list. */
-.chat-history-search {
-  width: calc(100% - 4px); margin: 2px 2px 4px; padding: 6px 9px;
-  border: .5px solid var(--dsh-menu-stroke); border-radius: 8px;
-  background: var(--dsh-menu-group-fill); color: var(--dsh-ink);
-  font: 400 12.5px/20px var(--font-sans); outline: none;
-  transition: border-color .12s;
-}
-.chat-history-search:focus { border-color: var(--dsh-accent); }
-.chat-history-search::placeholder { color: var(--dsh-ink-2); opacity: .7; }
 
 /* The attach button sits left of the model picker, quiet like the others. */
 /* A plus sign, not an icon: a 28px square that lines up with the model

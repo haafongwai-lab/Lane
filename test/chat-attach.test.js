@@ -57,9 +57,8 @@ test("attachments belong to one turn only", () => {
   assert.match(APP, /chatAttachments = \[\];\s*\n\s*renderChatAttachments\(\);/);
   // An attachment alone can be sent, with no typed text.
   assert.match(APP, /if \(!typed && !chatAttachments\.length\) return;/);
-  // The transcript and the saved history record the names, not the base64.
+  // The transcript records the names, never the base64.
   assert.match(APP, /附件：\$\{attached\}/);
-  assert.match(APP, /chatPersistTurn\(sentNames \?/);
 });
 
 test("context budgeting understands a parts array", () => {

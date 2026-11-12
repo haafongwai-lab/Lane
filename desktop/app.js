@@ -184,7 +184,7 @@ function go(view) {
   if (view === "activity") loadUsage();
   if (view === "extensions") loadExtensions();
   if (view === "plugins") loadPlugins();
-  if (view === "chat") { renderChatModels(); loadChatPrefs(); loadChatSessions(); chatScroll(true); }
+  if (view === "chat") { renderChatModels(); loadChatPrefs(); chatScroll(true); }
   // The chat view owns the page's bottom edge (its composer is sticky), so the
   // shell's own bottom padding — which would lift the sticky box by that much
   // at the very bottom of the scroll — is turned off only while it is shown.
@@ -581,11 +581,6 @@ const CHAT_CONTEXT_TOKEN_CEILING = 131072;
 const CHAT_DEFAULT_HISTORY_TURNS = 40;
 
 let chatHistory = [];
-// The saved conversation this page is showing. Empty means a new one: it is
-// created on the first successful answer, so an abandoned question leaves no
-// empty session behind.
-let chatSessionId = "";
-let chatSessions = [];
 let chatBusy = false;
 let chatLastSentAt = 0;
 let chatCurrentId = "";
@@ -1541,7 +1536,6 @@ async function sendChat() {
       }
       // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: sentNames ? `${text || "（见附件）"}\n\n附件：${sentNames}` : text }, { role: "assistant", content: final });
-      chatPersistTurn(sentNames ? `${text || "（见附件）"}\n\n附件：${sentNames}` : text, final);
       chatTrimHistory({ notify: true });
     } else if (!result?.cancelled) {
       if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
@@ -1557,7 +1551,6 @@ async function sendChat() {
       }
       if (partial) {
         chatHistory.push({ role: "user", content: text }, { role: "assistant", content: partial });
-        chatPersistTurn(text, partial);
         chatTrimHistory({ notify: true });
       }
     }
@@ -1664,15 +1657,6 @@ function chatClearLog() {
   [...log.querySelectorAll(".chat-msg, .chat-empty")].forEach((node) => node.remove());
 }
 
-async function chatPersistTurn(prompt, answer) {
-  try {
-    if (!chatSessionId) chatSessionId = `s${Date.now()}${Math.floor(Math.random() * 1000)}`;
-    const res = await window.lane.consoleSessions({ action: "append", id: chatSessionId, prompt, answer });
-    if (res?.session?.id) chatSessionId = res.session.id;
-    await loadChatSessions();
-  } catch {}
-}
-
 // A few shorthand commands, because these are the questions this panel exists
 // to answer. They are ordinary prompts; the model decides to call the tool.
 const CHAT_QUICK = {
@@ -1687,62 +1671,6 @@ const CHAT_QUICK = {
 function chatQuickCommand(text) {
   const key = String(text || "").trim().toLowerCase();
   return CHAT_QUICK[key] || text;
-}
-
-async function loadChatSessions() {
-  try { chatSessions = (await window.lane.consoleSessions({ action: "list" }))?.sessions || []; } catch { chatSessions = []; }
-  renderChatHistory();
-}
-
-function renderChatHistory() {
-  const list = $("#chat-history-list");
-  if (!list) return;
-  if (!chatSessions.length) {
-    list.innerHTML = '<p class="chat-history-empty">还没有历史对话。</p>';
-    return;
-  }
-  const query = String($("#chat-history-search")?.value || "").trim().toLowerCase();
-  const shown = query
-    ? chatSessions.filter((session) => String(session.title || "").toLowerCase().includes(query))
-    : chatSessions;
-  if (!shown.length) {
-    list.innerHTML = '<p class="chat-history-empty">没有匹配的对话。</p>';
-    return;
-  }
-  list.innerHTML = shown.map((session) => `
-    <div class="chat-history-item${session.id === chatSessionId ? " active" : ""}">
-      <button type="button" class="chat-history-open" data-session-open="${esc(session.id)}">
-        <span class="chat-history-title">${esc(session.title)}</span>
-        <span class="chat-history-meta">${session.turns} 轮</span>
-      </button>
-      <button type="button" class="chat-history-del" data-session-del="${esc(session.id)}" aria-label="删除">✕</button>
-    </div>`).join("");
-}
-
-function chatHistoryOpen(open) {
-  const panel = $("#chat-history-panel");
-  const button = $("#chat-history-button");
-  if (!panel || !button) return;
-  panel.hidden = !open;
-  button.setAttribute("aria-expanded", String(Boolean(open)));
-  if (open) loadChatSessions();
-}
-
-async function chatOpenSession(id) {
-  const session = (await window.lane.consoleSessions({ action: "get", id }))?.session;
-  if (!session) return;
-  chatSessionId = session.id;
-  chatHistory = session.messages.slice();
-  chatClearLog();
-  const log = $("#chat-log");
-  for (const message of session.messages) {
-    const body = chatBubble(message.role, "");
-    chatPaint(body, message.content, true);
-  }
-  if (!session.messages.length && log) log.append(chatEmptyNode());
-  chatHistoryOpen(false);
-  chatScroll(true);
-  renderChatHistory();
 }
 
 $("#chat-attach")?.addEventListener("click", () => $("#chat-file")?.click());
@@ -1790,12 +1718,10 @@ $("#chat-stop")?.addEventListener("click", () => {
 });
 $("#chat-clear")?.addEventListener("click", () => {
   chatHistory = [];
-  chatSessionId = "";
   chatClearLog();
   const log = $("#chat-log");
   if (log) log.append(chatEmptyNode());
   renderChatModels();
-  renderChatHistory();
 });
 $("#chat-model-button")?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1824,36 +1750,7 @@ function chatEffortOpen(open) {
   if (open) chatEffortPaint(chatEffortIndex());
 }
 
-$("#chat-history-button")?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  chatHistoryOpen($("#chat-history-panel")?.hidden);
-});
-$("#chat-history-search")?.addEventListener("input", renderChatHistory);
 
-$("#chat-history-new")?.addEventListener("click", () => {
-  chatHistory = [];
-  chatSessionId = "";
-  chatClearLog();
-  const log = $("#chat-log");
-  if (log) log.append(chatEmptyNode());
-  chatHistoryOpen(false);
-  renderChatHistory();
-});
-$("#chat-history-list")?.addEventListener("click", async (event) => {
-  const del = event.target.closest("[data-session-del]");
-  if (del) {
-    await window.lane.consoleSessions({ action: "delete", id: del.dataset.sessionDel });
-    if (del.dataset.sessionDel === chatSessionId) {
-      chatHistory = [];
-      chatSessionId = "";
-      chatClearLog();
-    }
-    await loadChatSessions();
-    return;
-  }
-  const open = event.target.closest("[data-session-open]");
-  if (open) await chatOpenSession(open.dataset.sessionOpen);
-});
 $("#chat-local-tools")?.addEventListener("change", (event) => {
   saveChatPrefs({ localTools: event.target.checked });
 });
@@ -1915,7 +1812,6 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
   if (!event.target.closest("#chat-effort")) chatEffortOpen(false);
-  if (!event.target.closest("#chat-history")) chatHistoryOpen(false);
   if (!event.target.closest("#chat-mcp")) {
     const menu = $("#chat-mcp-menu");
     const button = $("#chat-mcp-button");

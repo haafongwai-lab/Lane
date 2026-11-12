@@ -45,14 +45,11 @@ test("the view's top padding is removed so the bar never slides on first scroll"
   assert.match(CSS, /body\.view-chat #view-chat \{ padding-top: 0; padding-bottom: 0; \}/);
 });
 
-test("历史 and 清空 are visually separated", () => {
-  const clear = rule(".chat-clear {");
-  assert.match(clear, /margin-left: 4px/);
-});
 
-test("工具, 历史 and 清空 are DSH ghost buttons", () => {
-  // One rule shapes all three, so the row reads as a single control set.
-  const group = /\.chat-mcp-trigger, \.chat-history-trigger, \.chat-clear \{[\s\S]*?\}/.exec(CSS);
+
+test("工具 and 清空 are DSH ghost buttons", () => {
+  // One rule shapes both, so the bar reads as a single control set.
+  const group = /\.chat-mcp-trigger, \.chat-clear \{[\s\S]*?\}/.exec(CSS);
   assert.ok(group, "the shared rule exists");
   assert.match(group[0], /height: 28px/);
   // Ghost, not a bordered pill: DSH reserves borders for fields.
@@ -60,7 +57,8 @@ test("工具, 历史 and 清空 are DSH ghost buttons", () => {
   assert.match(group[0], /border-radius: 8px/);
   assert.match(group[0], /font: 500 12\.5px/);
   // The old per-button overrides are gone, or they would undo the shared rule.
-  assert.equal(/\.chat-history-trigger \{ padding: 4px 10px/.test(CSS), false);
+  // 历史 is gone entirely: this is a one-shot conversation.
+  assert.equal(/chat-history/.test(CSS), false);
 });
 
 test("the attach control is a plus, aligned with the model name", () => {

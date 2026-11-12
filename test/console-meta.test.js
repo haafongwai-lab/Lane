@@ -49,12 +49,13 @@ test("an MCP test lists the tool names, not only a count", () => {
   assert.match(TOOLS, /可用工具（\$\{result\.tools\.length\}）/);
 });
 
-test("history can be searched", () => {
-  assert.match(HTML, /id="chat-history-search"/);
-  assert.match(APP, /chatSessions\.filter\(\(session\) => String\(session\.title \|\| ""\)\.toLowerCase\(\)\.includes\(query\)\)/);
-  assert.match(APP, /\$\("#chat-history-search"\)\?\.addEventListener\("input", renderChatHistory\)/);
-  assert.match(CSS, /\.chat-history-search \{/);
+test("the history panel is gone: this is a one-shot conversation", () => {
+  assert.equal(/chat-history/.test(HTML), false, "no history markup");
+  assert.equal(/chat-history/.test(APP), false, "no history logic");
+  assert.equal(/consoleSessions/.test(APP), false, "no session bridge");
+  assert.equal(/chat-history/.test(CSS), false, "no history styles");
 });
+
 
 test("a long answer can be continued without replacing it", () => {
   assert.match(APP, /more\.dataset\.chatAction = "continue"/);

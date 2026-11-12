@@ -34,7 +34,7 @@ test("every rebuild of the transcript uses that mark", () => {
   // Entering with no model, clearing, a new session, and an empty saved session
   // all go through the one helper.
   const uses = (APP.match(/chatEmptyNode\(/g) || []).length;
-  assert.ok(uses >= 4, `expected several uses, saw ${uses}`);
+  assert.ok(uses >= 3, `expected several uses, saw ${uses}`);
   assert.equal(/直接问一句/.test(HTML), false, "the old heading is gone from the shell");
 });
 

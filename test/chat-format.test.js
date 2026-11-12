@@ -57,14 +57,13 @@ test("a tool call is a transient status line, not a transcript entry", () => {
   assert.match(APP, /server === "Lane 本地" \? `正在读取 Lane 状态/);
 });
 
-test("the MCP count badge centres its digit", () => {
-  const rule = CSS.slice(CSS.indexOf(".chat-mcp-count {"), CSS.indexOf("}", CSS.indexOf(".chat-mcp-count {")));
-  assert.match(rule, /display: inline-flex/);
-  assert.match(rule, /align-items: center/);
-  assert.match(rule, /justify-content: center/);
-  assert.match(rule, /line-height: 1/);
-  assert.match(rule, /box-sizing: border-box/);
+test("the 工具 trigger carries no count chip", () => {
+  // The badge was removed on request: the trigger is a bare label.
+  assert.equal(/chat-mcp-count/.test(HTML), false);
+  assert.equal(/chat-mcp-count/.test(CSS), false);
+  assert.match(HTML, /id="chat-mcp-button"[\s\S]{0,120}<span>工具<\/span>/);
 });
+
 
 test("the typography matches DSH's markdown surface", () => {
   // Read from DSH's own stylesheet: base 14px/24px, h1 21px/30px, h2 19/28,

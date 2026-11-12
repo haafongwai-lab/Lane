@@ -15,7 +15,6 @@ import { openMcpSession } from "../src/mcp-session.js";
 import { readServers } from "../src/mcp-servers.js";
 import { readConsolePrefs, writeConsolePrefs } from "../src/console-prefs.js";
 import { createLocalTools } from "../src/console-tools.js";
-import { listSessions, getSession, createSession, appendTurn, renameSession, deleteSession, clearSessions } from "../src/console-chats.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -828,20 +827,6 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
     for (const session of toolSet.sessions) { try { session.close(); } catch {} }
     consoleControllers.delete(requestId);
     consoleBusy = false;
-  }
-});
-
-handleIpc("lane:console-sessions", async (_event, { action, id, title, prompt, answer } = {}) => {
-  await startGateway();
-  switch (String(action || "list")) {
-    case "list": return { sessions: await listSessions() };
-    case "get": return { session: await getSession(String(id || "")) };
-    case "create": return { session: await createSession({ id, title }) };
-    case "append": return { session: await appendTurn(String(id || ""), { prompt, answer, title }) };
-    case "rename": return { session: await renameSession(String(id || ""), title) };
-    case "delete": return await deleteSession(String(id || ""));
-    case "clear": return await clearSessions();
-    default: throw new Error(`unknown session action: ${action}`);
   }
 });
 
