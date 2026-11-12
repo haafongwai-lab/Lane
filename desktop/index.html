@@ -66,15 +66,30 @@
                   <div class="chat-model-menu" id="chat-model-menu" role="listbox" hidden></div>
                 </div>
                 <div class="chat-effort-picker" id="chat-effort">
-                  <div class="chat-effort-slider" id="chat-effort-slider">
-                    <div class="chat-effort-track" aria-hidden="true">
-                      <div class="chat-effort-fill" id="chat-effort-fill"></div>
-                      <div class="chat-effort-stops" id="chat-effort-stops"></div>
-                      <div class="chat-effort-thumb" id="chat-effort-thumb"></div>
+                  <button type="button" class="chat-effort-trigger" id="chat-effort-button" aria-haspopup="true" aria-expanded="false" aria-label="思考强度">
+                    <span class="chat-effort-trigger-label" id="chat-effort-label">思考强度</span>
+                    <svg class="chat-effort-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 8L6 5L9 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <div class="chat-effort-panel" id="chat-effort-panel" hidden>
+                    <div class="chat-effort-wrap">
+                      <div class="chat-effort-head">
+                        <span>推理强度</span>
+                        <strong id="chat-effort-value">自动</strong>
+                      </div>
+                      <div class="chat-effort-rail">
+                        <div class="chat-effort-groove">
+                          <div class="chat-effort-track"></div>
+                          <div class="chat-effort-fill" id="chat-effort-fill">
+                            <div class="chat-effort-bloom"></div>
+                          </div>
+                        </div>
+                        <div class="chat-effort-ticks" id="chat-effort-ticks"></div>
+                        <div class="chat-effort-knob" id="chat-effort-knob"><div class="chat-effort-knob-face"></div></div>
+                        <input type="range" id="chat-effort-range" class="chat-effort-range" min="0" max="4" step="1" value="0" aria-label="推理强度">
+                      </div>
+                      <p class="chat-effort-desc" id="chat-effort-desc">由模型决定。</p>
                     </div>
-                    <input type="range" id="chat-effort-range" class="chat-effort-range" min="0" max="4" step="1" value="0" aria-label="思考强度">
                   </div>
-                  <span class="chat-effort-value" id="chat-effort-label">思考强度</span>
                 </div>
                 <span class="chat-spacer"></span>
                 <button class="chat-send" id="chat-send" aria-label="发送">

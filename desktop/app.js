@@ -672,20 +672,19 @@ function renderChatMcp() {
   }
 }
 
-// The reasoning level, as ZCode renders it: a discrete slider in the composer
-// rather than a menu. ZCode's own implementation (read out of its bundle) is a
-// native range input over a drawn track — a 24px pill with the fill on the
-// left, one dot per level, and a 28px white thumb that slides between them —
-// so this is the same thing: a real <input type=range> for keyboard and
-// accessibility, with the track, stops and thumb painted underneath it.
+// The reasoning level, shaped after dsh-effort-switcher (the plugin this was
+// asked to follow): a quiet trigger that names the current level, and a panel
+// that opens above it holding a gradient slider — 26px rail, 30px white knob
+// travelling between 15px insets, 4px ticks on the rail, and a blue-to-violet
+// bloom that fades in at the top level. The panel is a frosted surface, not a
+// plain menu. Dragging only moves a draft; the value is saved on release.
 const CHAT_EFFORT_LEVELS = [
-  { value: "", label: "自动", hint: "由模型决定" },
-  { value: "none", label: "不思考", hint: "最快最省，适合查数据" },
-  { value: "low", label: "轻度", hint: "简单问题略作推理" },
-  { value: "medium", label: "中度", hint: "平衡速度与质量" },
-  { value: "high", label: "深度", hint: "复杂问题充分推理" }
+  { value: "", label: "自动", desc: "由模型决定，通常最稳。" },
+  { value: "none", label: "不思考", desc: "不推理直接作答，最快最省。" },
+  { value: "low", label: "轻度", desc: "简单问题略作推理。" },
+  { value: "medium", label: "中度", desc: "平衡速度与质量。" },
+  { value: "high", label: "深度", desc: "最深推理，耗时更长，适合复杂任务。" }
 ];
-const CHAT_EFFORT_TRIGGER = "思考强度";
 
 function chatEffortIndex() {
   const level = String(chatPrefs?.effort ?? "");
@@ -693,46 +692,60 @@ function chatEffortIndex() {
   return at < 0 ? 0 : at;
 }
 
-function renderChatEffort() {
-  const range = $("#chat-effort-range");
-  const label = $("#chat-effort-label");
-  if (!range || !label) return;
-  const index = chatEffortIndex();
+// Paints the slider for one index. The knob travels between the first and last
+// tick, which sit 15px in from each end — the same geometry the reference uses,
+// so a tick is exactly under the knob at every stop.
+function chatEffortPaint(index) {
   const last = CHAT_EFFORT_LEVELS.length - 1;
-  const level = CHAT_EFFORT_LEVELS[index];
-  // The thumb travels between the first and last stop, which sit 14px in from
-  // each end — the same geometry ZCode uses, so the dots line up with it.
+  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
   const percent = last ? (index / last) * 100 : 0;
   const fill = $("#chat-effort-fill");
   if (fill) {
-    fill.style.width = `calc(14px + (100% - 28px) * ${percent / 100})`;
-    fill.dataset.max = String(index === last);
+    fill.style.width = `calc(15px + (100% - 30px) * ${percent / 100})`;
+    fill.classList.toggle("max", index === last);
   }
-  const thumb = $("#chat-effort-thumb");
-  if (thumb) thumb.style.left = `calc((100% - 28px) * ${percent / 100})`;
-  range.value = String(index);
-  range.setAttribute("aria-valuetext", level.label);
-  range.setAttribute("aria-valuemin", "0");
-  range.setAttribute("aria-valuemax", String(last));
-  range.title = `${level.label}：${level.hint}`;
-  // The name shows only once a level is chosen; on automatic the control is a
-  // bare slider whose title says what it is.
-  label.textContent = level.value ? level.label : CHAT_EFFORT_TRIGGER;
-  label.classList.toggle("set", Boolean(level.value));
+  const knob = $("#chat-effort-knob");
+  if (knob) knob.style.left = `calc(15px + (100% - 30px) * ${percent / 100})`;
+  const value = $("#chat-effort-value");
+  if (value) value.textContent = level.label;
+  const desc = $("#chat-effort-desc");
+  if (desc) desc.textContent = level.desc;
+  const range = $("#chat-effort-range");
+  if (range) {
+    range.value = String(index);
+    range.setAttribute("aria-valuetext", level.label);
+  }
+  const ticks = $("#chat-effort-ticks");
+  if (ticks) {
+    [...ticks.children].forEach((tick, at) => tick.classList.toggle("active", at <= index));
+  }
+}
 
-  const stops = $("#chat-effort-stops");
-  if (stops && stops.dataset.key !== String(last)) {
-    stops.dataset.key = String(last);
-    stops.replaceChildren(...CHAT_EFFORT_LEVELS.map((item, at) => {
-      const dot = document.createElement("span");
-      dot.className = "chat-effort-stop";
-      dot.dataset.filled = String(at <= index);
-      dot.title = `${item.label}：${item.hint}`;
-      return dot;
+function renderChatEffort() {
+  const label = $("#chat-effort-label");
+  const button = $("#chat-effort-button");
+  if (!label) return;
+  const index = chatEffortIndex();
+  const level = CHAT_EFFORT_LEVELS[index];
+  // The trigger carries the level once one is chosen; on automatic it stays
+  // generic, because "自动" alone would not say what the control is.
+  label.textContent = level.value ? level.label : "思考强度";
+  button?.classList.toggle("set", Boolean(level.value));
+
+  const ticks = $("#chat-effort-ticks");
+  if (ticks && ticks.dataset.key !== String(CHAT_EFFORT_LEVELS.length)) {
+    ticks.dataset.key = String(CHAT_EFFORT_LEVELS.length);
+    ticks.replaceChildren(...CHAT_EFFORT_LEVELS.map(() => {
+      const tick = document.createElement("span");
+      tick.className = "chat-effort-tick";
+      return tick;
     }));
-  } else if (stops) {
-    [...stops.children].forEach((dot, at) => { dot.dataset.filled = String(at <= index); });
   }
+  const range = $("#chat-effort-range");
+  if (range) {
+    range.max = String(CHAT_EFFORT_LEVELS.length - 1);
+  }
+  chatEffortPaint(index);
 }
 
 async function saveChatPrefs(patch) {
@@ -1141,22 +1154,26 @@ $("#chat-model-menu")?.addEventListener("click", (event) => {
   renderChatModels();
   $("#chat-input")?.focus();
 });
-// Dragging saves on release; the live repaint follows every step so the fill,
-// the dots and the name track the thumb while it moves.
+function chatEffortOpen(open) {
+  const panel = $("#chat-effort-panel");
+  const button = $("#chat-effort-button");
+  if (!panel || !button) return;
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", String(Boolean(open)));
+  button.classList.toggle("open", Boolean(open));
+  // Opening repaints from the saved level: a draft abandoned by a click
+  // elsewhere must not survive as the shown value.
+  if (open) chatEffortPaint(chatEffortIndex());
+}
+
+$("#chat-effort-button")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  chatEffortOpen($("#chat-effort-panel")?.hidden);
+});
+// Dragging moves a draft only: the paint follows every step, but the value is
+// written once, on release.
 $("#chat-effort-range")?.addEventListener("input", (event) => {
-  const index = Number(event.target.value) || 0;
-  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
-  const label = $("#chat-effort-label");
-  if (label) { label.textContent = level.value ? level.label : CHAT_EFFORT_TRIGGER; label.classList.toggle("set", Boolean(level.value)); }
-  const last = CHAT_EFFORT_LEVELS.length - 1;
-  const percent = last ? (index / last) * 100 : 0;
-  const fill = $("#chat-effort-fill");
-  if (fill) { fill.style.width = `calc(14px + (100% - 28px) * ${percent / 100})`; fill.dataset.max = String(index === last); }
-  const thumb = $("#chat-effort-thumb");
-  if (thumb) thumb.style.left = `calc((100% - 28px) * ${percent / 100})`;
-  const stops = $("#chat-effort-stops");
-  if (stops) [...stops.children].forEach((dot, at) => { dot.dataset.filled = String(at <= index); });
-  event.target.title = `${level.label}：${level.hint}`;
+  chatEffortPaint(Number(event.target.value) || 0);
 });
 $("#chat-effort-range")?.addEventListener("change", (event) => {
   const index = Number(event.target.value) || 0;
@@ -1205,6 +1222,7 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
+  if (!event.target.closest("#chat-effort")) chatEffortOpen(false);
   if (!event.target.closest("#chat-mcp")) {
     const menu = $("#chat-mcp-menu");
     const button = $("#chat-mcp-button");

@@ -2727,71 +2727,133 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 /* The in-flight tool call, shown above the composer only while it runs. */
 .chat-tool-status { margin: 0 6px 8px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.5; }
 
-/* The reasoning level as ZCode draws it: a discrete slider, not a menu.
-   Values are ZCode's own (read from its stylesheet): a 32px hit area, a
-   24px rounded track inset 1px from the top, one 4px dot per level between
-   14px insets, a 28px round thumb sliding with .12s ease-out, and the fill
-   in --color-success that turns to the brand blue at the top level. A real
-   <input type=range> sits on top for keyboard and accessibility, its own
-   track and thumb made transparent. */
-.chat-effort-picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.chat-effort-slider { position: relative; width: 132px; height: 32px; flex: none; }
-.chat-effort-slider:has(input:focus-visible) {
-  outline: 2px solid var(--chat-accent); outline-offset: 2px; border-radius: 999px;
+/* The reasoning level, following dsh-effort-switcher: a quiet trigger naming
+   the current level, and a frosted panel above it holding a gradient slider.
+   Geometry and colour are the reference's own — 26px rail at 13px radius, a
+   30px white knob between 15px insets, 4px ticks at 38% white, a #4c8dff fill
+   that blooms blue→violet at the top level over .315s, and a 38px transparent
+   range input on top for dragging and the keyboard. */
+.chat-effort-picker { position: relative; display: inline-flex; min-width: 0; }
+
+.chat-effort-trigger {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; max-width: 200px; padding: 0 4px 0 8px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--chat-ink-soft); font: 400 13px/20px var(--font-sans);
+  cursor: pointer; transition: background .15s;
 }
-.chat-effort-track {
-  pointer-events: none; position: absolute; inset: 0;
+.chat-effort-trigger:hover, .chat-effort-trigger.open { background: var(--chat-hover); }
+.chat-effort-trigger.set { color: var(--chat-ink); }
+.chat-effort-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-effort-chevron { flex: none; color: var(--chat-muted); transition: transform .12s; }
+.chat-effort-trigger.open .chat-effort-chevron { transform: rotate(180deg); }
+
+/* The frosted panel: the host's menu fill mixed toward transparent, blurred,
+   so the conversation behind it stays faintly visible rather than being
+   covered by a flat sheet. */
+.chat-effort-panel {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 60;
+  width: min(260px, calc(100vw - 32px));
+  padding: 3px; border-radius: 12px;
+  border: 1px solid var(--chat-menu-border);
+  background: var(--chat-menu-bg);
+  box-shadow: 0 12px 32px rgba(15, 17, 21, .16), 0 1px 2px rgba(15, 17, 21, .06);
+  animation: chat-effort-pop .12s ease-out;
 }
-.chat-effort-track > .chat-effort-fill,
-.chat-effort-track > .chat-effort-stops {
-  position: absolute; left: 0; right: 0; top: 4px; height: 24px;
-  border-radius: 999px;
+@supports (backdrop-filter: blur(1px)) {
+  .chat-effort-panel {
+    background: color-mix(in srgb, var(--chat-menu-bg) 72%, transparent);
+    backdrop-filter: blur(40px) saturate(150%);
+  }
 }
-.chat-effort-track::before {
-  content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 24px;
-  border-radius: 999px; background: var(--chat-hover);
-  border: 1px solid var(--chat-card-border);
+@keyframes chat-effort-pop {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to { opacity: 1; transform: none; }
 }
+
+.chat-effort-wrap { display: flex; flex-direction: column; gap: 2px; padding: 3px 8px 5px; }
+.chat-effort-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  color: var(--chat-muted); font: 11px/16px var(--font-sans);
+}
+.chat-effort-head strong { color: var(--chat-ink); font-weight: 600; }
+
+/* The rail is 26px tall; the knob overhangs it by 2px on each side. */
+.chat-effort-rail { position: relative; height: 26px; margin: 8px 0 10px; }
+.chat-effort-groove {
+  position: absolute; inset: 0; overflow: hidden;
+  border-radius: 13px; pointer-events: none;
+}
+.chat-effort-track, .chat-effort-fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  border-radius: 13px; pointer-events: none;
+}
+.chat-effort-track { right: 0; background: var(--chat-hover); }
 .chat-effort-fill {
-  overflow: hidden;
-  background: var(--green);
-  transition: width .12s ease-out;
+  z-index: 1; overflow: hidden; width: 15px;
+  background: #4c8dff;
+  transition: width .315s ease;
 }
-.chat-effort-fill[data-max="true"] { background: var(--chat-accent); }
-.chat-effort-stops {
+/* The bloom only appears at the top level, so the bar turns violet exactly
+   when the model is being asked to think hardest. */
+.chat-effort-bloom {
+  position: absolute; inset: 0; opacity: 0;
+  background: linear-gradient(90deg, #4c8dff 0%, #7b6cff 52%, #b56bff 100%);
+  transition: opacity .315s ease;
+}
+.chat-effort-fill.max .chat-effort-bloom { opacity: 1; }
+.chat-effort-ticks {
+  position: absolute; z-index: 2; top: 0; bottom: 0; left: 15px; right: 15px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 14px;
-}
-.chat-effort-stop {
-  width: 4px; height: 4px; border-radius: 50%; flex: none;
-  background: var(--chat-muted); opacity: .5;
-  transition: background .12s, opacity .12s;
-}
-.chat-effort-stop[data-filled="true"] { background: #fff; opacity: .9; }
-.chat-effort-thumb {
-  position: absolute; top: 2px; width: 28px; height: 28px;
-  border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 17, 21, .28);
-  transition: left .12s ease-out;
   pointer-events: none;
 }
+.chat-effort-tick {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255, 255, 255, .38);
+}
+.chat-effort-tick.active { background: rgba(255, 255, 255, .38); }
+.chat-effort-knob {
+  position: absolute; z-index: 4; top: 50%; left: 15px;
+  width: 30px; height: 30px; margin-left: -15px;
+  transform: translateY(-50%); pointer-events: none;
+  transition: left .315s ease;
+}
+.chat-effort-knob-face {
+  width: 100%; height: 100%; border-radius: 50%; background: #fff;
+  /* A flat white knob would vanish on the pale track outside the fill. */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .22), 0 0 0 1px rgba(0, 0, 0, .05);
+}
+/* The real input: invisible, 38px tall so it is easy to grab, and on top of
+   the painted rail so pointer and keyboard both drive it. */
 .chat-effort-range {
-  position: absolute; inset: 0; width: 100%; height: 32px;
-  margin: 0; padding: 0; cursor: pointer;
+  position: absolute; z-index: 3; top: 50%; left: 0; right: 0;
+  width: 100%; height: 38px; margin: 0; padding: 0;
+  transform: translateY(-50%);
   appearance: none; background: transparent; outline: none;
+  accent-color: transparent; color: transparent; cursor: pointer;
 }
-.chat-effort-range::-webkit-slider-runnable-track { height: 32px; background: transparent; }
+.chat-effort-range::-webkit-slider-runnable-track {
+  height: 26px; border: none; border-radius: 13px; background: transparent;
+}
 .chat-effort-range::-webkit-slider-thumb {
-  appearance: none; width: 28px; height: 28px; margin-top: 2px;
-  border: 0; border-radius: 50%; background: transparent;
+  appearance: none; box-sizing: border-box;
+  width: 30px; height: 30px; margin-top: -2px;
+  border: 0; border-radius: 50%; background: transparent; box-shadow: none;
+  cursor: pointer;
 }
-.chat-effort-range::-moz-range-track { height: 32px; background: transparent; }
+.chat-effort-range::-moz-range-track,
+.chat-effort-range::-moz-range-progress {
+  height: 26px; border: none; border-radius: 13px; background: transparent;
+}
 .chat-effort-range::-moz-range-thumb {
-  width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent;
+  box-sizing: border-box; width: 30px; height: 30px;
+  border: 0; border-radius: 50%; background: transparent; box-shadow: none;
+  cursor: pointer;
 }
-.chat-effort-range::-moz-range-progress { background: transparent; }
-.chat-effort-value {
-  color: var(--chat-muted); font: 11.5px/1 var(--font-sans);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72px;
+.chat-effort-range:focus-visible ~ .chat-effort-knob .chat-effort-knob-face {
+  box-shadow: 0 0 0 2px var(--chat-accent), 0 1px 4px rgba(0, 0, 0, .22);
 }
-.chat-effort-value.set { color: var(--chat-ink); font-weight: 500; }
+.chat-effort-desc {
+  margin: 2px 0 0; color: var(--chat-muted);
+  font: 11px/15px var(--font-sans);
+}
