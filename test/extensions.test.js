@@ -416,9 +416,12 @@ test("skills: claude-desktop's two folders collapse into one install state", asy
   fs.unlinkSync(path.join(targets[1], "twin"));
   fs.mkdirSync(path.join(targets[1], "twin"), { recursive: true });
   row = (await listLibrary(env))[0];
+  // `foreign` says a same-named thing is there that Lane did not create: the
+  // hand-made folder in the second path. `linked` still wins, so the pip reads
+  // as installed — one live junction is enough.
   assert.deepEqual(
     row.installs.filter((i) => i.agent === "claude-desktop"),
-    [{ agent: "claude-desktop", linked: true }],
+    [{ agent: "claude-desktop", linked: true, foreign: false }],
     "one live junction is still installed"
   );
 });

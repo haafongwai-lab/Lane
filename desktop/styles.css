@@ -2275,6 +2275,17 @@ h1 {
 .skill-pip.on { border-color: var(--green-bg); background: var(--green-bg); color: var(--green); }
 .skill-pip.on:hover { border-color: #d9b6ad; background: var(--red-bg); color: var(--red); }
 .skill-pip:hover { border-color: var(--line-strong); color: var(--ink); }
+/* The name is taken by something Lane did not install (another tool's junction
+   in a shared folder). It cannot be toggled, so it is drawn as a dashed slot
+   rather than a filled pip: the difference between "Lane put this here" and
+   "something else did" is what the click can act on. */
+.skill-pip.taken {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--faint);
+  cursor: help;
+}
+.skill-pip.taken:hover { border-color: var(--line-strong); color: var(--muted); }
 
 /* The live-connection test's verdict. It is a wrapped row of its own, not a
    child of .mcp-item-main: a long tool list wraps to several lines, and an

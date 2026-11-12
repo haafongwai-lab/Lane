@@ -78,9 +78,16 @@ test("the renderer and install handler agree about a partially installed skill",
   const from = APP.indexOf("function renderSkills(");
   const end = APP.indexOf("\n}", from);
   const render = APP.slice(from, end + 2);
-  // A client with two skill folders must read as installed if either is linked.
-  assert.match(render, /installed\[item\.agent\]\s*=\s*installed\[item\.agent\]\s*\|\|/);
+  // A client with two skill folders must read as installed if either is
+  // linked — and a same-named folder Lane did not create must NOT light the
+  // pip, or 卸载 would remove Lane's junction and leave the pip lit on the
+  // foreign one, which is exactly the "cannot uninstall" report.
+  assert.match(render, /if \(item\.linked\) installed\[item\.agent\] = true;/);
+  assert.match(render, /else if \(item\.foreign\) occupied\[item\.agent\] = true;/);
+  assert.match(render, /taken \? " taken" : ""/, "a foreign slot is drawn differently");
   const click = APP.slice(APP.indexOf('$("#skills-list")'));
   assert.match(click, /result\.linked === false/, "no false '已安装' toast");
   assert.match(click, /skillsBusy/, "no double-click against a stale pip");
+  // A click on a slot Lane does not own says why instead of doing nothing.
+  assert.match(click, /classList\.contains\("taken"\)/);
 });

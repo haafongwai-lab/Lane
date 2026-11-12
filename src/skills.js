@@ -193,6 +193,11 @@ export async function listLibrary(env = process.env) {
     for (const agent of AGENTS) {
       let linked = false;
       let present = false;
+      // A link that is there but is not Lane's: another tool's junction in a
+      // shared folder, or a folder the user made by hand. It counts as
+      // "occupied" rather than "installed", so the pip can say so instead of
+      // reading as Lane's own install that a click cannot remove.
+      let foreign = false;
       for (const target of installTargets(agent, env)) {
         const link = path.join(target, entry.name);
         try {
@@ -204,13 +209,17 @@ export async function listLibrary(env = process.env) {
           // made Lane show every skill as installed to Claude on every start,
           // which read as Lane installing them by itself.
           if (st.isSymbolicLink() && (await pointsAt(link, source))) linked = true;
+          else foreign = true;
         } catch {}
       }
       // One row per agent, not per target. Claude Desktop has two skill
       // folders, and the renderer folds installs into a map keyed by agent:
       // two rows meant the last one won, so a real folder of the user's in
       // the second path could hide a live junction in the first.
-      if (present) installs.push({ agent, linked });
+      //
+      // `linked` is what the pip toggles; `foreign` says the name is taken by
+      // something Lane did not create, which the page shows separately.
+      if (present) installs.push({ agent, linked, foreign: !linked && foreign });
     }
     out.push({ name: entry.name, description, installs });
   }

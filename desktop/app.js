@@ -2279,6 +2279,14 @@ $("#plugin-list").addEventListener("click", async (event) => {
       const info = await window.lane.pluginRollback(key);
       toast(`已回滚到 ${info.version || "内置版本"}`);
       await loadPlugins();
+      // A rollback changes the installed version, so the row's cached check is
+      // now about the version that was just replaced: the badge would read
+      // "已安装" while the release the user had already found stayed hidden,
+      // and 更新 stayed disabled until 检查更新 was pressed again. Re-check the
+      // plugin that changed, so the row reflects where it now stands.
+      const rows = await window.lane.pluginCheck();
+      for (const row of rows) pluginState.checks.set(row.key, row);
+      renderPlugins();
     } catch (error) {
       toast(`回滚失败：${error.message}`, true);
     } finally {
@@ -2403,16 +2411,27 @@ function renderSkills(list) {
   }
   node.innerHTML = list.map(function (skill) {
     var installed = {};
-    // OR, not assignment: a client may have more than one skill folder, and
-    // one live junction is enough for the pip to read as installed.
+    var occupied = {};
+    // A pip is Lane's own install or nothing: a same-named folder another tool
+    // put there is reported separately, not drawn as an install a click cannot
+    // remove. Folding both into `installed` is what made 卸载 look broken — the
+    // junction went away and the pip stayed lit on the foreign one.
     (skill.installs || []).forEach(function (item) {
-      installed[item.agent] = installed[item.agent] || Boolean(item.linked);
+      if (item.linked) installed[item.agent] = true;
+      else if (item.foreign) occupied[item.agent] = true;
     });
     // A pip per client; filled means installed, clicking toggles it.
     var pips = ["codex", "zcode", "claude-desktop"].map(function (agent) {
       var on = Boolean(installed[agent]);
-      return '<button class="skill-pip' + (on ? " on" : "") + '" data-pip="' + esc(skill.name) +
-        '" data-agent="' + agent + '" data-tip="' + (on ? "从 " + AGENT_SHORT[agent] + " 卸载" : "安装到 " + AGENT_SHORT[agent]) + '">' +
+      var taken = Boolean(occupied[agent]);
+      var tip = on
+        ? "从 " + AGENT_SHORT[agent] + " 卸载"
+        : taken
+          ? AGENT_SHORT[agent] + " 的目标位置已有同名目录，不是 Lane 装的，不会覆盖也不会删除"
+          : "安装到 " + AGENT_SHORT[agent];
+      return '<button class="skill-pip' + (on ? " on" : "") + (taken ? " taken" : "") +
+        '" data-pip="' + esc(skill.name) + '" data-agent="' + agent +
+        '" data-tip="' + esc(tip) + '">' +
         AGENT_INITIAL[agent] + "</button>";
     }).join("");
     return '<div class="skill-card' + (skill.builtin ? " builtin" : "") + '">' +
@@ -2647,6 +2666,13 @@ var skillsBusy = false;
 $("#skills-list").addEventListener("click", async function (event) {
   var pip = event.target.closest("[data-pip]");
   if (pip) {
+    // A dashed slot means the name belongs to something Lane did not create:
+    // installing would refuse it and uninstalling would remove nothing, so the
+    // click says why instead of appearing to do nothing.
+    if (pip.classList.contains("taken") && !pip.classList.contains("on")) {
+      toast(pip.getAttribute("data-tip") || "该位置已有同名目录，不是 Lane 装的", true);
+      return;
+    }
     // The list is re-rendered by loadExtensions(), so a pip left enabled can
     // be clicked twice against the same stale state before it is replaced.
     if (skillsBusy) return;
@@ -2656,8 +2682,12 @@ $("#skills-list").addEventListener("click", async function (event) {
     var on = pip.classList.contains("on");
     try {
       if (on) {
-        await window.lane.skillsUninstall(name, agent);
-        toast("已从 " + AGENT_SHORT[agent] + " 卸载");
+        var result = await window.lane.skillsUninstall(name, agent);
+        // The junction may have gone while a foreign folder of the same name
+        // stayed: say what actually happened rather than "卸载" either way.
+        toast(result && result.removed
+          ? "已从 " + AGENT_SHORT[agent] + " 卸载"
+          : AGENT_SHORT[agent] + " 没有 Lane 安装的链接可卸载");
       } else {
         var result = await window.lane.skillsInstall(name, agent);
         var occupied = (result && result.occupied) || [];
