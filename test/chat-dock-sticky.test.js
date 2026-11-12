@@ -23,9 +23,12 @@ const CSS = read("desktop/styles.css");
 
 test("the chat view drops the page's bottom padding while it is open", () => {
   assert.match(CSS, /body\.view-chat main \{ padding-bottom: 0; \}/);
-  assert.match(CSS, /body\.view-chat #view-chat \{ padding-bottom: 0; \}/);
-  // The shell's floor accounts for the view's own top padding, not main's.
-  assert.match(CSS, /body\.view-chat \.chat-shell \{ min-height: calc\(100vh - 42px\); \}/);
+  // Top padding is dropped too: the sticky bar owns that space, and leaving the
+  // padding in made the bar slide up by it on the first scroll.
+  assert.match(CSS, /body\.view-chat #view-chat \{ padding-top: 0; padding-bottom: 0; \}/);
+  // With the top padding gone the shell fills the whole viewport, so the dock
+  // lands on the bottom edge.
+  assert.match(CSS, /body\.view-chat \.chat-shell \{ min-height: 100vh; \}/);
 });
 
 test("the body class follows the active view", () => {

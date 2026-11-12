@@ -2394,7 +2394,12 @@ h1 {
 }
 
 #view-chat { display: none; }
-#view-chat.active { display: flex; flex-direction: column; padding-bottom: 0; }
+#view-chat.active {
+  display: flex; flex-direction: column;
+  padding-bottom: 0;
+  /* No entrance transform here: it would trap position:fixed children. */
+  animation: none;
+}
 
 /* The composer is sticky, and a sticky box stops at its containing block's
    bottom edge. `main` carries 56px of bottom padding for the other views, so
@@ -2402,8 +2407,10 @@ h1 {
    While the chat view is open the page's bottom padding is its composer's,
    so the shell's own padding is dropped here and the dock reaches the edge. */
 body.view-chat main { padding-bottom: 0; }
-body.view-chat #view-chat { padding-bottom: 0; }
-body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
+body.view-chat #view-chat { padding-top: 0; padding-bottom: 0; }
+/* The sticky bar occupies the space the view's top padding used to. */
+body.view-chat .chat-topbar { margin-top: 0; }
+body.view-chat .chat-shell { min-height: 100vh; }
 .chat-shell {
   display: flex;
   flex-direction: column;
@@ -2420,9 +2427,21 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px 4px;
+  /* Position from the viewport edge, and stay there while the transcript
+     scrolls: the buttons above the conversation must not travel with it. */
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  padding: 10px 14px 8px;
+  background: linear-gradient(to bottom, var(--canvas) 60%, transparent);
+  gap: 8px;
 }
-.chat-clear { padding: 4px 10px; font-size: 11.5px; }
+.chat-clear {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  /* A clear gap from 历史: they are two different actions, not a pair. */
+  margin-left: 6px;
+}
 
 .chat-scroll {
   flex: 1 1 auto;
