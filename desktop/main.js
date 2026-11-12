@@ -687,7 +687,7 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
     if (prefs?.mcpEnabled) toolSet = await openConsoleTools(prefs, emit);
     // Lane's own read-only tools ride along with whatever MCP offers. They are
     // local reads, so they cost nothing upstream and are on by default.
-    const local = prefs?.localTools === false ? null : createLocalTools({ control });
+    const local = prefs?.localTools === false ? null : createLocalTools({ control, settings: () => readSettings() });
     if (local) {
       toolSet = { ...toolSet, defs: [...local.defs, ...toolSet.defs], local: local.impl };
     }
@@ -798,7 +798,7 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
         if (Date.now() - started > durationBudget) { stop = "time"; break; }
         continue;
       }
-      return { ok: true, text, truncated: lastFinish === "length", rounds: round };
+      return { ok: true, text, truncated: lastFinish === "length", rounds: round, meta: { model, tokens: totalTokens, prompt: prevInput, elapsedMs: Date.now() - started } };
     }
 
     if (!stop) stop = "rounds";
@@ -820,7 +820,7 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
         // The wrap-up is a courtesy: if it fails, the text so far still stands.
       }
     }
-    return { ok: true, text, stopped: stop, rounds, truncated: lastFinish === "length" };
+    return { ok: true, text, stopped: stop, rounds, truncated: lastFinish === "length", meta: { model, tokens: totalTokens, prompt: prevInput, elapsedMs: Date.now() - started } };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
     return { ok: false, error: error?.message || String(error) };

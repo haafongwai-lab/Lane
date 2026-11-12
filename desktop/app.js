@@ -833,7 +833,14 @@ function chatBubble(role, text = "") {
     retry.className = "chat-action";
     retry.dataset.chatAction = "retry";
     retry.textContent = "重新回答";
-    actions.append(copy, retry);
+    // 继续 asks for the rest of a long answer. It keeps the turn instead of
+    // replacing it, so the model carries on from where it stopped.
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "chat-action";
+    more.dataset.chatAction = "continue";
+    more.textContent = "继续";
+    actions.append(copy, retry, more);
     node.append(actions);
   }
   log.append(node);
@@ -1333,6 +1340,7 @@ async function sendChat() {
         else if (result.stopped === "rounds") chatNote(answer, `已达工具轮数上限（${result.rounds} 轮）${wrapped}`);
         else if (result.stopped === "tokens") chatNote(answer, `已达本次提问的 token 预算${wrapped}`);
         else if (result.stopped === "time") chatNote(answer, `已达本次提问的耗时上限${wrapped}`);
+        chatMetaLine(answer, result.meta);
       }
       // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
@@ -1375,6 +1383,25 @@ async function sendChat() {
   }
 }
 
+// What the turn cost, under the answer: the model, the tokens this question
+// added, how long it took, and how many rounds the tool loop used. The same
+// numbers the journal records, so the panel and the 积分花费 page agree.
+function chatMetaLine(anchor, meta) {
+  if (!anchor || !meta) return;
+  const parts = [];
+  if (meta.model) parts.push(meta.model);
+  if (Number.isFinite(meta.tokens) && meta.tokens > 0) parts.push(`${compact(meta.tokens)} tokens`);
+  if (Number.isFinite(meta.elapsedMs) && meta.elapsedMs > 0) {
+    parts.push(meta.elapsedMs >= 1000 ? `${(meta.elapsedMs / 1000).toFixed(1)} 秒` : `${meta.elapsedMs} 毫秒`);
+  }
+  if (Number.isFinite(meta.rounds) && meta.rounds > 1) parts.push(`${meta.rounds} 轮工具`);
+  if (!parts.length) return;
+  const line = document.createElement("div");
+  line.className = "chat-meta";
+  line.textContent = parts.join(" · ");
+  anchor.parentElement?.appendChild(line);
+}
+
 function chatNote(anchor, text) {
   if (!anchor) return;
   const note = document.createElement("div");
@@ -1395,6 +1422,17 @@ document.addEventListener("click", (event) => {
       action.textContent = "已复制";
       setTimeout(() => { action.textContent = "复制"; }, 1600);
     }).catch(() => toast("复制失败", true));
+    return;
+  }
+  if (action.dataset.chatAction === "continue") {
+    // Continue from what is already there: the previous answer stays in the
+    // context, and the prompt asks only for the rest.
+    const box = $("#chat-input");
+    if (box) {
+      box.value = "继续，接着上面没说完的地方写，不要重复已经说过的内容。";
+      box.dispatchEvent(new Event("input"));
+    }
+    sendChat();
     return;
   }
   if (action.dataset.chatAction === "retry") {
@@ -1466,7 +1504,15 @@ function renderChatHistory() {
     list.innerHTML = '<p class="chat-history-empty">还没有历史对话。</p>';
     return;
   }
-  list.innerHTML = chatSessions.map((session) => `
+  const query = String($("#chat-history-search")?.value || "").trim().toLowerCase();
+  const shown = query
+    ? chatSessions.filter((session) => String(session.title || "").toLowerCase().includes(query))
+    : chatSessions;
+  if (!shown.length) {
+    list.innerHTML = '<p class="chat-history-empty">没有匹配的对话。</p>';
+    return;
+  }
+  list.innerHTML = shown.map((session) => `
     <div class="chat-history-item${session.id === chatSessionId ? " active" : ""}">
       <button type="button" class="chat-history-open" data-session-open="${esc(session.id)}">
         <span class="chat-history-title">${esc(session.title)}</span>
@@ -1556,6 +1602,8 @@ $("#chat-history-button")?.addEventListener("click", (event) => {
   event.stopPropagation();
   chatHistoryOpen($("#chat-history-panel")?.hidden);
 });
+$("#chat-history-search")?.addEventListener("input", renderChatHistory);
+
 $("#chat-history-new")?.addEventListener("click", () => {
   chatHistory = [];
   chatSessionId = "";

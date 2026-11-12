@@ -91,6 +91,22 @@ export const LOCAL_TOOL_DEFS = [
   {
     type: "function",
     function: {
+      name: "lane_skills",
+      description: "查询技能库：每个技能的名称、描述，以及安装在哪些客户端。用于回答「我装了哪些技能」「某个技能装到哪了」。",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "lane_settings",
+      description: "查询 Lane 的网关设置：端口、是否隐藏 DSH 名称、出站拦截模式、脱敏开关。用于回答「端口是多少」「脱敏开了吗」这类问题。",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "lane_accounts",
       description: "查询已登录的上游账号：标签、站点、是否参与模型池、签到状态与今日签到积分。",
       parameters: { type: "object", properties: {} }
@@ -139,7 +155,7 @@ function formatCredits(credits) {
  * Builds the tool table. `control` is the gateway's control center, injected so
  * this module stays testable with a stub.
  */
-export function createLocalTools({ control } = {}) {
+export function createLocalTools({ control, settings = null } = {}) {
   const need = () => {
     if (!control) throw new Error("控制中心还不可用");
     return control;
@@ -218,9 +234,36 @@ export function createLocalTools({ control } = {}) {
         const target = servers.find((server) => server.name === String(test));
         if (!target) return `${lines.join("\n")}\n\n没有名为「${test}」的服务器。`;
         const result = await need().mcpTest(target.name);
-        lines.push("", `连通性测试 ${target.name}：${result?.ok ? "正常" : `失败（${result?.error || "未知原因"}）`}${result?.tools?.length ? `，工具 ${result.tools.length} 个` : ""}`);
+        lines.push("", `连通性测试 ${target.name}：${result?.ok ? "正常" : `失败（${result?.error || "未知原因"}）`}`);
+        // The tool names are what the model can actually call, so they are
+        // listed rather than only counted.
+        if (Array.isArray(result?.tools) && result.tools.length) {
+          lines.push(`可用工具（${result.tools.length}）：${result.tools.slice(0, 30).join("、")}`);
+        }
       }
       return lines.join("\n");
+    },
+
+    async lane_skills() {
+      const library = await need().skillsList();
+      if (!Array.isArray(library) || !library.length) return "技能库是空的。";
+      return library.map((skill) => {
+        const targets = (skill.installs || []).map((item) => `${item.agent}${item.linked ? "（已装）" : "（占用）"}`);
+        const where = targets.length ? `装于 ${targets.join("、")}` : "未安装到任何客户端";
+        return `- ${skill.name}${skill.builtin ? "（内置）" : ""}：${skill.description || "无描述"}；${where}`;
+      }).join("\n");
+    },
+
+    async lane_settings() {
+      if (typeof settings !== "function") return "设置读取器不可用。";
+      const current = (await settings()) || {};
+      const egress = { off: "关闭", monitor: "只记录", enforce: "拦截第三方" }[current.egressMode] || current.egressMode || "?";
+      return [
+        `端口：${current.port ?? "?"}`,
+        `隐藏 DSH 名称：${current.hideDsh === false ? "关闭" : "开启"}`,
+        `出站拦截：${egress}`,
+        `请求脱敏：${current.redactSecrets === false ? "关闭" : "开启"}`
+      ].join("\n");
     },
 
     async lane_accounts() {

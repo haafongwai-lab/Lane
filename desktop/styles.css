@@ -3003,3 +3003,21 @@ body.view-chat .chat-shell { min-height: 100vh; }
 .chat-history-empty { margin: 0; padding: 12px 10px; color: var(--chat-muted); font-size: 12px; text-align: center; }
 /* Separates the local-tools switch from the MCP list in the 工具 menu. */
 .chat-mcp-divider { height: 1px; margin: 4px 2px 6px; background: var(--line-soft); }
+
+/* What the turn cost, under the answer: quiet, one line, same numbers the
+   积分花费 page reports. */
+.chat-meta {
+  margin-top: 6px; color: var(--chat-muted);
+  font: 10.5px/16px var(--font-sans);
+  align-self: flex-start;
+  font-variant-numeric: tabular-nums;
+}
+/* The history search box, above the list. */
+.chat-history-search {
+  width: 100%; margin: 4px 0 6px; padding: 6px 9px;
+  border: 1px solid var(--chat-card-border); border-radius: 8px;
+  background: transparent; color: var(--chat-ink);
+  font: 12.5px/20px var(--font-sans); outline: none;
+}
+.chat-history-search:focus { border-color: var(--chat-accent); }
+.chat-history-search::placeholder { color: var(--chat-muted); }
