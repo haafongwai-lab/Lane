@@ -22,9 +22,9 @@ export const DEFAULTS = {
   // answer comes back empty; the panel offers it beside the model picker.
   effort: "",
   maxRounds: 6,          // tool rounds per question
-  maxTokens: 32_000,     // total tokens across every round of one question
+  maxTokens: 131_072,    // total tokens across every round of one question
   maxDurationMs: 180_000, // wall-clock ceiling for one question
-  historyTurns: 10       // message pairs kept as context
+  historyTurns: 40       // message pairs kept as context
 };
 
 export const EFFORTS = ["", "none", "low", "medium", "high"];
@@ -43,9 +43,9 @@ export function normalizePrefs(raw = {}) {
       : [],
     effort: EFFORTS.includes(String(raw?.effort ?? "")) ? String(raw?.effort ?? "") : "",
     maxRounds: clamp(raw?.maxRounds, 1, 12, DEFAULTS.maxRounds),
-    maxTokens: clamp(raw?.maxTokens, 1_000, 200_000, DEFAULTS.maxTokens),
+    maxTokens: clamp(raw?.maxTokens, 1_000, 1_000_000, DEFAULTS.maxTokens),
     maxDurationMs: clamp(raw?.maxDurationMs, 10_000, 900_000, DEFAULTS.maxDurationMs),
-    historyTurns: clamp(raw?.historyTurns, 1, 50, DEFAULTS.historyTurns)
+    historyTurns: clamp(raw?.historyTurns, 1, 200, DEFAULTS.historyTurns)
   };
 }
 

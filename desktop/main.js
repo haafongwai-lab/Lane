@@ -643,13 +643,13 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   };
   const prefs = await readConsolePrefs().catch(() => null);
   const rounds = prefs?.maxRounds || 6;
-  const tokenBudget = prefs?.maxTokens || 32_000;
+  const tokenBudget = prefs?.maxTokens || 131_072;
   const durationBudget = prefs?.maxDurationMs || 180_000;
   // A chat answer must not be cut short. 32768 output tokens leaves room for a
   // long answer while staying well under the models' context windows. A model
   // with a lower own ceiling refuses this before generating anything; the
   // max_tokens fallback below resends without the cap in that case.
-  const cap = Math.min(Math.max(Number(maxTokens) || 32768, 256), 32768);
+  const cap = Math.min(Math.max(Number(maxTokens) || 131072, 256), 131072);
   const started = Date.now();
 
   // Reasoning and answer share one max_tokens, so a model that thinks a lot can

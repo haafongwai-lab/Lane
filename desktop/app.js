@@ -572,11 +572,13 @@ function render() {
 // and the send cadence. The tool-loop budgets (rounds, tokens, time) are
 // enforced in the main process, where the loop actually runs.
 const CHAT_MIN_GAP_MS = 2000;
-const CHAT_MAX_TOKENS = 32768;
-const CHAT_DEFAULT_HISTORY_TURNS = 10;
-// Roughly half a typical context window; the trim below drops the oldest turns
-// until the carried text fits, so the request never grows without bound.
-const CHAT_CONTEXT_TOKEN_CEILING = 6000;
+// The answer and the carried context are both 128k. They were 32768 and 6000,
+// which cut long answers short and threw away most of a conversation the
+// models can hold: every model in the pool advertises a 960k-1M window, so a
+// 128k working set is comfortable and leaves room for the prompt.
+const CHAT_MAX_TOKENS = 131072;
+const CHAT_CONTEXT_TOKEN_CEILING = 131072;
+const CHAT_DEFAULT_HISTORY_TURNS = 40;
 
 let chatHistory = [];
 let chatBusy = false;
@@ -678,17 +680,42 @@ function renderChatMcp() {
 // travelling between 15px insets, 4px ticks on the rail, and a blue-to-violet
 // bloom that fades in at the top level. The panel is a frosted surface, not a
 // plain menu. Dragging only moves a draft; the value is saved on release.
-const CHAT_EFFORT_LEVELS = [
-  { value: "", label: "自动", desc: "由模型决定，通常最稳。" },
-  { value: "none", label: "不思考", desc: "不推理直接作答，最快最省。" },
-  { value: "low", label: "轻度", desc: "简单问题略作推理。" },
-  { value: "medium", label: "中度", desc: "平衡速度与质量。" },
-  { value: "high", label: "深度", desc: "最深推理，耗时更长，适合复杂任务。" }
-];
+// The slider's stops come from the SELECTED MODEL's own reasoning levels.
+// They are not the same across the pool — hy4free offers only "high",
+// deepseek-v4.1 offers none/low/high/max, qoder offers low/medium/xhigh — so a
+// fixed five-stop slider could send a level the upstream rejects outright.
+// "自动" is always first and means "send no reasoning_effort at all".
+const CHAT_EFFORT_LABELS = {
+  none: { label: "不思考", desc: "不推理直接作答，最快最省。" },
+  minimal: { label: "极轻", desc: "几乎不推理。" },
+  low: { label: "轻度", desc: "简单问题略作推理。" },
+  medium: { label: "中度", desc: "平衡速度与质量。" },
+  high: { label: "深度", desc: "最深推理，耗时更长，适合复杂任务。" },
+  xhigh: { label: "极深", desc: "比深度更充分的推理。" },
+  max: { label: "最大", desc: "模型允许的最深推理，最慢最贵。" }
+};
+const CHAT_EFFORT_AUTO = { value: "", label: "自动", desc: "由模型决定，通常最稳。" };
+
+// The levels the current model advertises, with 自动 in front. A model that
+// declares none (a plain non-reasoning model) still gets 自动 alone, and the
+// slider then has nothing to drag.
+function chatEffortLevels() {
+  const model = chatModelList().find((item) => item.id === chatSelectedModel);
+  const offered = Array.isArray(model?.efforts) ? model.efforts.filter((effort) => typeof effort === "string" && effort) : [];
+  const seen = new Set();
+  const stops = [CHAT_EFFORT_AUTO];
+  for (const effort of offered) {
+    if (seen.has(effort)) continue;
+    seen.add(effort);
+    const known = CHAT_EFFORT_LABELS[effort];
+    stops.push({ value: effort, label: known?.label || effort, desc: known?.desc || `模型档位 ${effort}。` });
+  }
+  return stops;
+}
 
 function chatEffortIndex() {
   const level = String(chatPrefs?.effort ?? "");
-  const at = CHAT_EFFORT_LEVELS.findIndex((item) => item.value === level);
+  const at = chatEffortLevels().findIndex((item) => item.value === level);
   return at < 0 ? 0 : at;
 }
 
@@ -696,8 +723,9 @@ function chatEffortIndex() {
 // tick, which sit 15px in from each end — the same geometry the reference uses,
 // so a tick is exactly under the knob at every stop.
 function chatEffortPaint(index) {
-  const last = CHAT_EFFORT_LEVELS.length - 1;
-  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
+  const levels = chatEffortLevels();
+  const last = levels.length - 1;
+  const level = levels[index] || levels[0];
   const percent = last ? (index / last) * 100 : 0;
   const fill = $("#chat-effort-fill");
   if (fill) {
@@ -732,10 +760,13 @@ function renderChatEffort() {
   label.textContent = "思考强度";
   button?.classList.toggle("set", index > 0);
 
+  // One tick per stop, rebuilt only when the model's level list changes.
+  const levels = chatEffortLevels();
   const ticks = $("#chat-effort-ticks");
-  if (ticks && ticks.dataset.key !== String(CHAT_EFFORT_LEVELS.length)) {
-    ticks.dataset.key = String(CHAT_EFFORT_LEVELS.length);
-    ticks.replaceChildren(...CHAT_EFFORT_LEVELS.map(() => {
+  const key = levels.map((item) => item.value).join("|");
+  if (ticks && ticks.dataset.key !== key) {
+    ticks.dataset.key = key;
+    ticks.replaceChildren(...levels.map(() => {
       const tick = document.createElement("span");
       tick.className = "chat-effort-tick";
       return tick;
@@ -743,7 +774,9 @@ function renderChatEffort() {
   }
   const range = $("#chat-effort-range");
   if (range) {
-    range.max = String(CHAT_EFFORT_LEVELS.length - 1);
+    range.max = String(Math.max(0, levels.length - 1));
+    // A model with no levels of its own has nothing to drag.
+    range.disabled = levels.length < 2;
   }
   chatEffortPaint(index);
 }
@@ -1017,10 +1050,16 @@ function chatSetBusy(busy) {
   renderChatMcp();
 }
 
-function chatTrimHistory() {
-  const turns = chatPrefs?.historyTurns || CHAT_DEFAULT_HISTORY_TURNS;
-  const limit = Math.max(1, Number(turns)) * 2;
-  if (chatHistory.length > limit) chatHistory = chatHistory.slice(-limit);
+// Trimming is never silent: an answer that suddenly cannot resolve "it" or
+// "the one above" is confusing unless the user knows the early turns went.
+function chatTrimHistory({ notify = false } = {}) {
+  const turns = Math.max(1, Number(chatPrefs?.historyTurns || CHAT_DEFAULT_HISTORY_TURNS));
+  const limit = turns * 2;
+  if (chatHistory.length <= limit) return 0;
+  const dropped = Math.ceil((chatHistory.length - limit) / 2);
+  chatHistory = chatHistory.slice(-limit);
+  if (notify) toast(`已丢弃最早的 ${dropped} 轮对话，只保留最近 ${turns} 轮`);
+  return dropped;
 }
 
 function chatBuildMessages(text) {
@@ -1105,13 +1144,23 @@ async function sendChat() {
       }
       // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
-      chatTrimHistory();
+      chatTrimHistory({ notify: true });
     } else if (!result?.cancelled) {
       if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
       toast(result?.error || "请求失败", true);
-    } else if (answer) {
-      answer.classList.remove("streaming", "reasoning");
-      if (!streamed) answer.textContent = "已停止";
+    } else {
+      // A stopped turn keeps whatever it managed to say: the user pressed
+      // stop, not delete, and asking "continue" next needs that text as
+      // context. Nothing is kept when nothing was produced.
+      const partial = streamed || reasoned;
+      if (answer) {
+        answer.classList.remove("streaming", "reasoning");
+        if (!partial) answer.textContent = "已停止";
+      }
+      if (partial) {
+        chatHistory.push({ role: "user", content: text }, { role: "assistant", content: partial });
+        chatTrimHistory({ notify: true });
+      }
     }
   } catch (error) {
     if (answer) { answer.textContent = error.message || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
@@ -1152,6 +1201,9 @@ $("#chat-model-menu")?.addEventListener("click", (event) => {
   chatSelectedModel = option.dataset.model || "";
   chatMenuOpen(false);
   renderChatModels();
+  // The new model brings its own reasoning levels, so the slider is rebuilt and
+  // a saved level it does not offer falls back to 自动.
+  renderChatEffort();
   $("#chat-input")?.focus();
 });
 function chatEffortOpen(open) {
@@ -1177,7 +1229,7 @@ $("#chat-effort-range")?.addEventListener("input", (event) => {
 });
 $("#chat-effort-range")?.addEventListener("change", (event) => {
   const index = Number(event.target.value) || 0;
-  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
+  const level = chatEffortLevels()[index] || chatEffortLevels()[0];
   saveChatPrefs({ effort: level.value });
 });
 

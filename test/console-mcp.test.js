@@ -21,11 +21,11 @@ const read = (rel) => readFileSync(path.join(HERE, "..", rel), "utf8");
 const MAIN = read("desktop/main.js");
 const APP = read("desktop/app.js");
 
-test("default budgets are 6 rounds, a 32k token ceiling and a time ceiling", () => {
+test("default budgets are 6 rounds, a 128k token ceiling and a time ceiling", () => {
   assert.equal(DEFAULTS.maxRounds, 6);
-  assert.equal(DEFAULTS.maxTokens, 32_000);
+  assert.equal(DEFAULTS.maxTokens, 131_072);
   assert.equal(DEFAULTS.maxDurationMs, 180_000);
-  assert.equal(DEFAULTS.historyTurns, 10);
+  assert.equal(DEFAULTS.historyTurns, 40);
   assert.equal(DEFAULTS.mcpEnabled, false, "tools are opt-in");
 });
 
@@ -52,7 +52,7 @@ test("prefs round-trip through console.json", async (t) => {
 
 test("the tool loop enforces all three budgets", () => {
   assert.match(MAIN, /const rounds = prefs\?\.maxRounds \|\| 6/);
-  assert.match(MAIN, /const tokenBudget = prefs\?\.maxTokens \|\| 32_000/);
+  assert.match(MAIN, /const tokenBudget = prefs\?\.maxTokens \|\| 131_072/);
   assert.match(MAIN, /const durationBudget = prefs\?\.maxDurationMs \|\| 180_000/);
   assert.match(MAIN, /for \(let round = 1; round <= rounds; round \+= 1\)/);
   // Each budget ends the loop by naming a stop reason, then the wrap-up runs.
@@ -72,9 +72,11 @@ test("tools are offered to the model and a tool result is fed back", () => {
 });
 
 test("the context is trimmed by turns and again by tokens", () => {
-  assert.match(APP, /const CHAT_CONTEXT_TOKEN_CEILING = 6000/);
-  assert.match(APP, /function chatTrimHistory\(\)/);
+  assert.match(APP, /const CHAT_CONTEXT_TOKEN_CEILING = 131072/);
+  assert.match(APP, /function chatTrimHistory\(\{ notify = false \} = \{\}\)/);
   assert.match(APP, /chatHistory = chatHistory\.slice\(-limit\)/);
+  // Trimming is announced, never silent.
+  assert.match(APP, /if \(notify\) toast\(`已丢弃最早的/);
   assert.match(APP, /function chatBuildMessages\(text\)/);
   // Drop the oldest pairs until the carried text fits the ceiling.
   assert.match(APP, /while \(hist\.length >= 2 && chars\(hist\) \+ chatRoughTokens\(text\) > CHAT_CONTEXT_TOKEN_CEILING\)/);
