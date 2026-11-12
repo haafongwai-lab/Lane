@@ -8,6 +8,20 @@ import { readSettings } from "./settings.js";
 import { hostsInSource, pathsInSource, diffSets } from "./plugin-source.js";
 
 /**
+ * The real fetch, captured before any egress guard can replace the global.
+ *
+ * The updater talks to the npm registry, not to a provider, so it must not be
+ * subject to the plugin egress allowlist. The guard swaps `globalThis.fetch`
+ * for the duration of a provider's work (see egress.js); a status poll doing a
+ * usage read while the user pressed 检查更新 made every registry request look
+ * like third-party plugin traffic and get refused with "registry.npmjs.org is
+ * not an allowed upstream host" — the check reported no update for a plugin
+ * that had one. Capturing the native fetch at import time keeps this one call
+ * out of that window.
+ */
+const nativeFetch = globalThis.fetch;
+
+/**
  * The vendored upstream plugins, and the updater around them.
  *
  * The copy shipped in vendor/ is the fallback and the known-good baseline. A
@@ -136,7 +150,7 @@ const META_TTL_MS = 10 * 60 * 1000;
 const metaCache = new Map();
 
 async function fetchJson(url, timeoutMs = 15000) {
-  const response = await fetch(url, {
+  const response = await nativeFetch(url, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs)
   });
@@ -252,7 +266,7 @@ export async function stageUpdate(key, env = process.env) {
     return { key, upToDate: true, ...info };
   }
   if (!latest.tarball) throw new Error("registry did not return a tarball");
-  const response = await fetch(latest.tarball, { signal: AbortSignal.timeout(30000) });
+  const response = await nativeFetch(latest.tarball, { signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new Error(`下载插件包失败：${response.status}`);
   const buffer = Buffer.from(await response.arrayBuffer());
   if (!verifyIntegrity(buffer, latest.integrity)) {
