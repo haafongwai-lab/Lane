@@ -36,17 +36,40 @@
                 <span>工具</span><span class="chat-mcp-count" id="chat-mcp-count" hidden></span>
               </button>
               <div class="chat-mcp-menu" id="chat-mcp-menu" hidden>
-                <label class="chat-mcp-master">
-                  <input type="checkbox" id="chat-local-tools">
-                  <span>读取 Lane 状态（余额、花费、插件、模型、MCP、账号）</span>
-                </label>
-                <div class="chat-mcp-divider"></div>
-                <label class="chat-mcp-master">
-                  <input type="checkbox" id="chat-mcp-enabled">
-                  <span>允许问答调用 MCP 工具</span>
-                </label>
-                <div class="chat-mcp-servers" id="chat-mcp-servers"></div>
-                <p class="chat-mcp-note">本地工具只读 Lane 自己的数据，不发给上游；MCP 工具在本机执行。</p>
+                <div class="chat-menu-head">
+                  <span class="chat-menu-title">工具</span>
+                  <span class="chat-menu-sub">问答可以调用的能力</span>
+                </div>
+
+                <div class="chat-menu-group">
+                  <div class="chat-menu-group-title">本地 · 只读</div>
+                  <label class="chat-menu-row">
+                    <span class="chat-menu-row-main">
+                      <b>读取 Lane 状态</b>
+                      <small>余额、花费、插件、模型、MCP、账号</small>
+                    </span>
+                    <input type="checkbox" class="chat-menu-check" id="chat-local-tools">
+                    <span class="chat-menu-track"><span class="chat-menu-knob"></span></span>
+                  </label>
+                </div>
+
+                <div class="chat-menu-group">
+                  <div class="chat-menu-group-title">
+                    <span>MCP 服务器</span>
+                    <span class="chat-menu-gcount" id="chat-mcp-enabled-hint"></span>
+                  </div>
+                  <label class="chat-menu-row">
+                    <span class="chat-menu-row-main">
+                      <b>允许调用 MCP 工具</b>
+                      <small>在本机执行，受轮数预算约束</small>
+                    </span>
+                    <input type="checkbox" class="chat-menu-check" id="chat-mcp-enabled">
+                    <span class="chat-menu-track"><span class="chat-menu-knob"></span></span>
+                  </label>
+                  <div class="chat-mcp-servers" id="chat-mcp-servers"></div>
+                </div>
+
+                <p class="chat-mcp-note">本地工具只读 Lane 自己的数据，不发给上游。</p>
               </div>
             </div>
             <span class="chat-spacer"></span>
@@ -65,8 +88,7 @@
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3.5v9M4.5 9L8 12.5 11.5 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
             <div class="chat-empty">
-              <h2>直接问一句</h2>
-              <p>和客户端走同一个本地网关、同一个账号、同一套请求，上游看到的东西没有区别。</p>
+              <span class="chat-empty-wordmark" aria-hidden="true">Lane</span>
             </div>
           </div>
           <div class="chat-dock">

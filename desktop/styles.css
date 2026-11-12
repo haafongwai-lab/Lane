@@ -2458,7 +2458,24 @@ body.view-chat .chat-shell { min-height: 100vh; }
   max-width: 420px;
   text-align: center;
   color: var(--chat-muted);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
 }
+/* The Lane mark, transparent, as the empty-transcript state. 112px reads as a
+   logo rather than an icon; a slight opacity keeps it from competing with the
+   composer below it. */
+/* The empty transcript is the Lane wordmark, in the same italic serif as the
+   sidebar - an artistic word, not an icon. Large and quiet, so it reads as
+   this app's own mark above the composer. */
+.chat-empty-wordmark {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Microsoft YaHei UI", serif;
+  font-style: italic; font-weight: 500;
+  font-size: 64px; line-height: 1; letter-spacing: -3.2px;
+  color: var(--wordmark);
+  opacity: .28;
+  user-select: none;
+}
+:root[data-theme="dark"] .chat-empty-wordmark { opacity: .34; }
+.chat-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; }
 .chat-empty h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; color: var(--chat-ink); }
 .chat-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; }
 
@@ -2627,37 +2644,118 @@ body.view-chat .chat-shell { min-height: 100vh; }
 /* Says the answer was cut at the token limit, rather than letting it just stop. */
 .chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; align-self: flex-start; }
 
-/* MCP picker: a small pill in the top-left, its menu a flat sheet with a
-   master toggle and one row per enabled server. */
+/* The 工具 popover, in Lane's own language: the panel surface with its hairline
+   border and 14px radius, the sidebar's eyebrow for the title, the green
+   accent for a live switch, and the same muted greys the rest of the app uses.
+   Each switch is a real checkbox with a drawn track, so keyboard and
+   screen-reader behaviour survive while it looks like Lane. */
 .chat-mcp { position: relative; }
 .chat-mcp-trigger {
   display: inline-flex; align-items: center; gap: 5px;
   height: 28px; padding: 0 10px;
-  border: 1px solid var(--chat-card-border); border-radius: var(--chat-radius-trigger);
-  background: transparent; color: var(--chat-ink-soft); font: 13px/20px var(--font-sans); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--ink-soft);
+  font: 600 11.5px/1.3 var(--font-sans); cursor: pointer; transition: .15s;
 }
-.chat-mcp-trigger:hover, .chat-mcp-trigger[aria-expanded='true'] { background: var(--chat-hover); }
+.chat-mcp-trigger:hover, .chat-mcp-trigger[aria-expanded='true'] {
+  border-color: var(--line-strong); color: var(--ink);
+}
+/* A count, drawn as a chip rather than a badge: Lane never uses a coloured dot
+   for a number. */
 .chat-mcp-count {
-  min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px;
+  min-width: 16px; height: 16px; padding: 0 5px; border-radius: 5px;
   box-sizing: border-box;
-  background: var(--chat-accent); color: #fff; font-size: 10px; font-weight: 600;
-  line-height: 1; font-variant-numeric: tabular-nums;
+  background: var(--green-bg); color: var(--green);
+  font: 700 10px/1 var(--font-sans); line-height: 1; font-variant-numeric: tabular-nums;
   display: inline-flex; align-items: center; justify-content: center;
   vertical-align: middle;
 }
 .chat-mcp-menu {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 40;
-  width: 260px; padding: 8px;
-  border: 1px solid var(--chat-menu-border); border-radius: var(--chat-radius-option);
-  background: var(--chat-menu-bg); box-shadow: var(--chat-shadow-menu);
-  color: var(--chat-ink); font-size: 12.5px;
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+  width: 304px; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel-bg); box-shadow: var(--shadow);
+  color: var(--ink); overflow: hidden;
 }
-.chat-mcp-master { display: flex; align-items: center; gap: 7px; padding: 4px 4px 8px; cursor: pointer; }
-.chat-mcp-servers { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-.chat-mcp-server { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 8px; cursor: pointer; }
-.chat-mcp-server:hover { background: var(--chat-hover); }
-.chat-mcp-none { padding: 6px 4px; color: var(--chat-muted); }
-.chat-mcp-note { margin: 8px 4px 2px; color: var(--chat-muted); font-size: 10.5px; line-height: 1.6; }
+@supports (backdrop-filter: blur(1px)) {
+  .chat-mcp-menu { backdrop-filter: blur(18px) saturate(120%); }
+}
+/* Title block, set like the page eyebrows: small, spaced, muted. */
+.chat-menu-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 11px 13px 9px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--glass-soft);
+}
+.chat-menu-title {
+  color: var(--ink);
+  font: 700 10px/14px var(--font-sans);
+  letter-spacing: 1.2px; text-transform: uppercase;
+}
+.chat-menu-sub { color: var(--faint); font-size: 10.5px; }
+.chat-menu-group { padding: 9px 8px 10px; }
+.chat-menu-group + .chat-menu-group { border-top: 1px solid var(--line-soft); }
+.chat-menu-group-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 1px 6px 7px;
+  color: var(--faint);
+  font: 700 9.5px/13px var(--font-sans);
+  letter-spacing: 1px; text-transform: uppercase;
+}
+.chat-menu-gcount {
+  color: var(--muted); font-size: 10px; letter-spacing: 0;
+  text-transform: none; font-variant-numeric: tabular-nums;
+}
+/* A switch row: label on the left, track on the right. */
+.chat-menu-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 6px; border-radius: 8px; cursor: pointer;
+  transition: background .12s;
+}
+.chat-menu-row:hover { background: var(--glass-soft); }
+.chat-menu-row.sub { padding-left: 15px; }
+.chat-menu-row.muted { opacity: .48; }
+.chat-menu-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.chat-menu-row-main b {
+  font: 600 12px/17px var(--font-sans); color: var(--ink);
+}
+.chat-menu-row-main small {
+  color: var(--faint); font: 400 10.5px/15px var(--font-sans);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The checkbox is real but invisible; the track beside it draws the state, in
+   the same green the rest of Lane uses for 'on'. */
+.chat-menu-check {
+  position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
+}
+.chat-menu-track {
+  flex: none; width: 30px; height: 18px; border-radius: 9px;
+  background: var(--switch-track); position: relative;
+  transition: background .15s;
+}
+.chat-menu-knob {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgba(25, 27, 25, .28);
+  transition: transform .15s;
+}
+.chat-menu-check:checked + .chat-menu-track { background: var(--green); }
+.chat-menu-check:checked + .chat-menu-track .chat-menu-knob { transform: translateX(12px); }
+.chat-menu-check:focus-visible + .chat-menu-track {
+  outline: 2px solid var(--green); outline-offset: 2px;
+}
+.chat-menu-check:disabled + .chat-menu-track { opacity: .45; }
+.chat-mcp-servers {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 210px; overflow-y: auto; margin-top: 2px;
+}
+.chat-menu-empty { margin: 2px 6px 6px; padding: 8px 0; color: var(--faint); font-size: 11.5px; }
+.chat-mcp-note {
+  margin: 0; padding: 8px 13px 10px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--glass-soft);
+  color: var(--faint); font-size: 10.5px; line-height: 1.55;
+}
 /* One line per tool call, inside the assistant message so it reads in order. */
 .chat-tool { margin-top: 6px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.6; }
 .chat-tool.ok { color: var(--green); }

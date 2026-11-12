@@ -635,7 +635,7 @@ function renderChatModels() {
   if (!models.length) {
     const log = $("#chat-log");
     if (log && !chatHistory.length) {
-      log.innerHTML = '<div class="chat-empty"><h2>没有可用模型</h2><p>先到「模型」页打开一个。</p></div>';
+      chatResetEmpty("先到「模型」页启用一个模型。");
     }
   }
 }
@@ -661,21 +661,44 @@ function renderChatMcp() {
   const localBox = $("#chat-local-tools");
   const list = $("#chat-mcp-servers");
   const count = $("#chat-mcp-count");
+  const hint = $("#chat-mcp-enabled-hint");
   if (!master || !list) return;
+
   // Local tools are a separate switch: they read Lane's own state and never
   // reach an upstream, so they stay on unless the user turns them off.
-  if (localBox) { localBox.checked = chatPrefs?.localTools !== false; localBox.disabled = chatBusy; }
+  if (localBox) {
+    localBox.checked = chatPrefs?.localTools !== false;
+    localBox.disabled = chatBusy;
+  }
+
   const usable = chatMcpServers.filter((server) => server && !server.off);
   master.checked = chatPrefs?.mcpEnabled === true;
   master.disabled = chatBusy;
   const chosen = Array.isArray(chatPrefs?.mcpServers) ? chatPrefs.mcpServers : [];
-  const key = `${usable.map((s) => s.name).join("|")}#${chosen.join(",")}#${master.checked}`;
+  const picked = usable.filter((server) => chosen.includes(server.name)).length;
+
+  // One row per server: a switch, its transport, and whether it is selected.
+  // A server the switch has turned off is dimmed but still listed, so it is
+  // obvious what is available rather than what has silently disappeared.
+  const key = `${usable.map((s) => `${s.name}:${s.transport || ""}`).join("|")}#${chosen.join(",")}#${master.checked}#${chatBusy}`;
   if (key !== chatMcpKey) {
     chatMcpKey = key;
-    list.innerHTML = usable.length
-      ? usable.map((server) => `<label class="chat-mcp-server"><input type="checkbox" data-mcp-server="${esc(server.name)}"${chosen.includes(server.name) ? " checked" : ""}${master.checked ? "" : " disabled"}><span>${esc(server.name)}</span></label>`).join("")
-      : '<p class="chat-mcp-none">扩展页里没有已启用的 MCP 服务器。</p>';
+    if (!usable.length) {
+      list.innerHTML = '<p class="chat-menu-empty">扩展页里还没有启用的 MCP 服务器。</p>';
+    } else {
+      list.innerHTML = usable.map((server) => {
+        const on = chosen.includes(server.name);
+        const kind = server.transport === "http" ? "HTTP" : "STDIO";
+        return '<label class="chat-menu-row sub' + (master.checked ? "" : " muted") + '">' +
+          '<span class="chat-menu-row-main"><b>' + esc(server.name) + '</b><small>' + kind + '</small></span>' +
+          '<input type="checkbox" class="chat-menu-check" data-mcp-server="' + esc(server.name) + '"' +
+          (on ? " checked" : "") + (master.checked ? "" : " disabled") + '>' +
+          '<span class="chat-menu-track"><span class="chat-menu-knob"></span></span></label>';
+      }).join("");
+    }
   }
+
+  if (hint) hint.textContent = master.checked ? `${picked}/${usable.length}` : "已关闭";
   if (count) {
     const n = (master.checked ? chosen.length : 0) + (chatPrefs?.localTools !== false ? 1 : 0);
     count.hidden = n === 0;
@@ -802,6 +825,35 @@ async function saveChatPrefs(patch) {
 }
 
 // ---- transcript -----------------------------------------------------------
+//
+// The empty transcript is the Lane mark rather than a paragraph: it is the
+// first thing a new conversation shows, and a logo says what this page is
+// faster than a sentence does. A subtitle is kept only where it explains an
+// actual condition (no model enabled, an empty saved session).
+function chatEmptyNode(message = "") {
+  const node = document.createElement("div");
+  node.className = "chat-empty";
+  // The Lane wordmark itself, in the same italic serif the sidebar uses -
+  // an artistic word rather than an icon, and it needs no image asset.
+  const mark = document.createElement("span");
+  mark.className = "chat-empty-wordmark";
+  mark.textContent = "Lane";
+  mark.setAttribute("aria-hidden", "true");
+  node.append(mark);
+  if (message) {
+    const text = document.createElement("p");
+    text.textContent = message;
+    node.append(text);
+  }
+  return node;
+}
+
+function chatResetEmpty(message = "") {
+  const log = $("#chat-log");
+  if (!log) return;
+  chatClearLog();
+  log.append(chatEmptyNode(message));
+}
 function chatAtBottom() {
   return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
 }
@@ -1687,12 +1739,7 @@ async function chatOpenSession(id) {
     const body = chatBubble(message.role, "");
     chatPaint(body, message.content, true);
   }
-  if (!session.messages.length && log) {
-    const empty = document.createElement("div");
-    empty.className = "chat-empty";
-    empty.innerHTML = "<h2>直接问一句</h2><p>这是一个空对话。</p>";
-    log.append(empty);
-  }
+  if (!session.messages.length && log) log.append(chatEmptyNode());
   chatHistoryOpen(false);
   chatScroll(true);
   renderChatHistory();
@@ -1746,12 +1793,7 @@ $("#chat-clear")?.addEventListener("click", () => {
   chatSessionId = "";
   chatClearLog();
   const log = $("#chat-log");
-  if (log) {
-    const empty = document.createElement("div");
-    empty.className = "chat-empty";
-    empty.innerHTML = "<h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p>";
-    log.append(empty);
-  }
+  if (log) log.append(chatEmptyNode());
   renderChatModels();
   renderChatHistory();
 });
@@ -1793,12 +1835,7 @@ $("#chat-history-new")?.addEventListener("click", () => {
   chatSessionId = "";
   chatClearLog();
   const log = $("#chat-log");
-  if (log) {
-    const empty = document.createElement("div");
-    empty.className = "chat-empty";
-    empty.innerHTML = "<h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p>";
-    log.append(empty);
-  }
+  if (log) log.append(chatEmptyNode());
   chatHistoryOpen(false);
   renderChatHistory();
 });
