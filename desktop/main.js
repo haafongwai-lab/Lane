@@ -14,6 +14,8 @@ import { openableUrl } from "./openable.js";
 import { openMcpSession } from "../src/mcp-session.js";
 import { readServers } from "../src/mcp-servers.js";
 import { readConsolePrefs, writeConsolePrefs } from "../src/console-prefs.js";
+import { createLocalTools } from "../src/console-tools.js";
+import { listSessions, getSession, createSession, appendTurn, renameSession, deleteSession, clearSessions } from "../src/console-chats.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -683,6 +685,12 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   let toolSet = { defs: [], byName: new Map(), sessions: [] };
   try {
     if (prefs?.mcpEnabled) toolSet = await openConsoleTools(prefs, emit);
+    // Lane's own read-only tools ride along with whatever MCP offers. They are
+    // local reads, so they cost nothing upstream and are on by default.
+    const local = prefs?.localTools === false ? null : createLocalTools({ control });
+    if (local) {
+      toolSet = { ...toolSet, defs: [...local.defs, ...toolSet.defs], local: local.impl };
+    }
     const convo = Array.isArray(messages) ? messages.slice() : [];
     let text = "";
     // Budget accounting counts only what a round actually ADDED: the context is
@@ -764,20 +772,26 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
         for (const call of out.calls) {
           const target = toolSet.byName.get(call.name);
           const args = parseToolArgs(call.arguments);
-          emit({ tool: { phase: "start", name: call.name, server: target?.session?.name || "", args } });
+          const localTool = toolSet.local?.[call.name];
+          const where = localTool ? "Lane 本地" : (target?.session?.name || "");
+          emit({ tool: { phase: "start", name: call.name, server: where, args } });
           let result;
           try {
-            result = target
-              ? await target.session.callTool(target.tool, args)
-              : { ok: false, text: `未知工具：${call.name}` };
+            if (localTool) {
+              result = { ok: true, text: String(await localTool(args) || "") };
+            } else if (target) {
+              result = await target.session.callTool(target.tool, args);
+            } else {
+              result = { ok: false, text: `未知工具：${call.name}` };
+            }
           } catch (error) {
             result = { ok: false, text: error?.message || String(error) };
           }
-          emit({ tool: { phase: "end", name: call.name, server: target?.session?.name || "", ok: result.ok, text: String(result.text || "").slice(0, 400) } });
+          emit({ tool: { phase: "end", name: call.name, server: where, ok: result.ok, text: String(result.text || "").slice(0, 400) } });
           convo.push({
             role: "tool",
             tool_call_id: call.id || `call_${consoleToolName("t", call.name)}`,
-            content: String(result.text || "")
+            content: String(result.text || "").slice(0, 8000)
           });
         }
         if (totalTokens > tokenBudget) { stop = "tokens"; break; }
@@ -814,6 +828,20 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
     for (const session of toolSet.sessions) { try { session.close(); } catch {} }
     consoleControllers.delete(requestId);
     consoleBusy = false;
+  }
+});
+
+handleIpc("lane:console-sessions", async (_event, { action, id, title, prompt, answer } = {}) => {
+  await startGateway();
+  switch (String(action || "list")) {
+    case "list": return { sessions: await listSessions() };
+    case "get": return { session: await getSession(String(id || "")) };
+    case "create": return { session: await createSession({ id, title }) };
+    case "append": return { session: await appendTurn(String(id || ""), { prompt, answer, title }) };
+    case "rename": return { session: await renameSession(String(id || ""), title) };
+    case "delete": return await deleteSession(String(id || ""));
+    case "clear": return await clearSessions();
+    default: throw new Error(`unknown session action: ${action}`);
   }
 });
 

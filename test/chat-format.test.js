@@ -50,8 +50,11 @@ test("a tool call is a transient status line, not a transcript entry", () => {
   assert.match(APP, /正在调用「\$\{server\} MCP」…/);
   assert.match(HTML, /id="chat-tool-status"/);
   assert.match(CSS, /\.chat-tool-status \{/);
-  // The server name rides on the event so the status can name it.
-  assert.match(MAIN, /server: target\?\.session\?\.name \|\| ""/);
+  // The source rides on the event, and a local tool is named as Lane rather
+  // than as an MCP server: 「Lane 本地 MCP」 must never appear.
+  assert.match(MAIN, /const where = localTool \? "Lane 本地"/);
+  assert.match(MAIN, /server: where/);
+  assert.match(APP, /server === "Lane 本地" \? `正在读取 Lane 状态/);
 });
 
 test("the MCP count badge centres its digit", () => {

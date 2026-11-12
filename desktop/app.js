@@ -184,7 +184,7 @@ function go(view) {
   if (view === "activity") loadUsage();
   if (view === "extensions") loadExtensions();
   if (view === "plugins") loadPlugins();
-  if (view === "chat") { renderChatModels(); loadChatPrefs(); chatScroll(true); }
+  if (view === "chat") { renderChatModels(); loadChatPrefs(); loadChatSessions(); chatScroll(true); }
   // The chat view owns the page's bottom edge (its composer is sticky), so the
   // shell's own bottom padding — which would lift the sticky box by that much
   // at the very bottom of the scroll — is turned off only while it is shown.
@@ -581,6 +581,11 @@ const CHAT_CONTEXT_TOKEN_CEILING = 131072;
 const CHAT_DEFAULT_HISTORY_TURNS = 40;
 
 let chatHistory = [];
+// The saved conversation this page is showing. Empty means a new one: it is
+// created on the first successful answer, so an abandoned question leaves no
+// empty session behind.
+let chatSessionId = "";
+let chatSessions = [];
 let chatBusy = false;
 let chatLastSentAt = 0;
 let chatCurrentId = "";
@@ -653,9 +658,13 @@ async function loadChatPrefs() {
 
 function renderChatMcp() {
   const master = $("#chat-mcp-enabled");
+  const localBox = $("#chat-local-tools");
   const list = $("#chat-mcp-servers");
   const count = $("#chat-mcp-count");
   if (!master || !list) return;
+  // Local tools are a separate switch: they read Lane's own state and never
+  // reach an upstream, so they stay on unless the user turns them off.
+  if (localBox) { localBox.checked = chatPrefs?.localTools !== false; localBox.disabled = chatBusy; }
   const usable = chatMcpServers.filter((server) => server && !server.off);
   master.checked = chatPrefs?.mcpEnabled === true;
   master.disabled = chatBusy;
@@ -668,7 +677,7 @@ function renderChatMcp() {
       : '<p class="chat-mcp-none">扩展页里没有已启用的 MCP 服务器。</p>';
   }
   if (count) {
-    const n = master.checked ? chosen.length : 0;
+    const n = (master.checked ? chosen.length : 0) + (chatPrefs?.localTools !== false ? 1 : 0);
     count.hidden = n === 0;
     count.textContent = n ? String(n) : "";
   }
@@ -1254,8 +1263,9 @@ async function sendChat() {
     return;
   }
   const input = $("#chat-input");
-  const text = String(input?.value || "").trim();
-  if (!text) return;
+  const typed = String(input?.value || "").trim();
+  if (!typed) return;
+  const text = chatQuickCommand(typed);
   const model = chatSelectedModel;
   if (!model) { toast("先在「模型」页启用一个模型", true); return; }
   const since = Date.now() - chatLastSentAt;
@@ -1288,7 +1298,9 @@ async function sendChat() {
       if (msg.tool.phase === "notice") { toast(msg.tool.text || ""); return; }
       if (msg.tool.phase === "start") {
         const server = msg.tool.server || String(msg.tool.name || "").split("__")[0] || "MCP";
-        chatToolStatus(`正在调用「${server} MCP」…`);
+        // A local tool reads Lane's own state; an MCP tool runs on a server.
+        // The line names which, so 「Lane 本地 MCP」 never appears.
+        chatToolStatus(server === "Lane 本地" ? `正在读取 Lane 状态（${msg.tool.name}）…` : `正在调用「${server} MCP」…`);
       } else {
         chatToolStatus("");
       }
@@ -1324,6 +1336,7 @@ async function sendChat() {
       }
       // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
+      chatPersistTurn(text, final);
       chatTrimHistory({ notify: true });
     } else if (!result?.cancelled) {
       if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
@@ -1339,6 +1352,7 @@ async function sendChat() {
       }
       if (partial) {
         chatHistory.push({ role: "user", content: text }, { role: "assistant", content: partial });
+        chatPersistTurn(text, partial);
         chatTrimHistory({ notify: true });
       }
     }
@@ -1407,15 +1421,109 @@ $("#chat-to-bottom")?.addEventListener("click", () => {
   chatUpdateToBottom();
 });
 
+// Clearing keeps the 回到底部 button: it lives inside the transcript, so
+// replacing the transcript's innerHTML would delete it.
+function chatClearLog() {
+  const log = $("#chat-log");
+  if (!log) return;
+  [...log.querySelectorAll(".chat-msg, .chat-empty")].forEach((node) => node.remove());
+}
+
+async function chatPersistTurn(prompt, answer) {
+  try {
+    if (!chatSessionId) chatSessionId = `s${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const res = await window.lane.consoleSessions({ action: "append", id: chatSessionId, prompt, answer });
+    if (res?.session?.id) chatSessionId = res.session.id;
+    await loadChatSessions();
+  } catch {}
+}
+
+// A few shorthand commands, because these are the questions this panel exists
+// to answer. They are ordinary prompts; the model decides to call the tool.
+const CHAT_QUICK = {
+  "/花费": "查一下我最近的积分花费：请求数、总积分，以及按模型和客户端的分布。",
+  "/余额": "我有多少剩余额度？各账号分别还有多少，什么时候重置？",
+  "/插件": "Lane 的插件现在是什么版本？有没有可更新的？",
+  "/模型": "现在有哪些可用模型？各自的积分倍率和上下文窗口是多少，哪个最省？",
+  "/mcp": "Lane 注册了哪些 MCP 服务器？分别是什么状态？",
+  "/账号": "我登录了哪些上游账号？各自的站点、是否参与模型池、今天签到情况？"
+};
+
+function chatQuickCommand(text) {
+  const key = String(text || "").trim().toLowerCase();
+  return CHAT_QUICK[key] || text;
+}
+
+async function loadChatSessions() {
+  try { chatSessions = (await window.lane.consoleSessions({ action: "list" }))?.sessions || []; } catch { chatSessions = []; }
+  renderChatHistory();
+}
+
+function renderChatHistory() {
+  const list = $("#chat-history-list");
+  if (!list) return;
+  if (!chatSessions.length) {
+    list.innerHTML = '<p class="chat-history-empty">还没有历史对话。</p>';
+    return;
+  }
+  list.innerHTML = chatSessions.map((session) => `
+    <div class="chat-history-item${session.id === chatSessionId ? " active" : ""}">
+      <button type="button" class="chat-history-open" data-session-open="${esc(session.id)}">
+        <span class="chat-history-title">${esc(session.title)}</span>
+        <span class="chat-history-meta">${session.turns} 轮</span>
+      </button>
+      <button type="button" class="chat-history-del" data-session-del="${esc(session.id)}" aria-label="删除">✕</button>
+    </div>`).join("");
+}
+
+function chatHistoryOpen(open) {
+  const panel = $("#chat-history-panel");
+  const button = $("#chat-history-button");
+  if (!panel || !button) return;
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", String(Boolean(open)));
+  if (open) loadChatSessions();
+}
+
+async function chatOpenSession(id) {
+  const session = (await window.lane.consoleSessions({ action: "get", id }))?.session;
+  if (!session) return;
+  chatSessionId = session.id;
+  chatHistory = session.messages.slice();
+  chatClearLog();
+  const log = $("#chat-log");
+  for (const message of session.messages) {
+    const body = chatBubble(message.role, "");
+    chatPaint(body, message.content, true);
+  }
+  if (!session.messages.length && log) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = "<h2>直接问一句</h2><p>这是一个空对话。</p>";
+    log.append(empty);
+  }
+  chatHistoryOpen(false);
+  chatScroll(true);
+  renderChatHistory();
+}
+
 $("#chat-send")?.addEventListener("click", sendChat);
 $("#chat-stop")?.addEventListener("click", () => {
   if (chatCurrentId) window.lane.consoleCancel(chatCurrentId);
 });
 $("#chat-clear")?.addEventListener("click", () => {
   chatHistory = [];
+  chatSessionId = "";
+  chatClearLog();
   const log = $("#chat-log");
-  if (log) log.innerHTML = '<div class="chat-empty"><h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p></div>';
+  if (log) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = "<h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p>";
+    log.append(empty);
+  }
   renderChatModels();
+  renderChatHistory();
 });
 $("#chat-model-button")?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1443,6 +1551,43 @@ function chatEffortOpen(open) {
   // elsewhere must not survive as the shown value.
   if (open) chatEffortPaint(chatEffortIndex());
 }
+
+$("#chat-history-button")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  chatHistoryOpen($("#chat-history-panel")?.hidden);
+});
+$("#chat-history-new")?.addEventListener("click", () => {
+  chatHistory = [];
+  chatSessionId = "";
+  chatClearLog();
+  const log = $("#chat-log");
+  if (log) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = "<h2>直接问一句</h2><p>和客户端走同一个本地网关、同一个账号、同一套请求。</p>";
+    log.append(empty);
+  }
+  chatHistoryOpen(false);
+  renderChatHistory();
+});
+$("#chat-history-list")?.addEventListener("click", async (event) => {
+  const del = event.target.closest("[data-session-del]");
+  if (del) {
+    await window.lane.consoleSessions({ action: "delete", id: del.dataset.sessionDel });
+    if (del.dataset.sessionDel === chatSessionId) {
+      chatHistory = [];
+      chatSessionId = "";
+      chatClearLog();
+    }
+    await loadChatSessions();
+    return;
+  }
+  const open = event.target.closest("[data-session-open]");
+  if (open) await chatOpenSession(open.dataset.sessionOpen);
+});
+$("#chat-local-tools")?.addEventListener("change", (event) => {
+  saveChatPrefs({ localTools: event.target.checked });
+});
 
 $("#chat-effort-button")?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1501,6 +1646,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
   if (!event.target.closest("#chat-effort")) chatEffortOpen(false);
+  if (!event.target.closest("#chat-history")) chatHistoryOpen(false);
   if (!event.target.closest("#chat-mcp")) {
     const menu = $("#chat-mcp-menu");
     const button = $("#chat-mcp-button");

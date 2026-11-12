@@ -16,6 +16,10 @@ const file = (env) => path.join(dataDir(env), "console.json");
 
 export const DEFAULTS = {
   mcpEnabled: false,
+  // Lane's own read-only tools (usage, balance, plugins, models, MCP, accounts)
+  // are on by default: they are the panel's reason to exist, and they send
+  // nothing upstream.
+  localTools: true,
   mcpServers: [],
   // Empty means "let the model decide". A thinking model shares its output
   // budget between reasoning and answer, so "none" is the escape hatch when an
@@ -38,6 +42,7 @@ function clamp(value, min, max, fallback) {
 export function normalizePrefs(raw = {}) {
   return {
     mcpEnabled: raw?.mcpEnabled === true,
+    localTools: raw?.localTools !== false,
     mcpServers: Array.isArray(raw?.mcpServers)
       ? [...new Set(raw.mcpServers.filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim()))].slice(0, 50)
       : [],
