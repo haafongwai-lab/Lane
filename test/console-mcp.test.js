@@ -77,9 +77,9 @@ test("the context is trimmed by turns and again by tokens", () => {
   assert.match(APP, /chatHistory = chatHistory\.slice\(-limit\)/);
   // Trimming is announced, never silent.
   assert.match(APP, /if \(notify\) toast\(`已丢弃最早的/);
-  assert.match(APP, /function chatBuildMessages\(text\)/);
+  assert.match(APP, /function chatBuildMessages\(content\)/);
   // Drop the oldest pairs until the carried text fits the ceiling.
-  assert.match(APP, /while \(hist\.length >= 2 && chars\(hist\) \+ chatRoughTokens\(text\) > CHAT_CONTEXT_TOKEN_CEILING\)/);
+  assert.match(APP, /while \(hist\.length >= 2 && chars\(hist\) \+ chatContentTokens\(content\) > CHAT_CONTEXT_TOKEN_CEILING\)/);
   assert.match(APP, /hist = hist\.slice\(2\)/);
 });
 

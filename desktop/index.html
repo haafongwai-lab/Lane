@@ -71,6 +71,7 @@
           </div>
           <div class="chat-dock">
             <p class="chat-tool-status" id="chat-tool-status" hidden></p>
+            <div class="chat-attach-tray" id="chat-attach-tray" hidden></div>
             <div class="chat-card">
               <textarea id="chat-input" rows="1" placeholder="问点什么…"></textarea>
               <div class="chat-card-row">
@@ -81,6 +82,10 @@
                   </button>
                   <div class="chat-model-menu" id="chat-model-menu" role="listbox" hidden></div>
                 </div>
+                <button type="button" class="chat-attach" id="chat-attach" aria-label="添加图片或文件">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M9.5 3.5 5 8a2.1 2.1 0 0 0 3 3l4.6-4.6a3.2 3.2 0 0 0-4.5-4.5L3.4 6.6a4.3 4.3 0 0 0 6 6l3.9-3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <input type="file" id="chat-file" class="chat-file-input" multiple accept="image/*,.txt,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.go,.rs,.java,.cs,.c,.h,.cpp,.css,.html,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sql,.sh,.ps1,.bat" hidden>
                 <span class="chat-spacer"></span>
                 <div class="chat-effort-picker" id="chat-effort">
                   <button type="button" class="chat-effort-trigger" id="chat-effort-button" aria-haspopup="true" aria-expanded="false" aria-label="思考强度">

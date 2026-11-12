@@ -3021,3 +3021,44 @@ body.view-chat .chat-shell { min-height: 100vh; }
 }
 .chat-history-search:focus { border-color: var(--chat-accent); }
 .chat-history-search::placeholder { color: var(--chat-muted); }
+
+/* The attach button sits left of the model picker, quiet like the others. */
+.chat-attach {
+  flex: none; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; border-radius: 8px; background: transparent;
+  color: var(--chat-muted); cursor: pointer; transition: background .15s, color .15s;
+}
+.chat-attach:hover { background: var(--chat-hover); color: var(--chat-ink); }
+.chat-file-input { display: none; }
+
+/* The pending-attachment tray, above the composer card. */
+.chat-attach-tray {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 0 6px 8px;
+}
+.chat-attach-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 240px; padding: 4px 6px 4px 8px;
+  border: 1px solid var(--chat-card-border); border-radius: 8px;
+  background: var(--chat-card);
+  font: 11.5px/16px var(--font-sans); color: var(--chat-ink-soft);
+}
+.chat-attach-chip img {
+  width: 22px; height: 22px; border-radius: 5px; object-fit: cover; flex: none;
+}
+.chat-attach-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-attach-size { flex: none; color: var(--chat-muted); font-size: 10.5px; }
+.chat-attach-drop {
+  flex: none; width: 16px; height: 16px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent;
+  color: var(--chat-muted); font-size: 10px; cursor: pointer;
+}
+.chat-attach-drop:hover { background: var(--chat-hover); color: var(--red); }
+
+/* A drop in progress: the whole target tints so it is obvious where it lands. */
+.drop-target {
+  outline: 2px dashed var(--chat-accent); outline-offset: -4px; border-radius: 10px;
+}

@@ -95,7 +95,8 @@ test("the panel is wired to save and replay", () => {
   const MAIN = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "desktop", "main.js"), "utf8");
   const HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "desktop", "index.html"), "utf8");
   // Saving happens after a turn reaches the screen, not on every keystroke.
-  assert.match(APP, /chatPersistTurn\(text, final\)/);
+  // The persisted prompt records attachment names rather than base64.
+  assert.match(APP, /chatPersistTurn\(sentNames \?/);
   assert.match(APP, /chatPersistTurn\(text, partial\)/);
   // Replay rebuilds the transcript from stored messages.
   assert.match(APP, /chatOpenSession/);

@@ -1244,21 +1244,155 @@ function chatTrimHistory({ notify = false } = {}) {
   return dropped;
 }
 
-function chatBuildMessages(text) {
+// A message's content is a string for a plain question and a parts array when
+// files ride along. Only the text parts cost tokens here; an image's size is
+// the gateway's business, not this estimate's.
+function chatContentTokens(content) {
+  if (typeof content === "string") return chatRoughTokens(content);
+  if (!Array.isArray(content)) return 0;
+  return content.reduce((sum, part) => sum + (part?.type === "text" ? chatRoughTokens(part.text) : 0), 0);
+}
+
+function chatBuildMessages(content) {
   chatTrimHistory();
   let hist = chatHistory.slice();
   // Token guard on top of the turn guard: drop the oldest pairs until the
   // carried context fits, so a few huge turns cannot fill the window either.
-  const chars = (rows) => rows.reduce((sum, row) => sum + chatRoughTokens(row.content), 0);
-  while (hist.length >= 2 && chars(hist) + chatRoughTokens(text) > CHAT_CONTEXT_TOKEN_CEILING) {
+  const chars = (rows) => rows.reduce((sum, row) => sum + chatContentTokens(row.content), 0);
+  while (hist.length >= 2 && chars(hist) + chatContentTokens(content) > CHAT_CONTEXT_TOKEN_CEILING) {
     hist = hist.slice(2);
   }
-  return [...hist, { role: "user", content: text }];
+  return [...hist, { role: "user", content }];
 }
 
 // A question typed while an answer streams waits for it instead of being
 // refused: the text stays in the box and is sent when the turn ends.
 let chatQueued = null;
+
+// ---- attachments ----------------------------------------------------------
+//
+// Images go to the model as image parts; text files are read here and inlined
+// as a fenced block. Both are ordinary message content, so the request shape a
+// vendor sees is unchanged - it just carries more of it.
+//
+// Limits are deliberate: a base64 image is roughly a third larger than the
+// file, and a 128k context will not survive several of them. Text is capped by
+// characters for the same reason.
+const CHAT_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const CHAT_TEXT_MAX_BYTES = 512 * 1024;
+const CHAT_TEXT_MAX_CHARS = 24_000;
+const CHAT_ATTACH_MAX = 6;
+const CHAT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+let chatAttachments = [];
+
+function chatAttachmentSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+function renderChatAttachments() {
+  const tray = $("#chat-attach-tray");
+  if (!tray) return;
+  if (!chatAttachments.length) {
+    tray.hidden = true;
+    tray.replaceChildren();
+    return;
+  }
+  tray.hidden = false;
+  tray.replaceChildren(...chatAttachments.map((item, index) => {
+    const chip = document.createElement("div");
+    chip.className = `chat-attach-chip${item.kind === "image" ? " image" : ""}`;
+    if (item.kind === "image") {
+      const thumb = document.createElement("img");
+      thumb.src = item.dataUrl;
+      thumb.alt = item.name;
+      chip.append(thumb);
+    }
+    const label = document.createElement("span");
+    label.className = "chat-attach-name";
+    label.textContent = item.name;
+    const size = document.createElement("span");
+    size.className = "chat-attach-size";
+    size.textContent = chatAttachmentSize(item.bytes);
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "chat-attach-drop";
+    drop.dataset.attachDrop = String(index);
+    drop.setAttribute("aria-label", `移除 ${item.name}`);
+    drop.textContent = "✕";
+    chip.append(label, size, drop);
+    return chip;
+  }));
+}
+
+function readFileAs(file, as) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("读取失败"));
+    reader.onload = () => resolve(reader.result);
+    if (as === "dataUrl") reader.readAsDataURL(file);
+    else reader.readAsText(file);
+  });
+}
+
+async function addChatFiles(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  for (const file of files) {
+    if (chatAttachments.length >= CHAT_ATTACH_MAX) {
+      toast(`最多附加 ${CHAT_ATTACH_MAX} 个文件`, true);
+      break;
+    }
+    const isImage = CHAT_IMAGE_TYPES.includes(file.type);
+    if (isImage) {
+      if (file.size > CHAT_IMAGE_MAX_BYTES) {
+        toast(`图片过大：${file.name}（上限 4 MB）`, true);
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAs(file, "dataUrl");
+        chatAttachments.push({ kind: "image", name: file.name, bytes: file.size, mime: file.type, dataUrl });
+      } catch { toast(`读取失败：${file.name}`, true); }
+      continue;
+    }
+    if (file.size > CHAT_TEXT_MAX_BYTES) {
+      toast(`文件过大：${file.name}（上限 512 KB）`, true);
+      continue;
+    }
+    try {
+      const text = String(await readFileAs(file, "text") || "");
+      const clipped = text.length > CHAT_TEXT_MAX_CHARS
+        ? `${text.slice(0, CHAT_TEXT_MAX_CHARS)}\n…（已截断，原文件 ${text.length} 字符）`
+        : text;
+      chatAttachments.push({ kind: "text", name: file.name, bytes: file.size, text: clipped });
+    } catch { toast(`读取失败：${file.name}`, true); }
+  }
+  renderChatAttachments();
+}
+
+// The message content for one turn: text parts plus image parts, with text
+// files inlined as fenced blocks the model can read as code.
+function chatAttachContent(prompt) {
+  const parts = [];
+  if (prompt) parts.push({ type: "text", text: prompt });
+  for (const item of chatAttachments) {
+    if (item.kind === "text") {
+      const fence = item.name.split(".").pop() || "";
+      parts.push({ type: "text", text: `\n\n文件 ${item.name}：\n\n\`\`\`${fence}\n${item.text}\n\`\`\`` });
+    }
+  }
+  // Images come last so the prompt reads first in the message.
+  for (const item of chatAttachments) {
+    if (item.kind === "image") parts.push({ type: "image_url", image_url: { url: item.dataUrl } });
+  }
+  return parts.length === 1 && parts[0].type === "text" ? parts[0].text : parts;
+}
+
+function chatAttachmentNames() {
+  return chatAttachments.map((item) => item.name).join("、");
+}
 
 async function sendChat() {
   if (chatBusy) {
@@ -1271,7 +1405,9 @@ async function sendChat() {
   }
   const input = $("#chat-input");
   const typed = String(input?.value || "").trim();
-  if (!typed) return;
+  // An attachment alone is a valid turn: "what is this screenshot" needs no
+  // typed text.
+  if (!typed && !chatAttachments.length) return;
   const text = chatQuickCommand(typed);
   const model = chatSelectedModel;
   if (!model) { toast("先在「模型」页启用一个模型", true); return; }
@@ -1284,10 +1420,19 @@ async function sendChat() {
   input.value = "";
   input.style.height = "";
 
-  chatBubble("user", text);
+  // The bubble shows what was attached, so the transcript records it.
+  const attached = chatAttachmentNames();
+  chatBubble("user", attached ? `${text || "（见附件）"}\n\n附件：${attached}` : text);
   const answer = chatBubble("assistant", "");
   if (answer) answer.classList.add("streaming");
-  const messages = chatBuildMessages(text);
+  // The content is a string for a plain question and a parts array when files
+  // ride along; both are ordinary message content to the gateway.
+  const content = chatAttachContent(text);
+  const messages = chatBuildMessages(content);
+  // Attachments belong to this turn only.
+  const sentNames = attached;
+  chatAttachments = [];
+  renderChatAttachments();
   const id = `c${Date.now()}${Math.floor(Math.random() * 1000)}`;
   chatCurrentId = id;
   chatSetBusy(true);
@@ -1343,8 +1488,8 @@ async function sendChat() {
         chatMetaLine(answer, result.meta);
       }
       // Only a successful turn becomes context; keep the final text only.
-      chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });
-      chatPersistTurn(text, final);
+      chatHistory.push({ role: "user", content: sentNames ? `${text || "（见附件）"}\n\n附件：${sentNames}` : text }, { role: "assistant", content: final });
+      chatPersistTurn(sentNames ? `${text || "（见附件）"}\n\n附件：${sentNames}` : text, final);
       chatTrimHistory({ notify: true });
     } else if (!result?.cancelled) {
       if (answer) { answer.textContent = result?.error || "请求失败"; answer.classList.add("error"); answer.classList.remove("streaming"); }
@@ -1552,6 +1697,45 @@ async function chatOpenSession(id) {
   chatScroll(true);
   renderChatHistory();
 }
+
+$("#chat-attach")?.addEventListener("click", () => $("#chat-file")?.click());
+$("#chat-file")?.addEventListener("change", async (event) => {
+  await addChatFiles(event.target.files);
+  // Reset so picking the same file twice still fires.
+  event.target.value = "";
+});
+$("#chat-attach-tray")?.addEventListener("click", (event) => {
+  const drop = event.target.closest("[data-attach-drop]");
+  if (!drop) return;
+  chatAttachments.splice(Number(drop.dataset.attachDrop), 1);
+  renderChatAttachments();
+});
+
+// Dropping files on the transcript or the composer attaches them.
+for (const id of ["chat-log", "chat-input"]) {
+  const host = document.getElementById(id);
+  if (!host) continue;
+  host.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    host.classList.add("drop-target");
+  });
+  host.addEventListener("dragleave", () => host.classList.remove("drop-target"));
+  host.addEventListener("drop", async (event) => {
+    if (!event.dataTransfer?.files?.length) return;
+    event.preventDefault();
+    host.classList.remove("drop-target");
+    await addChatFiles(event.dataTransfer.files);
+  });
+}
+
+// Pasting an image into the composer attaches it, the way a chat app does.
+$("#chat-input")?.addEventListener("paste", async (event) => {
+  const files = [...(event.clipboardData?.files || [])];
+  if (!files.length) return;
+  event.preventDefault();
+  await addChatFiles(files);
+});
 
 $("#chat-send")?.addEventListener("click", sendChat);
 $("#chat-stop")?.addEventListener("click", () => {
