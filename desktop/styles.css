@@ -2590,3 +2590,8 @@ h1 {
   font-size: 10.5px;
   line-height: 1.6;
 }
+
+/* A reasoning stream shown before the answer arrives; replaced by the text. */
+.chat-text.reasoning { color: var(--chat-muted); }
+/* Says the answer was cut at the token limit, rather than letting it just stop. */
+.chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; }

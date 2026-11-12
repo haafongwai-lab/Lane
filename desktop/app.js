@@ -567,7 +567,7 @@ function render() {
 // between sends, no retry, and a token cap — because a burst of tiny probes is
 // the one pattern that reads as a script rather than a person.
 const CHAT_MIN_GAP_MS = 2000;
-const CHAT_MAX_TOKENS = 1024;
+const CHAT_MAX_TOKENS = 8192;
 let chatHistory = [];
 let chatBusy = false;
 let chatLastSentAt = 0;
@@ -688,21 +688,36 @@ async function sendChat() {
   chatSetBusy(true);
 
   let streamed = "";
+  let reasoned = "";
   const off = window.lane.onConsoleDelta((msg) => {
     if (!msg || msg.id !== id) return;
     if (msg.text) {
       streamed += msg.text;
-      if (answer) { answer.textContent = streamed; chatScroll(); }
-    } else if (msg.reasoning && !streamed && answer) {
-      answer.textContent = msg.reasoning;
-      chatScroll();
+      if (answer) { answer.textContent = streamed; answer.classList.remove("reasoning"); chatScroll(); }
+    } else if (msg.reasoning) {
+      // Reasoning streams before the answer. Accumulate it and show it dimmed
+      // until the first real token replaces it — assigning each chunk over the
+      // last would show only the newest fragment.
+      reasoned += msg.reasoning;
+      if (answer && !streamed) { answer.textContent = reasoned; answer.classList.add("reasoning"); chatScroll(); }
     }
   });
   try {
     const result = await window.lane.consoleChat({ id, model, messages, maxTokens: CHAT_MAX_TOKENS });
     if (result?.ok) {
       const final = result.text || streamed;
-      if (answer) { answer.textContent = final || "（空回答）"; answer.classList.remove("streaming"); }
+      if (answer) {
+        answer.textContent = final || "（空回答）";
+        answer.classList.remove("streaming", "reasoning");
+        // Say so when the upstream cut the answer at the token limit: an
+        // answer that just stops mid-sentence otherwise reads as a bug.
+        if (result.truncated) {
+          const note = document.createElement("div");
+          note.className = "chat-truncated";
+          note.textContent = "回答达到长度上限，已被截断";
+          answer.parentElement?.appendChild(note);
+        }
+      }
       // Remember the turn only when it succeeded: a failed turn is not
       // context the model should carry into the next question.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });

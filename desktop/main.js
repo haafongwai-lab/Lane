@@ -503,40 +503,51 @@ const consoleControllers = new Map();
 let consoleBusy = false;
 
 // SSE from the gateway: `data: {json}` lines, `[DONE]` to end. Only the text
-// and reasoning deltas matter to the panel.
+// and reasoning deltas matter to the panel. Frames end with a blank line, but
+// the last one can arrive without it, and some proxies use CRLF, so the tail is
+// flushed and the separator normalised — a dropped tail reads as "the answer
+// stopped halfway".
 async function pumpConsoleStream(body, onDelta, signal) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let said = "";
   let reasoning = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (signal.aborted) break;
-    buffer += decoder.decode(value, { stream: true });
-    let cut;
-    while ((cut = buffer.indexOf("\n\n")) >= 0) {
-      const frame = buffer.slice(0, cut);
-      buffer = buffer.slice(cut + 2);
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        let event;
-        try { event = JSON.parse(payload); } catch { continue; }
-        const delta = event?.choices?.[0]?.delta || {};
-        if (typeof delta.content === "string" && delta.content) {
-          said += delta.content;
-          onDelta({ text: delta.content });
-        } else if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
-          reasoning += delta.reasoning_content;
-          onDelta({ reasoning: delta.reasoning_content });
-        }
+  let finish = "";
+  const handleFrame = (frame) => {
+    for (const rawLine of frame.split("\n")) {
+      const line = rawLine.replace(/\r$/, "");
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let event;
+      try { event = JSON.parse(payload); } catch { continue; }
+      const choice = event?.choices?.[0];
+      if (choice?.finish_reason) finish = String(choice.finish_reason);
+      const delta = choice?.delta || {};
+      if (typeof delta.content === "string" && delta.content) {
+        said += delta.content;
+        onDelta({ text: delta.content });
+      } else if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+        reasoning += delta.reasoning_content;
+        onDelta({ reasoning: delta.reasoning_content });
       }
     }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    if (done) { buffer += decoder.decode(); break; }
+    if (signal.aborted) break;
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) >= 0) {
+      handleFrame(buffer.slice(0, cut));
+      buffer = buffer.slice(cut + 2);
+    }
   }
-  return { text: said, reasoning };
+  if (buffer.trim()) handleFrame(buffer.replace(/\r\n/g, "\n"));
+  return { text: said, reasoning, finish };
 }
 
 handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } = {}) => {
@@ -553,27 +564,46 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   const emit = (payload) => {
     if (!sender.isDestroyed()) sender.send("lane:console-delta", { id: requestId, ...payload });
   };
-  const cap = Math.min(Math.max(Number(maxTokens) || 1024, 64), 4096);
+  // A chat answer must not be cut at a few hundred characters: 1024 tokens
+  // truncated Chinese mid-sentence and read as "stopped halfway". 8192 leaves
+  // room for a long answer; the ceiling stays well under a context window.
+  const cap = Math.min(Math.max(Number(maxTokens) || 8192, 256), 16384);
+  const send = (withCap) => fetch(`${GATEWAY}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-lane-client": "lane" },
+    body: JSON.stringify({
+      model: model || undefined,
+      messages: Array.isArray(messages) ? messages : [],
+      ...(withCap ? { max_tokens: cap } : {}),
+      stream: true
+    }),
+    signal: controller.signal
+  });
+  const failure = async (response) => {
+    const text = await response.text().catch(() => "");
+    let message = text;
+    try { message = JSON.parse(text)?.error?.message || text; } catch {}
+    return { ok: false, error: String(message || `HTTP ${response.status}`) };
+  };
   try {
-    const response = await fetch(`${GATEWAY}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-lane-client": "lane" },
-      body: JSON.stringify({
-        model: model || undefined,
-        messages: Array.isArray(messages) ? messages : [],
-        max_tokens: cap,
-        stream: true
-      }),
-      signal: controller.signal
-    });
+    let response = await send(true);
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      let message = text;
-      try { message = JSON.parse(text)?.error?.message || text; } catch {}
-      return { ok: false, error: String(message || `HTTP ${response.status}`) };
+      // A model whose own output ceiling is below `cap` refuses the whole
+      // request with a max_tokens error before generating anything. Nothing was
+      // produced, so resending once without the cap is not a replay of a
+      // charge — it is the same question in a form the model accepts.
+      if (/max_tokens|max output|maximum context/i.test(text)) {
+        response = await send(false);
+        if (!response.ok) return failure(response);
+      } else {
+        let message = text;
+        try { message = JSON.parse(text)?.error?.message || text; } catch {}
+        return { ok: false, error: String(message || `HTTP ${response.status}`) };
+      }
     }
     const out = await pumpConsoleStream(response.body, emit, controller.signal);
-    return { ok: true, text: out.text, reasoning: out.reasoning };
+    return { ok: true, text: out.text, reasoning: out.reasoning, truncated: out.finish === "length" };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
     return { ok: false, error: error?.message || String(error) };
