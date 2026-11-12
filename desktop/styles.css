@@ -2726,3 +2726,26 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 }
 /* The in-flight tool call, shown above the composer only while it runs. */
 .chat-tool-status { margin: 0 6px 8px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.5; }
+
+/* The reasoning level, beside the model picker: a quiet pill like the 工具
+   one, its menu opening upward from the top bar. */
+.chat-effort {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--chat-card-border); border-radius: var(--chat-radius-trigger);
+  background: transparent; color: var(--chat-ink-soft);
+  font: 13px/20px var(--font-sans); cursor: pointer;
+}
+.chat-effort:hover, .chat-effort[aria-expanded='true'] { background: var(--chat-hover); }
+.chat-effort-menu {
+  position: absolute; z-index: 40;
+  min-width: 190px; padding: 4px;
+  border: 1px solid var(--chat-menu-border); border-radius: var(--chat-radius-option);
+  background: var(--chat-menu-bg); box-shadow: var(--chat-shadow-menu);
+}
+.chat-effort-option {
+  display: block; width: 100%; min-height: 32px; padding: 5px 9px;
+  border: 0; border-radius: var(--chat-radius-option); background: transparent;
+  color: var(--chat-ink); font: 13px/20px var(--font-sans); text-align: left; cursor: pointer;
+}
+.chat-effort-option:hover, .chat-effort-option.selected { background: var(--chat-hover); }

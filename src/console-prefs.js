@@ -17,11 +17,17 @@ const file = (env) => path.join(dataDir(env), "console.json");
 export const DEFAULTS = {
   mcpEnabled: false,
   mcpServers: [],
+  // Empty means "let the model decide". A thinking model shares its output
+  // budget between reasoning and answer, so "none" is the escape hatch when an
+  // answer comes back empty; the panel offers it beside the model picker.
+  effort: "",
   maxRounds: 6,          // tool rounds per question
   maxTokens: 32_000,     // total tokens across every round of one question
   maxDurationMs: 180_000, // wall-clock ceiling for one question
   historyTurns: 10       // message pairs kept as context
 };
+
+export const EFFORTS = ["", "none", "low", "medium", "high"];
 
 function clamp(value, min, max, fallback) {
   const n = Number(value);
@@ -35,6 +41,7 @@ export function normalizePrefs(raw = {}) {
     mcpServers: Array.isArray(raw?.mcpServers)
       ? [...new Set(raw.mcpServers.filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim()))].slice(0, 50)
       : [],
+    effort: EFFORTS.includes(String(raw?.effort ?? "")) ? String(raw?.effort ?? "") : "",
     maxRounds: clamp(raw?.maxRounds, 1, 12, DEFAULTS.maxRounds),
     maxTokens: clamp(raw?.maxTokens, 1_000, 200_000, DEFAULTS.maxTokens),
     maxDurationMs: clamp(raw?.maxDurationMs, 10_000, 900_000, DEFAULTS.maxDurationMs),

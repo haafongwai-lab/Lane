@@ -646,6 +646,7 @@ async function loadChatPrefs() {
   try { chatPrefs = await window.lane.consolePrefs(); } catch { chatPrefs = chatPrefs || { mcpEnabled: false, mcpServers: [] }; }
   try { chatMcpServers = (await window.lane.mcpList())?.servers || []; } catch { chatMcpServers = []; }
   renderChatMcp();
+  renderChatEffort();
 }
 
 function renderChatMcp() {
@@ -671,11 +672,27 @@ function renderChatMcp() {
   }
 }
 
+const CHAT_EFFORT_LABELS = { "": "自动", none: "不思考", low: "轻度", medium: "中度", high: "深度" };
+
+// The reasoning level, beside the model picker. "自动" sends nothing and lets
+// the model decide; "不思考" is the escape hatch when a thinking model spends
+// the whole output budget on reasoning and returns an empty answer.
+function renderChatEffort() {
+  const label = $("#chat-effort-label");
+  if (!label) return;
+  const level = String(chatPrefs?.effort ?? "");
+  label.textContent = CHAT_EFFORT_LABELS[level] || "自动";
+  for (const option of $("#chat-effort-menu [data-effort]")) {
+    option.classList.toggle("selected", String(option.dataset.effort ?? "") === level);
+  }
+}
+
 async function saveChatPrefs(patch) {
   try {
     chatPrefs = await window.lane.consolePrefs(patch);
     chatMcpKey = "";
     renderChatMcp();
+    renderChatEffort();
   } catch (error) {
     toast(error.message || "保存失败", true);
   }
@@ -991,6 +1008,7 @@ async function sendChat() {
       return;
     }
     if (msg.tool) {
+      if (msg.tool.phase === "notice") { toast(msg.tool.text || ""); return; }
       if (msg.tool.phase === "start") {
         const server = msg.tool.server || String(msg.tool.name || "").split("__")[0] || "MCP";
         chatToolStatus(`正在调用「${server} MCP」…`);
@@ -1075,6 +1093,22 @@ $("#chat-model-menu")?.addEventListener("click", (event) => {
   renderChatModels();
   $("#chat-input")?.focus();
 });
+$("#chat-effort")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("#chat-effort-menu");
+  const button = $("#chat-effort");
+  if (!menu || !button) return;
+  menu.hidden = !menu.hidden;
+  button.setAttribute("aria-expanded", String(!menu.hidden));
+});
+$("#chat-effort-menu")?.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-effort]");
+  if (!option) return;
+  $("#chat-effort-menu").hidden = true;
+  $("#chat-effort")?.setAttribute("aria-expanded", "false");
+  saveChatPrefs({ effort: String(option.dataset.effort ?? "") });
+});
+
 $("#chat-mcp-button")?.addEventListener("click", (event) => {
   event.stopPropagation();
   const menu = $("#chat-mcp-menu");
@@ -1116,6 +1150,10 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
+  if (!event.target.closest("#chat-effort")) {
+    const menu = $("#chat-effort-menu");
+    if (menu && !menu.hidden) { menu.hidden = true; $("#chat-effort")?.setAttribute("aria-expanded", "false"); }
+  }
   if (!event.target.closest("#chat-mcp")) {
     const menu = $("#chat-mcp-menu");
     const button = $("#chat-mcp-button");

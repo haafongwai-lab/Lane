@@ -652,12 +652,27 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
   const cap = Math.min(Math.max(Number(maxTokens) || 32768, 256), 32768);
   const started = Date.now();
 
-  const send = (withCap, body) => fetch(`${GATEWAY}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-lane-client": "lane" },
-    body: JSON.stringify({ model: model || undefined, ...body, ...(withCap ? { max_tokens: cap } : {}), stream: true }),
-    signal: controller.signal
-  });
+  // Reasoning and answer share one max_tokens, so a model that thinks a lot can
+  // spend the whole budget before writing a word: finish_reason "length" with
+  // an empty content field. Measured on deepseek-v4.1-flash: the default spent
+  // 84 reasoning tokens, reasoning_effort "none" spent 0. The chosen level
+  // rides on every request; the retry path can drop it for one attempt.
+  const effort = prefs?.effort === undefined ? "" : String(prefs.effort || "");
+  const send = (withCap, body, effortOverride) => {
+    const level = effortOverride === undefined ? effort : effortOverride;
+    return fetch(`${GATEWAY}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lane-client": "lane" },
+      body: JSON.stringify({
+        model: model || undefined,
+        ...body,
+        ...(level ? { reasoning_effort: level } : {}),
+        ...(withCap ? { max_tokens: cap } : {}),
+        stream: true
+      }),
+      signal: controller.signal
+    });
+  };
   const failure = async (response) => {
     const text = await response.text().catch(() => "");
     let message = text;
@@ -714,7 +729,20 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
           return { ok: false, error: String(message || `HTTP ${response.status}`) };
         }
       }
-      const out = await pumpConsoleStream(response.body, emit, controller.signal);
+      let out = await pumpConsoleStream(response.body, emit, controller.signal);
+      // Reasoning and answer share max_tokens. When the budget runs out while
+      // the model is still thinking, the stream ends with finish_reason
+      // "length" and no content at all, so the panel shows nothing. One retry
+      // with reasoning switched off is the reliable cure: same request, no
+      // thinking, so the whole budget is available for the answer.
+      if (!out.text && !out.calls.length && out.finish === "length" && effort !== "none") {
+        emit({ tool: { phase: "notice", text: "思考占满了输出预算，已关闭思考重试" } });
+        const retry = await send(true, body, "none");
+        if (retry.ok) {
+          const second = await pumpConsoleStream(retry.body, emit, controller.signal);
+          if (second.text || second.calls.length) out = second;
+        }
+      }
       // Keep the last thing the model actually said: a round that only asks for
       // a tool returns no text, and overwriting with that empty string threw
       // away words it had already produced.

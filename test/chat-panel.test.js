@@ -39,12 +39,19 @@ test("the renderer cannot reach the gateway itself; it goes through IPC", () => 
   assert.equal(/fetch\(\s*[`"']http/.test(APP), false, "no direct fetch to a URL in the renderer");
 });
 
-test("one request at a time, and no retry", () => {
+test("one request at a time, and no blind retry loop", () => {
   assert.match(MAIN, /let consoleBusy = false/);
   assert.match(MAIN, /if \(consoleBusy\) return \{ ok: false, error: "上一条还在回答，请稍候" \}/);
-  // A retry loop is the behaviour most likely to be flagged; there is none.
+  // A retry LOOP is the behaviour most likely to be flagged; there is none.
   assert.equal(/for \(let attempt/.test(MAIN), false);
-  assert.equal(/retry/i.test(MAIN.slice(MAIN.indexOf("lane:console-chat"), MAIN.indexOf("lane:console-cancel"))), false);
+  // The one retry that exists is a correction, not a replay: it fires only when
+  // the budget went to reasoning and nothing was said, and it changes the
+  // request (reasoning off) instead of repeating it.
+  const region = MAIN.slice(MAIN.indexOf("lane:console-chat"), MAIN.indexOf("lane:console-cancel"));
+  const retries = region.match(/retry/g) || [];
+  assert.ok(retries.length > 0, "the reasoning-overflow retry is present");
+  assert.match(region, /if \(!out\.text && !out\.calls\.length && out\.finish === "length"/);
+  assert.match(region, /send\(true, body, "none"\)/);
 });
 
 test("it marks the request as Lane's own, and never forwards that marker", () => {

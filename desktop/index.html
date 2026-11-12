@@ -45,6 +45,15 @@
               </div>
             </div>
             <span class="chat-spacer"></span>
+            <button type="button" class="chat-effort" id="chat-effort" aria-haspopup="listbox" aria-expanded="false" aria-label="思考强度">
+              <span id="chat-effort-label">自动</span>
+            </button>
+            <div class="chat-effort-menu" id="chat-effort-menu" role="listbox" hidden>
+              <button type="button" class="chat-effort-option" data-effort="">自动（推荐）</button>
+              <button type="button" class="chat-effort-option" data-effort="none">关闭思考（最快最省）</button>
+              <button type="button" class="chat-effort-option" data-effort="low">轻度思考</button>
+              <button type="button" class="chat-effort-option" data-effort="high">深度思考</button>
+            </div>
             <button class="ghost chat-clear" id="chat-clear">清空</button>
           </div>
           <div class="chat-scroll" id="chat-log">
