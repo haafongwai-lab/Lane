@@ -47,14 +47,40 @@ test("a round that thinks through its whole budget is retried without reasoning"
   assert.match(MAIN, /思考占满了输出预算，已关闭思考重试/);
 });
 
-test("the panel offers the level beside the model picker", () => {
-  assert.match(HTML, /id="chat-effort"/);
-  assert.match(HTML, /id="chat-effort-menu"/);
-  for (const level of ["none", "low", "high"]) {
-    assert.ok(HTML.includes(`data-effort="${level}"`), `${level} is offered`);
-  }
-  assert.ok(HTML.includes('data-effort=""'), "automatic is offered");
-  assert.match(APP, /function renderChatEffort\(/);
-  assert.match(APP, /saveChatPrefs\(\{ effort:/);
-  assert.match(CSS, /\.chat-effort-option \{/);
+test("the level is a slider, the way ZCode renders it", () => {
+  // ZCode uses a native range input over a drawn track, not a menu: its bundle
+  // builds `input type:"range"` with one stop per level, a 24px track and a
+  // 28px round thumb. This pins that shape.
+  assert.match(HTML, /<input type="range" id="chat-effort-range"/);
+  assert.match(HTML, /id="chat-effort-fill"/);
+  assert.match(HTML, /id="chat-effort-stops"/);
+  assert.match(HTML, /id="chat-effort-thumb"/);
+  assert.equal(/chat-effort-menu/.test(HTML), false, "no dropdown remains");
+  assert.equal(/chat-effort-button/.test(HTML), false, "no trigger button remains");
+});
+
+test("the slider geometry follows ZCode's own values", () => {
+  const range = CSS.slice(CSS.indexOf(".chat-effort-range {"), CSS.indexOf("}", CSS.indexOf(".chat-effort-range {")));
+  assert.match(range, /height: 32px/, "32px hit area");
+  assert.match(range, /appearance: none/);
+  // The native thumb is transparent; the visible one is drawn beneath it.
+  assert.match(CSS, /\.chat-effort-range::-webkit-slider-thumb \{[\s\S]*?background: transparent/);
+  const thumb = CSS.slice(CSS.indexOf(".chat-effort-thumb {"), CSS.indexOf("}", CSS.indexOf(".chat-effort-thumb {")));
+  assert.match(thumb, /width: 28px/);
+  assert.match(thumb, /border-radius: 50%/);
+  assert.match(thumb, /transition: left \.12s ease-out/);
+  const fill = CSS.slice(CSS.indexOf(".chat-effort-fill {"), CSS.indexOf("}", CSS.indexOf(".chat-effort-fill {")));
+  assert.match(fill, /transition: width \.12s ease-out/);
+  // The fill turns to the accent at the top level, like ZCode's.
+  assert.match(CSS, /\.chat-effort-fill\[data-max="true"\] \{ background: var\(--chat-accent\); \}/);
+});
+
+test("dragging repaints live and saves on release", () => {
+  assert.match(APP, /\$\("#chat-effort-range"\)\?\.addEventListener\("input"/);
+  assert.match(APP, /\$\("#chat-effort-range"\)\?\.addEventListener\("change"/);
+  assert.match(APP, /saveChatPrefs\(\{ effort: level\.value \}\)/);
+  assert.match(APP, /CHAT_EFFORT_LEVELS/);
+  // The thumb and fill are positioned from the level index.
+  assert.match(APP, /const percent = last \? \(index \/ last\) \* 100 : 0/);
+  assert.match(APP, /calc\(14px \+ \(100% - 28px\) \* /);
 });

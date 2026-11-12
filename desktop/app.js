@@ -672,18 +672,66 @@ function renderChatMcp() {
   }
 }
 
-const CHAT_EFFORT_LABELS = { "": "自动", none: "不思考", low: "轻度", medium: "中度", high: "深度" };
+// The reasoning level, as ZCode renders it: a discrete slider in the composer
+// rather than a menu. ZCode's own implementation (read out of its bundle) is a
+// native range input over a drawn track — a 24px pill with the fill on the
+// left, one dot per level, and a 28px white thumb that slides between them —
+// so this is the same thing: a real <input type=range> for keyboard and
+// accessibility, with the track, stops and thumb painted underneath it.
+const CHAT_EFFORT_LEVELS = [
+  { value: "", label: "自动", hint: "由模型决定" },
+  { value: "none", label: "不思考", hint: "最快最省，适合查数据" },
+  { value: "low", label: "轻度", hint: "简单问题略作推理" },
+  { value: "medium", label: "中度", hint: "平衡速度与质量" },
+  { value: "high", label: "深度", hint: "复杂问题充分推理" }
+];
+const CHAT_EFFORT_TRIGGER = "思考强度";
 
-// The reasoning level, beside the model picker. "自动" sends nothing and lets
-// the model decide; "不思考" is the escape hatch when a thinking model spends
-// the whole output budget on reasoning and returns an empty answer.
-function renderChatEffort() {
-  const label = $("#chat-effort-label");
-  if (!label) return;
+function chatEffortIndex() {
   const level = String(chatPrefs?.effort ?? "");
-  label.textContent = CHAT_EFFORT_LABELS[level] || "自动";
-  for (const option of $("#chat-effort-menu [data-effort]")) {
-    option.classList.toggle("selected", String(option.dataset.effort ?? "") === level);
+  const at = CHAT_EFFORT_LEVELS.findIndex((item) => item.value === level);
+  return at < 0 ? 0 : at;
+}
+
+function renderChatEffort() {
+  const range = $("#chat-effort-range");
+  const label = $("#chat-effort-label");
+  if (!range || !label) return;
+  const index = chatEffortIndex();
+  const last = CHAT_EFFORT_LEVELS.length - 1;
+  const level = CHAT_EFFORT_LEVELS[index];
+  // The thumb travels between the first and last stop, which sit 14px in from
+  // each end — the same geometry ZCode uses, so the dots line up with it.
+  const percent = last ? (index / last) * 100 : 0;
+  const fill = $("#chat-effort-fill");
+  if (fill) {
+    fill.style.width = `calc(14px + (100% - 28px) * ${percent / 100})`;
+    fill.dataset.max = String(index === last);
+  }
+  const thumb = $("#chat-effort-thumb");
+  if (thumb) thumb.style.left = `calc((100% - 28px) * ${percent / 100})`;
+  range.value = String(index);
+  range.setAttribute("aria-valuetext", level.label);
+  range.setAttribute("aria-valuemin", "0");
+  range.setAttribute("aria-valuemax", String(last));
+  range.title = `${level.label}：${level.hint}`;
+  // The name shows only once a level is chosen; on automatic the control is a
+  // bare slider whose title says what it is.
+  label.textContent = level.value ? level.label : CHAT_EFFORT_TRIGGER;
+  label.classList.toggle("set", Boolean(level.value));
+
+  const stops = $("#chat-effort-stops");
+  if (stops && stops.dataset.key !== String(last)) {
+    stops.dataset.key = String(last);
+    stops.replaceChildren(...CHAT_EFFORT_LEVELS.map((item, at) => {
+      const dot = document.createElement("span");
+      dot.className = "chat-effort-stop";
+      dot.dataset.filled = String(at <= index);
+      dot.title = `${item.label}：${item.hint}`;
+      return dot;
+    }));
+  } else if (stops) {
+    [...stops.children].forEach((dot, at) => { dot.dataset.filled = String(at <= index); });
   }
 }
 
@@ -1093,20 +1141,27 @@ $("#chat-model-menu")?.addEventListener("click", (event) => {
   renderChatModels();
   $("#chat-input")?.focus();
 });
-$("#chat-effort")?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  const menu = $("#chat-effort-menu");
-  const button = $("#chat-effort");
-  if (!menu || !button) return;
-  menu.hidden = !menu.hidden;
-  button.setAttribute("aria-expanded", String(!menu.hidden));
+// Dragging saves on release; the live repaint follows every step so the fill,
+// the dots and the name track the thumb while it moves.
+$("#chat-effort-range")?.addEventListener("input", (event) => {
+  const index = Number(event.target.value) || 0;
+  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
+  const label = $("#chat-effort-label");
+  if (label) { label.textContent = level.value ? level.label : CHAT_EFFORT_TRIGGER; label.classList.toggle("set", Boolean(level.value)); }
+  const last = CHAT_EFFORT_LEVELS.length - 1;
+  const percent = last ? (index / last) * 100 : 0;
+  const fill = $("#chat-effort-fill");
+  if (fill) { fill.style.width = `calc(14px + (100% - 28px) * ${percent / 100})`; fill.dataset.max = String(index === last); }
+  const thumb = $("#chat-effort-thumb");
+  if (thumb) thumb.style.left = `calc((100% - 28px) * ${percent / 100})`;
+  const stops = $("#chat-effort-stops");
+  if (stops) [...stops.children].forEach((dot, at) => { dot.dataset.filled = String(at <= index); });
+  event.target.title = `${level.label}：${level.hint}`;
 });
-$("#chat-effort-menu")?.addEventListener("click", (event) => {
-  const option = event.target.closest("[data-effort]");
-  if (!option) return;
-  $("#chat-effort-menu").hidden = true;
-  $("#chat-effort")?.setAttribute("aria-expanded", "false");
-  saveChatPrefs({ effort: String(option.dataset.effort ?? "") });
+$("#chat-effort-range")?.addEventListener("change", (event) => {
+  const index = Number(event.target.value) || 0;
+  const level = CHAT_EFFORT_LEVELS[index] || CHAT_EFFORT_LEVELS[0];
+  saveChatPrefs({ effort: level.value });
 });
 
 $("#chat-mcp-button")?.addEventListener("click", (event) => {
@@ -1150,10 +1205,6 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
-  if (!event.target.closest("#chat-effort")) {
-    const menu = $("#chat-effort-menu");
-    if (menu && !menu.hidden) { menu.hidden = true; $("#chat-effort")?.setAttribute("aria-expanded", "false"); }
-  }
   if (!event.target.closest("#chat-mcp")) {
     const menu = $("#chat-mcp-menu");
     const button = $("#chat-mcp-button");

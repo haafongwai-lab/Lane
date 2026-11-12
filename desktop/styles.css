@@ -2727,25 +2727,71 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 /* The in-flight tool call, shown above the composer only while it runs. */
 .chat-tool-status { margin: 0 6px 8px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.5; }
 
-/* The reasoning level, beside the model picker: a quiet pill like the 工具
-   one, its menu opening upward from the top bar. */
-.chat-effort {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 28px; padding: 0 10px;
-  border: 1px solid var(--chat-card-border); border-radius: var(--chat-radius-trigger);
-  background: transparent; color: var(--chat-ink-soft);
-  font: 13px/20px var(--font-sans); cursor: pointer;
+/* The reasoning level as ZCode draws it: a discrete slider, not a menu.
+   Values are ZCode's own (read from its stylesheet): a 32px hit area, a
+   24px rounded track inset 1px from the top, one 4px dot per level between
+   14px insets, a 28px round thumb sliding with .12s ease-out, and the fill
+   in --color-success that turns to the brand blue at the top level. A real
+   <input type=range> sits on top for keyboard and accessibility, its own
+   track and thumb made transparent. */
+.chat-effort-picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chat-effort-slider { position: relative; width: 132px; height: 32px; flex: none; }
+.chat-effort-slider:has(input:focus-visible) {
+  outline: 2px solid var(--chat-accent); outline-offset: 2px; border-radius: 999px;
 }
-.chat-effort:hover, .chat-effort[aria-expanded='true'] { background: var(--chat-hover); }
-.chat-effort-menu {
-  position: absolute; z-index: 40;
-  min-width: 190px; padding: 4px;
-  border: 1px solid var(--chat-menu-border); border-radius: var(--chat-radius-option);
-  background: var(--chat-menu-bg); box-shadow: var(--chat-shadow-menu);
+.chat-effort-track {
+  pointer-events: none; position: absolute; inset: 0;
 }
-.chat-effort-option {
-  display: block; width: 100%; min-height: 32px; padding: 5px 9px;
-  border: 0; border-radius: var(--chat-radius-option); background: transparent;
-  color: var(--chat-ink); font: 13px/20px var(--font-sans); text-align: left; cursor: pointer;
+.chat-effort-track > .chat-effort-fill,
+.chat-effort-track > .chat-effort-stops {
+  position: absolute; left: 0; right: 0; top: 4px; height: 24px;
+  border-radius: 999px;
 }
-.chat-effort-option:hover, .chat-effort-option.selected { background: var(--chat-hover); }
+.chat-effort-track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 24px;
+  border-radius: 999px; background: var(--chat-hover);
+  border: 1px solid var(--chat-card-border);
+}
+.chat-effort-fill {
+  overflow: hidden;
+  background: var(--green);
+  transition: width .12s ease-out;
+}
+.chat-effort-fill[data-max="true"] { background: var(--chat-accent); }
+.chat-effort-stops {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+}
+.chat-effort-stop {
+  width: 4px; height: 4px; border-radius: 50%; flex: none;
+  background: var(--chat-muted); opacity: .5;
+  transition: background .12s, opacity .12s;
+}
+.chat-effort-stop[data-filled="true"] { background: #fff; opacity: .9; }
+.chat-effort-thumb {
+  position: absolute; top: 2px; width: 28px; height: 28px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 17, 21, .28);
+  transition: left .12s ease-out;
+  pointer-events: none;
+}
+.chat-effort-range {
+  position: absolute; inset: 0; width: 100%; height: 32px;
+  margin: 0; padding: 0; cursor: pointer;
+  appearance: none; background: transparent; outline: none;
+}
+.chat-effort-range::-webkit-slider-runnable-track { height: 32px; background: transparent; }
+.chat-effort-range::-webkit-slider-thumb {
+  appearance: none; width: 28px; height: 28px; margin-top: 2px;
+  border: 0; border-radius: 50%; background: transparent;
+}
+.chat-effort-range::-moz-range-track { height: 32px; background: transparent; }
+.chat-effort-range::-moz-range-thumb {
+  width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent;
+}
+.chat-effort-range::-moz-range-progress { background: transparent; }
+.chat-effort-value {
+  color: var(--chat-muted); font: 11.5px/1 var(--font-sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72px;
+}
+.chat-effort-value.set { color: var(--chat-ink); font-weight: 500; }

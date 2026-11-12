@@ -45,15 +45,6 @@
               </div>
             </div>
             <span class="chat-spacer"></span>
-            <button type="button" class="chat-effort" id="chat-effort" aria-haspopup="listbox" aria-expanded="false" aria-label="思考强度">
-              <span id="chat-effort-label">自动</span>
-            </button>
-            <div class="chat-effort-menu" id="chat-effort-menu" role="listbox" hidden>
-              <button type="button" class="chat-effort-option" data-effort="">自动（推荐）</button>
-              <button type="button" class="chat-effort-option" data-effort="none">关闭思考（最快最省）</button>
-              <button type="button" class="chat-effort-option" data-effort="low">轻度思考</button>
-              <button type="button" class="chat-effort-option" data-effort="high">深度思考</button>
-            </div>
             <button class="ghost chat-clear" id="chat-clear">清空</button>
           </div>
           <div class="chat-scroll" id="chat-log">
@@ -73,6 +64,17 @@
                     <svg class="chat-model-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   </button>
                   <div class="chat-model-menu" id="chat-model-menu" role="listbox" hidden></div>
+                </div>
+                <div class="chat-effort-picker" id="chat-effort">
+                  <div class="chat-effort-slider" id="chat-effort-slider">
+                    <div class="chat-effort-track" aria-hidden="true">
+                      <div class="chat-effort-fill" id="chat-effort-fill"></div>
+                      <div class="chat-effort-stops" id="chat-effort-stops"></div>
+                      <div class="chat-effort-thumb" id="chat-effort-thumb"></div>
+                    </div>
+                    <input type="range" id="chat-effort-range" class="chat-effort-range" min="0" max="4" step="1" value="0" aria-label="思考强度">
+                  </div>
+                  <span class="chat-effort-value" id="chat-effort-label">思考强度</span>
                 </div>
                 <span class="chat-spacer"></span>
                 <button class="chat-send" id="chat-send" aria-label="发送">
