@@ -2443,8 +2443,15 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 .chat-empty h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; color: var(--chat-ink); }
 .chat-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; }
 
-.chat-msg { display: flex; }
-.chat-msg.user { justify-content: flex-end; }
+/* A message is a COLUMN. It was a flex row with a single child, which was
+   harmless until the reasoning block, the action row and the truncation note
+   became siblings of the text: a row put them beside the answer, squeezing the
+   text into a strip that wrapped one character per line. */
+.chat-msg { display: flex; flex-direction: column; min-width: 0; }
+/* In a column the cross axis is horizontal, so alignment — not justification —
+   is what pushes the user's bubble right. */
+.chat-msg.user { align-items: flex-end; }
+.chat-msg.assistant { align-items: stretch; }
 .chat-msg.user .chat-text {
   max-width: 80%;
   padding: 9px 13px;
@@ -2599,7 +2606,7 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 /* A reasoning stream shown before the answer arrives; replaced by the text. */
 .chat-text.reasoning { color: var(--chat-muted); }
 /* Says the answer was cut at the token limit, rather than letting it just stop. */
-.chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; }
+.chat-truncated { margin-top: 8px; color: var(--chat-muted); font-size: 11px; align-self: flex-start; }
 
 /* MCP picker: a small pill in the top-left, its menu a flat sheet with a
    master toggle and one row per enabled server. */
@@ -2711,7 +2718,9 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
   padding: 0; border: 0; border-radius: 0; white-space: pre;
 }
 .chat-table-scroll { margin: 16px 0; overflow-x: auto; }
-.chat-text table { border-collapse: collapse; width: 100%; }
+/* The table keeps its natural width and the wrapper scrolls: squeezing to
+   fit breaks short headers like 「票价」 into single characters. */
+.chat-text table { border-collapse: collapse; width: 100%; min-width: max-content; }
 .chat-text th {
   text-align: start; padding: 10px 16px;
   font: 500 13px/22px var(--font-sans); color: var(--chat-ink);
@@ -2721,6 +2730,8 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
   padding: 10px 16px;
   font: 13px/22px var(--font-sans); color: var(--chat-ink-soft);
   border-bottom: .5px solid var(--md-line);
+  /* A short cell keeps one line; a long one still wraps inside its column. */
+  min-width: 4.5em; vertical-align: top;
 }
 /* The in-flight tool call, shown above the composer only while it runs. */
 .chat-tool-status { margin: 0 6px 8px; color: var(--chat-muted); font-size: 11.5px; line-height: 1.5; }
@@ -2887,6 +2898,7 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 /* Per-answer actions, revealed on hover so a long transcript stays quiet. */
 .chat-actions {
   display: flex; gap: 4px; margin-top: 6px; opacity: 0;
+  align-self: flex-start;
   transition: opacity .12s;
 }
 .chat-msg.assistant:hover .chat-actions, .chat-actions:focus-within { opacity: 1; }

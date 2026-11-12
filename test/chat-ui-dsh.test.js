@@ -52,5 +52,7 @@ test("the palette is DSH's: bluish neutrals and the #4176E6 accent", () => {
 test("user and assistant read differently: a bubble vs flowing text", () => {
   assert.match(CSS, /\.chat-msg\.user \.chat-text \{[\s\S]*?background: var\(--chat-user-bubble\)/);
   assert.match(CSS, /\.chat-msg\.assistant \.chat-text \{[\s\S]*?line-height: 1\.75/);
-  assert.match(CSS, /\.chat-msg\.user \{ justify-content: flex-end; \}/);
+  // The bubble is pushed right by alignment: the message is a column now, so
+  // justification would act on the vertical axis and do nothing.
+  assert.match(CSS, /\.chat-msg\.user \{ align-items: flex-end; \}/);
 });
