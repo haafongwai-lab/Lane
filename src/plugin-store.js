@@ -311,13 +311,53 @@ export async function applyUpdate(key, env = process.env) {
   return pluginInfo(key, env);
 }
 
-/** Remove the external copy (or restore the backup) and use the built-in one. */
+/** Numeric-aware compare of two plugin versions; <0 when a is older. */
+function compareVersions(a, b) {
+  const parts = (v) => String(v || "").split(/[.+-]/).map((p) => (/^\d+$/.test(p) ? Number(p) : p));
+  const x = parts(a);
+  const y = parts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const p = x[i];
+    const q = y[i];
+    if (p === q) continue;
+    if (typeof p === "number" && typeof q === "number") return p - q;
+    return String(p ?? "") < String(q ?? "") ? -1 : 1;
+  }
+  return 0;
+}
+
+async function dirVersion(dir) {
+  try {
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8"));
+    return String(pkg?.version || "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Remove the external copy (or restore the backup) and use the built-in one.
+ *
+ * The backup is restored only when it is genuinely older. Applying the same
+ * release twice leaves a backup of the version it replaced, so an unconditional
+ * restore "rolled back" to the same version and the row then showed no update
+ * at all — the release the user had found stayed invisible.
+ */
 export async function rollbackPlugin(key, env = process.env) {
   const backup = backupDir(key, env);
   const external = externalDir(key, env);
+  const currentVersion = await dirVersion(external);
   await fs.rm(external, { recursive: true, force: true });
   if (await exists(backup)) {
-    await fs.rename(backup, external);
+    const backupVersion = await dirVersion(backup);
+    const older = backupVersion && (!currentVersion || compareVersions(backupVersion, currentVersion) < 0);
+    if (older) {
+      await fs.rename(backup, external);
+    } else {
+      // Not a rollback: same or newer than what it would replace. Drop it and
+      // fall through to the built-in copy.
+      await fs.rm(backup, { recursive: true, force: true });
+    }
   }
   return pluginInfo(key, env);
 }

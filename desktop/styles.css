@@ -2264,12 +2264,15 @@ h1 {
 .skill-foot { display: flex; align-items: center; gap: 5px; margin-top: 10px; }
 .skill-foot .mini { padding: 3px 8px; font-size: 11px; }
 .skill-foot .grow { flex: 1; }
-/* An installed client shows as a filled pip; hovering it offers removal. */
+/* An installed client shows as a filled pip; hovering it offers removal.
+   A <button> carries its own padding and line box, which pushed the single
+   glyph off-centre; padding is zeroed and the box centres its one child. */
 .skill-pip {
-  width: 18px; height: 18px; border-radius: 5px;
-  display: grid; place-items: center;
+  width: 18px; height: 18px; box-sizing: border-box; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px;
   border: 1px solid var(--line); background: var(--surface-raised);
-  color: var(--faint); font-size: 9px; font-weight: 700;
+  color: var(--faint); font-size: 9px; font-weight: 700; line-height: 1;
   cursor: pointer; transition: .15s;
 }
 .skill-pip.on { border-color: var(--green-bg); background: var(--green-bg); color: var(--green); }

@@ -2281,12 +2281,19 @@ $("#plugin-list").addEventListener("click", async (event) => {
       await loadPlugins();
       // A rollback changes the installed version, so the row's cached check is
       // now about the version that was just replaced: the badge would read
-      // "已安装" while the release the user had already found stayed hidden,
-      // and 更新 stayed disabled until 检查更新 was pressed again. Re-check the
-      // plugin that changed, so the row reflects where it now stands.
-      const rows = await window.lane.pluginCheck();
-      for (const row of rows) pluginState.checks.set(row.key, row);
-      renderPlugins();
+      // "installed" and 更新 stayed disabled until 检查更新 was pressed again,
+      // which read as the update check having stopped working. Re-check so the
+      // row reflects where it now stands.
+      try {
+        const rows = await window.lane.pluginCheck();
+        for (const row of rows) pluginState.checks.set(row.key, row);
+        renderPlugins();
+      } catch {
+        // The rollback itself succeeded; a registry hiccup here must not be
+        // reported as a failed rollback. 检查更新 is still one click away.
+        pluginState.checks.delete(key);
+        renderPlugins();
+      }
     } catch (error) {
       toast(`回滚失败：${error.message}`, true);
     } finally {
