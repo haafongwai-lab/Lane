@@ -2737,10 +2737,12 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 
 .chat-effort-trigger {
   display: inline-flex; align-items: center; gap: 4px;
-  height: 28px; max-width: 200px; padding: 0 4px 0 8px;
+  height: 28px; padding: 0 4px 0 8px;
   border: 0; border-radius: 8px; background: transparent;
   color: var(--chat-ink-soft); font: 400 13px/20px var(--font-sans);
   cursor: pointer; transition: background .15s;
+  /* The caption is fixed, so the button keeps one width at every level. */
+  white-space: nowrap;
 }
 .chat-effort-trigger:hover, .chat-effort-trigger.open { background: var(--chat-hover); }
 .chat-effort-trigger.set { color: var(--chat-ink); }

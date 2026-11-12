@@ -79,6 +79,25 @@ test("the panel is frosted and the native input is invisible", () => {
   assert.match(CSS, /\.chat-effort-range \{[\s\S]*?height: 38px/);
 });
 
+test("the trigger keeps a fixed caption and sits right of the input", () => {
+  // The caption names the control, not the level: a caption that swapped with
+  // the slider made the button change width while dragging. The level is shown
+  // in the panel's head row instead.
+  assert.match(APP, /label\.textContent = "思考强度";/);
+  assert.equal(/label\.textContent = level\.label/.test(APP), false, "the caption no longer follows the level");
+  assert.match(CSS, /\.chat-effort-trigger \{[\s\S]*?white-space: nowrap/);
+  // It sits after the spacer, i.e. at the right end of the composer row.
+  const row = HTML.slice(HTML.indexOf('class="chat-card-row"'), HTML.indexOf('id="chat-send"'));
+  assert.ok(row.includes('class="chat-spacer"'), "the spacer comes first");
+  assert.ok(row.indexOf('chat-spacer') < row.indexOf('chat-effort-picker'), "the control is right of it");
+  assert.ok(row.indexOf('chat-effort-picker') < row.indexOf('chat-send'), "and left of Send");
+});
+
+test("the level itself is still shown inside the panel", () => {
+  assert.match(HTML, /id="chat-effort-value"/);
+  assert.match(APP, /if \(value\) value\.textContent = level\.label/);
+});
+
 test("dragging moves a draft and only release saves", () => {
   assert.match(APP, /function chatEffortPaint\(index\)/);
   // The input handler repaints only; the change handler is the one that saves.

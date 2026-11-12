@@ -726,11 +726,11 @@ function renderChatEffort() {
   const button = $("#chat-effort-button");
   if (!label) return;
   const index = chatEffortIndex();
-  const level = CHAT_EFFORT_LEVELS[index];
-  // The trigger carries the level once one is chosen; on automatic it stays
-  // generic, because "自动" alone would not say what the control is.
-  label.textContent = level.value ? level.label : "思考强度";
-  button?.classList.toggle("set", Boolean(level.value));
+  // The button always reads 思考强度: it names the control, and the chosen
+  // level is shown in the panel's head row. A caption that swapped with the
+  // level made the button change width as the slider moved.
+  label.textContent = "思考强度";
+  button?.classList.toggle("set", index > 0);
 
   const ticks = $("#chat-effort-ticks");
   if (ticks && ticks.dataset.key !== String(CHAT_EFFORT_LEVELS.length)) {
