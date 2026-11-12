@@ -1015,10 +1015,14 @@ async function sendChat() {
         if (final) chatPaint(answer, final, true);
         else answer.textContent = result.rounds > 1 ? "（工具已执行，模型未给出文字）" : "（空回答）";
         answer.classList.remove("streaming", "reasoning");
+        // The note says what ended the run AND that an answer was still
+        // produced from what the tools returned, so "已停止" never reads as a
+        // silent failure.
+        const wrapped = final ? "，已用已查到的结果作答" : "";
         if (result.truncated) chatNote(answer, "回答达到长度上限，已被截断");
-        else if (result.stopped === "rounds") chatNote(answer, `已达工具轮数上限（${result.rounds} 轮）`);
-        else if (result.stopped === "tokens") chatNote(answer, "已达本次提问的 token 预算");
-        else if (result.stopped === "time") chatNote(answer, "已达本次提问的耗时上限");
+        else if (result.stopped === "rounds") chatNote(answer, `已达工具轮数上限（${result.rounds} 轮）${wrapped}`);
+        else if (result.stopped === "tokens") chatNote(answer, `已达本次提问的 token 预算${wrapped}`);
+        else if (result.stopped === "time") chatNote(answer, `已达本次提问的耗时上限${wrapped}`);
       }
       // Only a successful turn becomes context; keep the final text only.
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: final });

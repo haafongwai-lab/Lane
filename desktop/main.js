@@ -670,13 +670,32 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
     if (prefs?.mcpEnabled) toolSet = await openConsoleTools(prefs, emit);
     const convo = Array.isArray(messages) ? messages.slice() : [];
     let text = "";
+    // Budget accounting counts only what a round actually ADDED: the context is
+    // re-sent every round, so summing each round's total billed the same prompt
+    // again and again (five rounds of one question measured 49922 against a
+    // 32000 budget while the new content was only ~26877). `prevInput` is the
+    // previous round's prompt size; the delta plus this round's output is the
+    // real growth.
+    let prevInput = 0;
     let totalTokens = 0;
     let lastFinish = "";
+    let stop = "";
+
+    const growth = (usage, said) => {
+      const input = Number(usage?.prompt_tokens);
+      const output = Number(usage?.completion_tokens);
+      if (Number.isFinite(input)) {
+        const added = Math.max(0, input - prevInput);
+        prevInput = input;
+        return added + (Number.isFinite(output) ? output : roughTokens(said));
+      }
+      // No usage block: fall back to the text's own size, which is new content
+      // by definition.
+      return roughTokens(said);
+    };
 
     for (let round = 1; round <= rounds; round += 1) {
-      if (Date.now() - started > durationBudget) {
-        return { ok: true, text, stopped: "time", rounds: round - 1 };
-      }
+      if (Date.now() - started > durationBudget) { stop = "time"; break; }
       const body = { messages: convo };
       if (toolSet.defs.length) { body.tools = toolSet.defs; body.tool_choice = "auto"; }
       let response = await send(true, body);
@@ -696,9 +715,12 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
         }
       }
       const out = await pumpConsoleStream(response.body, emit, controller.signal);
-      text = out.text;
+      // Keep the last thing the model actually said: a round that only asks for
+      // a tool returns no text, and overwriting with that empty string threw
+      // away words it had already produced.
+      if (out.text) text = out.text;
       lastFinish = out.finish;
-      totalTokens += out.usage?.total_tokens != null ? Number(out.usage.total_tokens) : roughTokens(out.text);
+      totalTokens += growth(out.usage, out.text);
 
       if (out.calls.length) {
         // Record what the model asked for, then run each call in order.
@@ -730,14 +752,33 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
             content: String(result.text || "")
           });
         }
-        if (totalTokens > tokenBudget) return { ok: true, text, stopped: "tokens", rounds: round };
-        if (Date.now() - started > durationBudget) return { ok: true, text, stopped: "time", rounds: round };
+        if (totalTokens > tokenBudget) { stop = "tokens"; break; }
+        if (Date.now() - started > durationBudget) { stop = "time"; break; }
         continue;
       }
       return { ok: true, text, truncated: lastFinish === "length", rounds: round };
     }
-    // Ran out of rounds with the model still asking for tools.
-    return { ok: true, text, stopped: "rounds", rounds };
+
+    if (!stop) stop = "rounds";
+
+    // Every budget ended the loop the same unhelpful way: a bare return, with
+    // whatever text happened to exist. One last round with NO tools offered
+    // gives the model the chance to answer from what it already gathered - the
+    // tool results are in `convo` - instead of the panel showing nothing but
+    // "the model produced no text".
+    if (convo.length && Date.now() - started < durationBudget) {
+      try {
+        const response = await send(true, { messages: convo });
+        if (response.ok) {
+          const final = await pumpConsoleStream(response.body, emit, controller.signal);
+          if (final.text) text = final.text;
+          if (final.finish) lastFinish = final.finish;
+        }
+      } catch {
+        // The wrap-up is a courtesy: if it fails, the text so far still stands.
+      }
+    }
+    return { ok: true, text, stopped: stop, rounds, truncated: lastFinish === "length" };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
     return { ok: false, error: error?.message || String(error) };

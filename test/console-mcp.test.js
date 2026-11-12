@@ -55,9 +55,11 @@ test("the tool loop enforces all three budgets", () => {
   assert.match(MAIN, /const tokenBudget = prefs\?\.maxTokens \|\| 32_000/);
   assert.match(MAIN, /const durationBudget = prefs\?\.maxDurationMs \|\| 180_000/);
   assert.match(MAIN, /for \(let round = 1; round <= rounds; round \+= 1\)/);
-  assert.match(MAIN, /stopped: "rounds"/);
-  assert.match(MAIN, /stopped: "tokens"/);
-  assert.match(MAIN, /stopped: "time"/);
+  // Each budget ends the loop by naming a stop reason, then the wrap-up runs.
+  assert.match(MAIN, /stop = "rounds"/);
+  assert.match(MAIN, /stop = "tokens"/);
+  assert.match(MAIN, /stop = "time"/);
+  assert.match(MAIN, /return \{ ok: true, text, stopped: stop, rounds,/);
   // Sessions are closed however the loop ends, so no child leaks.
   assert.match(MAIN, /for \(const session of toolSet\.sessions\) \{ try \{ session\.close\(\); \} catch \{\} \}/);
 });
