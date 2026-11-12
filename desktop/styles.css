@@ -2857,3 +2857,81 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
   margin: 2px 0 0; color: var(--chat-muted);
   font: 11px/15px var(--font-sans);
 }
+
+/* Back to bottom, following DSH's: a 34px circular floating button in the
+   content column's right margin, 16px above the composer, appearing only once
+   the reader has scrolled away from the end. DSH anchors it to the scroll
+   area's bottom-right; here the transcript is the page, so it is fixed to the
+   viewport but aligned to the same column edge. */
+.chat-to-bottom {
+  position: fixed;
+  right: max(24px, calc((100vw - 218px - 900px) / 2 + 16px));
+  bottom: 132px;
+  z-index: 20;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid var(--chat-card-border); border-radius: 50%;
+  background: var(--chat-menu-bg); color: var(--chat-ink);
+  box-shadow: 0 4px 14px rgba(15, 17, 21, .12), 0 1px 2px rgba(15, 17, 21, .08);
+  cursor: pointer;
+  transition: background .15s, transform .15s, opacity .15s;
+  animation: chat-to-bottom-in .16s ease-out;
+}
+.chat-to-bottom:hover { background: var(--chat-hover); transform: translateY(-1px); }
+.chat-to-bottom:active { transform: none; }
+@keyframes chat-to-bottom-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Per-answer actions, revealed on hover so a long transcript stays quiet. */
+.chat-actions {
+  display: flex; gap: 4px; margin-top: 6px; opacity: 0;
+  transition: opacity .12s;
+}
+.chat-msg.assistant:hover .chat-actions, .chat-actions:focus-within { opacity: 1; }
+.chat-action {
+  padding: 2px 8px; border: 1px solid var(--chat-card-border); border-radius: 6px;
+  background: transparent; color: var(--chat-muted);
+  font: 11px/18px var(--font-sans); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.chat-action:hover { background: var(--chat-hover); color: var(--chat-ink); }
+
+/* The reasoning block: collapsed by default, above the answer it produced. */
+.chat-reasoning {
+  margin-bottom: 8px; border-left: 2px solid var(--md-line);
+  padding-left: 10px; color: var(--chat-muted);
+}
+.chat-reasoning-summary {
+  cursor: pointer; font: 11.5px/20px var(--font-sans);
+  color: var(--chat-muted); list-style: none;
+}
+.chat-reasoning-summary::-webkit-details-marker { display: none; }
+.chat-reasoning-summary::before { content: "▸ "; }
+.chat-reasoning[open] .chat-reasoning-summary::before { content: "▾ "; }
+.chat-reasoning-body {
+  margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 12px/19px var(--font-sans); color: var(--chat-muted);
+}
+
+/* Code tokens. Colours are the same family the rest of the app uses: quiet,
+   with the keyword accent matching the link colour. */
+.chat-code pre code .tok-comment { color: var(--chat-muted); font-style: italic; }
+.chat-code pre code .tok-string { color: var(--green); }
+.chat-code pre code .tok-number { color: var(--chat-accent); }
+.chat-code pre code .tok-keyword { color: var(--link); font-weight: 600; }
+
+/* The answer is painted in two layers: a settled prefix rendered once, and a
+   live tail rebuilt as text arrives. Both are plain block containers, so the
+   markdown inside them lays out exactly as before. */
+.chat-text > .chat-md-settled, .chat-text > .chat-md-live { display: block; }
+/* The streaming caret belongs after the live tail, not after the wrapper. */
+.chat-msg.assistant .chat-text.streaming > .chat-md-live::after {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 15px;
+  margin-left: 2px; vertical-align: -2px;
+  background: var(--chat-accent); border-radius: 2px;
+  animation: chat-caret 1s steps(2, start) infinite;
+}

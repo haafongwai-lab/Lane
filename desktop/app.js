@@ -809,10 +809,42 @@ function chatBubble(role, text = "") {
   body.className = "chat-text";
   body.textContent = text;
   node.append(body);
+  // An assistant turn carries two quiet actions: copy the whole answer, and
+  // ask again. They appear on hover so a long transcript stays readable.
+  if (role === "assistant") {
+    const actions = document.createElement("div");
+    actions.className = "chat-actions";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "chat-action";
+    copy.dataset.chatAction = "copy";
+    copy.textContent = "复制";
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "chat-action";
+    retry.dataset.chatAction = "retry";
+    retry.textContent = "重新回答";
+    actions.append(copy, retry);
+    node.append(actions);
+  }
   log.append(node);
   if (follow) chatScroll(true);
+  chatUpdateToBottom();
   return body;
 }
+
+// The floating 回到底部 button: shown once the reader has left the end of the
+// transcript, hidden again the moment they are back. DSH keys this off its
+// scroll container; Lane's transcript is the page, so the page's own scroll
+// position is the same signal.
+function chatUpdateToBottom() {
+  const button = $("#chat-to-bottom");
+  if (!button) return;
+  const atBottom = chatAtBottom();
+  button.hidden = atBottom;
+}
+
+window.addEventListener("scroll", chatUpdateToBottom, { passive: true });
 
 // Follow the answer only while the reader is at the bottom.
 function chatScroll(force = false) {
@@ -892,6 +924,64 @@ function chatListItem(text) {
   return li;
 }
 
+// Keywords per language, for the fenced blocks that name one. A language not
+// listed still gets strings, numbers and comments coloured.
+const CHAT_CODE_KEYWORDS = {
+  js: "const let var function return if else for while class new await async import export from of in try catch throw typeof instanceof null true false undefined this super",
+  javascript: "const let var function return if else for while class new await async import export from of in try catch throw typeof instanceof null true false undefined this super",
+  ts: "const let var function return if else for while class new await async import export from of in try catch throw typeof instanceof null true false undefined this super interface type enum implements readonly public private",
+  typescript: "const let var function return if else for while class new await async import export from of in try catch throw typeof instanceof null true false undefined this super interface type enum implements readonly public private",
+  py: "def class return if elif else for while import from as with try except finally raise lambda pass break continue yield global nonlocal assert del not and or is in None True False self",
+  python: "def class return if elif else for while import from as with try except finally raise lambda pass break continue yield global nonlocal assert del not and or is in None True False self",
+  go: "func package import return if else for range var const type struct interface map chan go defer select switch case default break continue nil true false",
+  rs: "fn let mut pub use mod struct enum impl trait match if else for while loop return break continue const static async await move ref self Self true false None Some Ok Err",
+  rust: "fn let mut pub use mod struct enum impl trait match if else for while loop return break continue const static async await move ref self Self true false None Some Ok Err",
+  java: "public private protected class interface extends implements return if else for while new static final void int long double float boolean String true false null this super try catch throw import package",
+  sh: "if then else fi for do done while case esac function return export local readonly echo cd set unset",
+  bash: "if then else fi for do done while case esac function return export local readonly echo cd set unset",
+  sql: "select from where join left right inner outer on group by order having insert into values update set delete create table index drop alter and or not null as limit offset distinct count sum avg min max"
+};
+
+// One pass, three alternatives at a time: comments, strings, numbers, then a
+// word from the keyword set. The output is text nodes plus spans.
+function chatHighlight(code, lang) {
+  const keywords = new Set(String(CHAT_CODE_KEYWORDS[String(lang || "").toLowerCase()] || "").split(" ").filter(Boolean));
+  const frag = document.createDocumentFragment();
+  const pattern = /(\/\/[^\n]*|#[^\n]*|--[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(\d+(?:\.\d+)?)\b|\b([A-Za-z_$][\w$]*)\b/g;
+  let last = 0;
+  let m;
+  const plain = (s) => { if (s) frag.append(document.createTextNode(s)); };
+  while ((m = pattern.exec(code))) {
+    plain(code.slice(last, m.index));
+    if (m[1]) {
+      const span = document.createElement("span");
+      span.className = "tok-comment";
+      span.textContent = m[1];
+      frag.append(span);
+    } else if (m[2]) {
+      const span = document.createElement("span");
+      span.className = "tok-string";
+      span.textContent = m[2];
+      frag.append(span);
+    } else if (m[3]) {
+      const span = document.createElement("span");
+      span.className = "tok-number";
+      span.textContent = m[3];
+      frag.append(span);
+    } else if (m[4] && keywords.has(m[4])) {
+      const span = document.createElement("span");
+      span.className = "tok-keyword";
+      span.textContent = m[4];
+      frag.append(span);
+    } else {
+      plain(m[4]);
+    }
+    last = pattern.lastIndex;
+  }
+  plain(code.slice(last));
+  return frag;
+}
+
 function chatCodeCard(lang, source) {
   const card = document.createElement("div");
   card.className = "chat-code";
@@ -908,7 +998,7 @@ function chatCodeCard(lang, source) {
   const pre = document.createElement("pre");
   const code = document.createElement("code");
   if (lang) code.className = `lang-${lang}`;
-  code.textContent = source;
+  code.append(chatHighlight(source, lang));
   pre.append(code);
   card.append(head, pre);
   return card;
@@ -995,27 +1085,37 @@ function renderMarkdown(src) {
       root.append(quote);
       continue;
     }
-    const unordered = /^\s*([-*+])\s+(.*)$/.exec(line);
-    if (unordered) {
-      const ul = chatList(false);
+    const unordered = /^(\s*)([-*+])\s+(.*)$/.exec(line);
+    const ordered = /^(\s*)\d+[.)]\s+(.*)$/.exec(line);
+    if (unordered || ordered) {
+      // Depth comes from the indent: two spaces or a tab per level, which is
+      // what models actually emit. A deeper item nests inside the one above.
+      const depthOf = (text) => Math.floor(String(text).replace(/\t/g, "  ").length / 2);
+      const isOrdered = Boolean(ordered);
+      const baseDepth = depthOf((unordered || ordered)[1]);
+      const readItem = (text) => {
+        const hit = isOrdered ? /^(\s*)\d+[.)]\s+(.*)$/.exec(text) : /^(\s*)[-*+]\s+(.*)$/.exec(text);
+        if (!hit) return null;
+        return { depth: depthOf(hit[1]) - baseDepth, text: hit[2] };
+      };
+      const list = chatList(isOrdered);
+      const stack = [{ depth: 0, node: list }];
       while (i < lines.length) {
-        const item = /^\s*([-*+])\s+(.*)$/.exec(lines[i]);
+        const item = readItem(lines[i]);
         if (!item) break;
-        ul.append(chatListItem(item[2]));
+        const depth = Math.max(0, item.depth);
+        while (stack.length > 1 && depth < stack[stack.length - 1].depth) stack.pop();
+        if (depth > stack[stack.length - 1].depth) {
+          const parent = stack[stack.length - 1].node;
+          const lastItem = parent.lastElementChild;
+          const nested = chatList(isOrdered);
+          if (lastItem) lastItem.append(nested); else parent.append(nested);
+          stack.push({ depth, node: nested });
+        }
+        stack[stack.length - 1].node.append(chatListItem(item.text));
         i += 1;
       }
-      root.append(ul);
-      continue;
-    }
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const ol = chatList(true);
-      while (i < lines.length) {
-        const item = /^\s*\d+[.)]\s+(.*)$/.exec(lines[i]);
-        if (!item) break;
-        ol.append(chatListItem(item[1]));
-        i += 1;
-      }
-      root.append(ol);
+      root.append(list);
       continue;
     }
     const buf = [line];
@@ -1028,13 +1128,79 @@ function renderMarkdown(src) {
   return root;
 }
 
+// A collapsible 思考 block above the answer. DSH keeps reasoning available
+// rather than discarding it; this does the same with a <details> element so
+// it needs no state of its own.
+function chatReasoningPaint(answer, text) {
+  if (!answer) return;
+  const host = answer.parentElement;
+  if (!host) return;
+  let block = host.querySelector(".chat-reasoning");
+  if (!block) {
+    block = document.createElement("details");
+    block.className = "chat-reasoning";
+    const summary = document.createElement("summary");
+    summary.className = "chat-reasoning-summary";
+    summary.textContent = "思考过程";
+    const body = document.createElement("div");
+    body.className = "chat-reasoning-body";
+    block.append(summary, body);
+    host.insertBefore(block, answer);
+  }
+  const body = block.querySelector(".chat-reasoning-body");
+  if (body) body.textContent = text;
+}
+
 let chatPaintAt = 0;
+
+// The longest prefix that later text cannot change: everything up to the last
+// blank line outside a fenced block. Markdown is line-oriented, so a boundary
+// there is final once text after it has started arriving.
+function chatStablePrefix(text) {
+  const src = String(text || "");
+  let inFence = false;
+  let cut = 0;
+  let at = 0;
+  while (at <= src.length) {
+    const nl = src.indexOf("\n", at);
+    const line = src.slice(at, nl < 0 ? src.length : nl);
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    if (!inFence && !line.trim() && nl >= 0) cut = nl + 1;
+    if (nl < 0) break;
+    at = nl + 1;
+  }
+  return cut;
+}
+
+// Two layers: a settled prefix that is rendered once, and a tail rebuilt on
+// every tick. At 15k characters the old whole-answer rebuild threw away every
+// node on each pass; now only the tail is replaced while the answer grows.
 function chatPaint(el, text, force = false) {
   if (!el) return;
   const now = Date.now();
   if (!force && now - chatPaintAt < 80) return;
   chatPaintAt = now;
-  el.replaceChildren(renderMarkdown(text));
+  const src = String(text || "");
+  const cut = force ? 0 : chatStablePrefix(src);
+  const settled = src.slice(0, cut);
+  const tail = src.slice(cut);
+
+  let layer = el.querySelector(":scope > .chat-md-settled");
+  let live = el.querySelector(":scope > .chat-md-live");
+  if (!layer || !live) {
+    // The reasoning block, if any, stays; only the text layers are replaced.
+    el.replaceChildren();
+    layer = document.createElement("div");
+    layer.className = "chat-md-settled";
+    live = document.createElement("div");
+    live.className = "chat-md-live";
+    el.append(layer, live);
+  }
+  if (layer.dataset.settled !== settled) {
+    layer.dataset.settled = settled;
+    layer.replaceChildren(renderMarkdown(settled));
+  }
+  live.replaceChildren(renderMarkdown(tail));
 }
 
 function chatSetBusy(busy) {
@@ -1074,8 +1240,19 @@ function chatBuildMessages(text) {
   return [...hist, { role: "user", content: text }];
 }
 
+// A question typed while an answer streams waits for it instead of being
+// refused: the text stays in the box and is sent when the turn ends.
+let chatQueued = null;
+
 async function sendChat() {
-  if (chatBusy) return;
+  if (chatBusy) {
+    const pending = $("#chat-input");
+    const text = String(pending?.value || "").trim();
+    if (!text) return;
+    chatQueued = text;
+    toast("已排队，上一条回答结束后发送");
+    return;
+  }
   const input = $("#chat-input");
   const text = String(input?.value || "").trim();
   if (!text) return;
@@ -1122,7 +1299,10 @@ async function sendChat() {
       if (answer) { answer.classList.remove("reasoning"); chatPaint(answer, streamed); chatScroll(); }
     } else if (msg.reasoning) {
       reasoned += msg.reasoning;
-      if (answer && !streamed) { answer.textContent = reasoned; answer.classList.add("reasoning"); chatScroll(); }
+      // The reasoning accumulates into its own collapsible block, so it stays
+      // readable after the answer replaces it on screen.
+      if (answer) chatReasoningPaint(answer, reasoned);
+      chatScroll();
     }
   });
   try {
@@ -1170,6 +1350,14 @@ async function sendChat() {
     chatCurrentId = "";
     chatSetBusy(false);
     $("#chat-input")?.focus();
+    // A question that arrived mid-answer goes out now.
+    if (chatQueued) {
+      const next = chatQueued;
+      chatQueued = null;
+      const box = $("#chat-input");
+      if (box) { box.value = next; box.dispatchEvent(new Event("input")); }
+      sendChat();
+    }
   }
 }
 
@@ -1180,6 +1368,44 @@ function chatNote(anchor, text) {
   note.textContent = text;
   anchor.parentElement?.appendChild(note);
 }
+
+// Copy and retry, delegated: the transcript is rebuilt as answers stream.
+document.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-chat-action]");
+  if (!action) return;
+  const message = action.closest(".chat-msg.assistant");
+  const body = message?.querySelector(".chat-text");
+  if (!body) return;
+  if (action.dataset.chatAction === "copy") {
+    navigator.clipboard.writeText(body.textContent || "").then(() => {
+      action.textContent = "已复制";
+      setTimeout(() => { action.textContent = "复制"; }, 1600);
+    }).catch(() => toast("复制失败", true));
+    return;
+  }
+  if (action.dataset.chatAction === "retry") {
+    // Ask the same question again: the turn's own prompt is the user message
+    // right before it.
+    const previous = message.previousElementSibling;
+    const prompt = previous?.classList.contains("chat-msg")
+      ? (previous.querySelector(".chat-text")?.textContent || "").trim()
+      : "";
+    if (!prompt) { toast("找不到这条回答对应的问题", true); return; }
+    // Drop the turn being replaced so the retry does not read as a follow-up.
+    if (chatHistory.length >= 2 && chatHistory[chatHistory.length - 1].content === (body.textContent || "")) {
+      chatHistory = chatHistory.slice(0, -2);
+    }
+    const input = $("#chat-input");
+    if (input) { input.value = prompt; input.dispatchEvent(new Event("input")); }
+    sendChat();
+    return;
+  }
+});
+
+$("#chat-to-bottom")?.addEventListener("click", () => {
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+  chatUpdateToBottom();
+});
 
 $("#chat-send")?.addEventListener("click", sendChat);
 $("#chat-stop")?.addEventListener("click", () => {
