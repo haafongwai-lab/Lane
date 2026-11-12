@@ -713,7 +713,7 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
         for (const call of out.calls) {
           const target = toolSet.byName.get(call.name);
           const args = parseToolArgs(call.arguments);
-          emit({ tool: { phase: "start", name: call.name, args } });
+          emit({ tool: { phase: "start", name: call.name, server: target?.session?.name || "", args } });
           let result;
           try {
             result = target
@@ -722,7 +722,7 @@ handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } 
           } catch (error) {
             result = { ok: false, text: error?.message || String(error) };
           }
-          emit({ tool: { phase: "end", name: call.name, ok: result.ok, text: String(result.text || "").slice(0, 400) } });
+          emit({ tool: { phase: "end", name: call.name, server: target?.session?.name || "", ok: result.ok, text: String(result.text || "").slice(0, 400) } });
           convo.push({
             role: "tool",
             tool_call_id: call.id || `call_${consoleToolName("t", call.name)}`,

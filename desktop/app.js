@@ -704,18 +704,107 @@ function chatScroll(force = false) {
   if (force || chatAtBottom()) window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
-function chatToolLine(name, args) {
-  const log = $("#chat-log");
-  if (!log) return null;
-  const last = [...log.querySelectorAll(".chat-msg.assistant")].pop();
-  const box = last || log;
-  const line = document.createElement("div");
-  line.className = "chat-tool";
-  const detail = args && Object.keys(args).length ? `(${JSON.stringify(args).slice(0, 120)})` : "";
-  line.textContent = `⚙ 调用 ${name}${detail}`;
-  box.append(line);
-  chatScroll();
-  return line;
+// A tool call is a transient status, not a transcript entry: the user asked
+// only to see which MCP is being used, so this writes one line above the
+// composer and clears it when the call returns.
+function chatToolStatus(text) {
+  const el = $("#chat-tool-status");
+  if (!el) return;
+  if (!text) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.textContent = text;
+}
+
+// A small, safe Markdown renderer: no HTML from the model is trusted; every
+// text run becomes a node directly. Covers what answers actually use —
+// headings, lists, fenced and inline code, bold/italic, quotes, rules, links.
+function chatInline(text) {
+  const frag = document.createDocumentFragment();
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
+  let last = 0;
+  let m;
+  const push = (str) => { if (str) frag.append(document.createTextNode(str)); };
+  while ((m = pattern.exec(text))) {
+    push(text.slice(last, m.index));
+    if (m[1]) { const c = document.createElement("code"); c.textContent = m[1].slice(1, -1); frag.append(c); }
+    else if (m[2]) { const b = document.createElement("strong"); b.append(chatInline(m[2].slice(2, -2))); frag.append(b); }
+    else if (m[3]) { const it = document.createElement("em"); it.append(chatInline(m[3].slice(1, -1))); frag.append(it); }
+    else if (m[4]) {
+      const at = m[4].indexOf("](");
+      const a = document.createElement("a");
+      a.className = "chat-link";
+      a.dataset.url = m[4].slice(at + 2, -1);
+      a.textContent = m[4].slice(1, at);
+      a.href = "#";
+      frag.append(a);
+    }
+    last = pattern.lastIndex;
+  }
+  push(text.slice(last));
+  return frag;
+}
+
+function renderMarkdown(src) {
+  const root = document.createDocumentFragment();
+  const lines = String(src || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").split("\n");
+  const isBlock = (ln) => /^\s*```/.test(ln) || /^#{1,6}\s+/.test(ln) || /^\s*([-*+]|\d+[.)])\s+/.test(ln) || /^>\s?/.test(ln) || /^\s*(---|\*\*\*|___)\s*$/.test(ln);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i += 1; continue; }
+    const fence = /^\s*```(\w*)/.exec(line);
+    if (fence) {
+      const lang = fence[1] || "";
+      i += 1;
+      const buf = [];
+      while (i < lines.length && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i += 1; }
+      i += 1;
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      if (lang) code.className = `lang-${lang}`;
+      code.textContent = buf.join("\n");
+      pre.append(code);
+      root.append(pre);
+      continue;
+    }
+    const head = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (head) { const el = document.createElement(`h${Math.min(head[1].length + 2, 6)}`); el.append(chatInline(head[2])); root.append(el); i += 1; continue; }
+    if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) { root.append(document.createElement("hr")); i += 1; continue; }
+    if (/^>\s?/.test(line)) {
+      const quote = document.createElement("blockquote");
+      while (i < lines.length && /^>\s?/.test(lines[i])) { const para = document.createElement("p"); para.append(chatInline(lines[i].replace(/^>\s?/, ""))); quote.append(para); i += 1; }
+      root.append(quote);
+      continue;
+    }
+    if (/^\s*([-*+])\s+/.test(line)) {
+      const ul = document.createElement("ul");
+      while (i < lines.length && /^\s*([-*+])\s+/.test(lines[i])) { const li = document.createElement("li"); li.append(chatInline(lines[i].replace(/^\s*[-*+]\s+/, ""))); ul.append(li); i += 1; }
+      root.append(ul);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const ol = document.createElement("ol");
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { const li = document.createElement("li"); li.append(chatInline(lines[i].replace(/^\s*\d+[.)]\s+/, ""))); ol.append(li); i += 1; }
+      root.append(ol);
+      continue;
+    }
+    const buf = [line];
+    i += 1;
+    while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) { buf.push(lines[i]); i += 1; }
+    const para = document.createElement("p");
+    buf.forEach((ln, idx) => { if (idx) para.append(document.createElement("br")); para.append(chatInline(ln)); });
+    root.append(para);
+  }
+  return root;
+}
+
+let chatPaintAt = 0;
+function chatPaint(el, text, force = false) {
+  if (!el) return;
+  const now = Date.now();
+  if (!force && now - chatPaintAt < 80) return;
+  chatPaintAt = now;
+  el.replaceChildren(renderMarkdown(text));
 }
 
 function chatSetBusy(busy) {
@@ -783,19 +872,17 @@ async function sendChat() {
       return;
     }
     if (msg.tool) {
-      if (msg.tool.phase === "start") chatToolLine(msg.tool.name, msg.tool.args);
-      else {
-        const line = chatToolLine(msg.tool.name, null);
-        if (line) {
-          line.textContent = `${msg.tool.ok ? "✓" : "✕"} ${msg.tool.name}：${String(msg.tool.text || "").slice(0, 120)}`;
-          line.classList.add(msg.tool.ok ? "ok" : "bad");
-        }
+      if (msg.tool.phase === "start") {
+        const server = msg.tool.server || String(msg.tool.name || "").split("__")[0] || "MCP";
+        chatToolStatus(`正在调用「${server} MCP」…`);
+      } else {
+        chatToolStatus("");
       }
       return;
     }
     if (msg.text) {
       streamed += msg.text;
-      if (answer) { answer.textContent = streamed; answer.classList.remove("reasoning"); chatScroll(); }
+      if (answer) { answer.classList.remove("reasoning"); chatPaint(answer, streamed); chatScroll(); }
     } else if (msg.reasoning) {
       reasoned += msg.reasoning;
       if (answer && !streamed) { answer.textContent = reasoned; answer.classList.add("reasoning"); chatScroll(); }
@@ -806,7 +893,8 @@ async function sendChat() {
     if (result?.ok) {
       const final = result.text || streamed;
       if (answer) {
-        answer.textContent = final || (result.rounds > 1 ? "（工具已执行，模型未给出文字）" : "（空回答）");
+        if (final) chatPaint(answer, final, true);
+        else answer.textContent = result.rounds > 1 ? "（工具已执行，模型未给出文字）" : "（空回答）";
         answer.classList.remove("streaming", "reasoning");
         if (result.truncated) chatNote(answer, "回答达到长度上限，已被截断");
         else if (result.stopped === "rounds") chatNote(answer, `已达工具轮数上限（${result.rounds} 轮）`);
@@ -883,6 +971,15 @@ $("#chat-mcp-servers")?.addEventListener("change", (event) => {
   if (box.checked) chosen.add(box.dataset.mcpServer); else chosen.delete(box.dataset.mcpServer);
   saveChatPrefs({ mcpServers: [...chosen] });
 });
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("a.chat-link");
+  if (link) {
+    event.preventDefault();
+    const url = link.dataset.url;
+    if (url) window.lane.openURL(url);
+  }
+});
+
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#chat-model-picker")) chatMenuOpen(false);
   if (!event.target.closest("#chat-mcp")) {
