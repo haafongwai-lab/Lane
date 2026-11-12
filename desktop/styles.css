@@ -104,6 +104,10 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
+/* The scrollbar's width is reserved even when nothing overflows: the 问答 view
+   is exactly one viewport tall, so without this the bar vanished on entry and
+   the whole page shifted sideways by its width. */
+html { scrollbar-gutter: stable; }
 body {
   color: var(--ink);
   background:
@@ -2590,13 +2594,7 @@ body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
   color: var(--chat-ink);
 }
 .chat-stop span { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
-.chat-note {
-  margin: 8px 0 0;
-  text-align: center;
-  color: var(--chat-muted);
-  font-size: 10.5px;
-  line-height: 1.6;
-}
+
 
 /* A reasoning stream shown before the answer arrives; replaced by the text. */
 .chat-text.reasoning { color: var(--chat-muted); }
