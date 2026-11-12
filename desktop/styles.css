@@ -2391,6 +2391,15 @@ h1 {
 
 #view-chat { display: none; }
 #view-chat.active { display: flex; flex-direction: column; padding-bottom: 0; }
+
+/* The composer is sticky, and a sticky box stops at its containing block's
+   bottom edge. `main` carries 56px of bottom padding for the other views, so
+   at the very bottom of the scroll the dock was lifted by exactly that much.
+   While the chat view is open the page's bottom padding is its composer's,
+   so the shell's own padding is dropped here and the dock reaches the edge. */
+body.view-chat main { padding-bottom: 0; }
+body.view-chat #view-chat { padding-bottom: 0; }
+body.view-chat .chat-shell { min-height: calc(100vh - 42px); }
 .chat-shell {
   display: flex;
   flex-direction: column;

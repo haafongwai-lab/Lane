@@ -185,6 +185,10 @@ function go(view) {
   if (view === "extensions") loadExtensions();
   if (view === "plugins") loadPlugins();
   if (view === "chat") { renderChatModels(); loadChatPrefs(); chatScroll(true); }
+  // The chat view owns the page's bottom edge (its composer is sticky), so the
+  // shell's own bottom padding — which would lift the sticky box by that much
+  // at the very bottom of the scroll — is turned off only while it is shown.
+  document.body.classList.toggle("view-chat", view === "chat");
   $$(".nav").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === `view-${view}`));
 }
