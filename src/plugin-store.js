@@ -5,7 +5,14 @@ import { createHash } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataDir } from "./config.js";
 import { readSettings } from "./settings.js";
-import { hostsInSource, pathsInSource, diffSets } from "./plugin-source.js";
+import {
+  hostsInSource,
+  pathsInSource,
+  diffSets,
+  exportsInSource,
+  versionConstantsInSource,
+  sizeOfSource
+} from "./plugin-source.js";
 
 /**
  * The real fetch, captured before any egress guard can replace the global.
@@ -277,6 +284,7 @@ export async function stageUpdate(key, env = process.env) {
   const before = await currentSource(key, env);
   const after = files.get("package/index.mjs")?.toString("utf8") || "";
   if (!after) throw new Error("插件包中没有 index.mjs");
+  const publishedAt = await publishedTime(key, latest.version, env);
   await writeStaged(key, env, files);
   return {
     key,
@@ -285,12 +293,50 @@ export async function stageUpdate(key, env = process.env) {
     toVersion: String(pkg.version || latest.version || ""),
     license: String(pkg.license || ""),
     integrity: latest.integrity,
+    publishedAt,
     upToDate: false,
     diff: {
       hosts: diffSets(hostsInSource(before), hostsInSource(after)),
-      paths: diffSets(pathsInSource(before), pathsInSource(after))
+      paths: diffSets(pathsInSource(before), pathsInSource(after)),
+      // What else the upgrade carries, read from the two copies of the source.
+      // The vendor ships no changelog, so this is the honest shape of "what
+      // changed": factories, protocol version pins, and the file's size.
+      exports: diffSets(exportsInSource(before), exportsInSource(after)),
+      versions: versionConstantDiff(before, after),
+      size: { from: sizeOfSource(before), to: sizeOfSource(after) }
     }
   };
+}
+
+/**
+ * The release time of one version, from the registry's packument.
+ *
+ * The `/latest` document carries no `time`, so this is a second read — but it
+ * happens only when a user opens an update, for one plugin. A failure is not
+ * fatal: the summary simply omits the date.
+ */
+async function publishedTime(key, version, env = process.env) {
+  try {
+    const spec = PLUGINS[key];
+    const encoded = encodeURIComponent(spec.packageName).replace(/^%40/, "@");
+    const doc = await fetchJson(`https://registry.npmjs.org/${encoded}`, 20000);
+    return String(doc?.time?.[version] || "");
+  } catch {
+    return "";
+  }
+}
+
+/** Which declared version constants moved between two copies. */
+function versionConstantDiff(before, after) {
+  const from = versionConstantsInSource(before);
+  const to = versionConstantsInSource(after);
+  const keys = new Set([...Object.keys(from), ...Object.keys(to)]);
+  const changed = [];
+  for (const name of keys) {
+    if ((from[name] || "") === (to[name] || "")) continue;
+    changed.push({ name, from: from[name] || "", to: to[name] || "" });
+  }
+  return changed;
 }
 
 async function backupCurrent(key, env) {

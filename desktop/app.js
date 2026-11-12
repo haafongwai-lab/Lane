@@ -2165,8 +2165,8 @@ function renderPlugins() {
         <button class="mini" data-plugin-rollback="${esc(plugin.key)}"${plugin.canRollback ? "" : " disabled"}>回滚</button>
       </div>
       ${preview && !preview.upToDate ? `<div class="plugin-diff">
-        <b>${esc(preview.fromVersion || plugin.version)} → ${esc(preview.toVersion || check?.latestVersion || "新版本")}</b>
-        ${diffText || "<br>新版没有新增域名或路径。"}
+        <b>${esc(preview.fromVersion || plugin.version)} → ${esc(preview.toVersion || check?.latestVersion || "新版本")}</b>${previewPublished(preview)}
+        ${diffText || "<br>新版没有可读出的域名、路径、接入端或协议变化。"}
         <div class="plugin-diff-actions">
           <button class="mini" data-plugin-apply="${esc(plugin.key)}">确认安装</button>
           <button class="mini" data-plugin-cancel="${esc(plugin.key)}">取消</button>
@@ -2174,6 +2174,14 @@ function renderPlugins() {
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+// The release date beside the version arrow, when the registry gave one.
+function previewPublished(preview) {
+  if (!preview?.publishedAt) return "";
+  const d = new Date(preview.publishedAt);
+  if (Number.isNaN(d.getTime())) return "";
+  return ` <span class="plugin-published">${esc(d.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" }))} 发布</span>`;
 }
 
 function renderPluginDiff(diff) {
@@ -2184,6 +2192,28 @@ function renderPluginDiff(diff) {
   if (hosts.removed.length) lines.push(`<span class="ok">移除域名：${hosts.removed.map(esc).join("、")}</span>`);
   if (paths.added.length) lines.push(`<span class="bad">新增路径：${paths.added.map(esc).join("、")}</span>`);
   if (paths.removed.length) lines.push(`<span class="ok">移除路径：${paths.removed.map(esc).join("、")}</span>`);
+
+  // The rest of what the upgrade carries. The vendor ships no changelog, so
+  // this is read from the two source copies: a new factory is a new provider,
+  // a moved protocol pin is a different upstream dialect, and the size delta
+  // says how much code changed at all.
+  const exports = diff.exports || { added: [], removed: [] };
+  if (exports.added.length) lines.push(`<span class="bad">新增接入端：${exports.added.map(esc).join("、")}</span>`);
+  if (exports.removed.length) lines.push(`<span class="ok">移除接入端：${exports.removed.map(esc).join("、")}</span>`);
+
+  for (const v of diff.versions || []) {
+    // A version pin that moved is the upstream client build the plugin now
+    // imitates: the most likely cause of a chat that stops working.
+    lines.push(`<span>协议版本 ${esc(v.name)}：${esc(v.from || "—")} → ${esc(v.to || "—")}</span>`);
+  }
+
+  const size = diff.size;
+  if (size?.from && size?.to) {
+    const dLines = size.to.lines - size.from.lines;
+    if (dLines !== 0) {
+      lines.push(`<span class="${dLines > 0 ? "bad" : "ok"}">代码 ${dLines > 0 ? "+" : ""}${dLines} 行（${size.from.lines} → ${size.to.lines}）</span>`);
+    }
+  }
   return lines.length ? `<br>${lines.join("<br>")}` : "";
 }
 
@@ -2248,9 +2278,20 @@ $("#plugin-list").addEventListener("click", async (event) => {
   if (apply) {
     const key = apply.dataset.pluginApply;
     const preview = pluginState.previews.get(key);
-    const additions = preview?.diff ? preview.diff.hosts.added.length + preview.diff.paths.added.length : 0;
-    if (!confirm(additions
-      ? `新版新增了 ${additions} 个域名/路径，确认安装并信任这些变化吗？`
+    const d = preview?.diff || {};
+    const newEndpoints = (d.hosts?.added?.length || 0) + (d.paths?.added?.length || 0);
+    const newExports = d.exports?.added?.length || 0;
+    const pinsMoved = d.versions?.length || 0;
+    // Say what is worth trusting in plain terms: new endpoints are reach, a
+    // new factory is a whole new provider, and a moved protocol pin is the
+    // upstream client the plugin now imitates.
+    const notable = [
+      newEndpoints ? `${newEndpoints} 个新域名/路径` : "",
+      newExports ? `${newExports} 个新接入端` : "",
+      pinsMoved ? `${pinsMoved} 项协议版本变化` : ""
+    ].filter(Boolean);
+    if (!confirm(notable.length
+      ? `新版包含 ${notable.join("、")}，确认安装并信任这些变化吗？`
       : "确认安装这个版本吗？旧版本会保留，可回滚。")) return;
     apply.disabled = true;
     try {

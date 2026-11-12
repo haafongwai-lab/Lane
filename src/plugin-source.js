@@ -44,3 +44,44 @@ export function diffSets(before, after) {
     removed: [...old].filter((item) => !next.has(item)).sort()
   };
 }
+
+/**
+ * The plugin factories a source file exports.
+ *
+ * A new `…Plugin` export is a new provider or realm — the most consequential
+ * change an upgrade can carry, and the one a user can read at a glance.
+ */
+export function exportsInSource(text) {
+  const out = new Set();
+  for (const match of String(text).matchAll(/export\s+(?:const|function|async function)\s+(\w*Plugin)\b/g)) {
+    out.add(match[1]);
+  }
+  return out;
+}
+
+/**
+ * The protocol version constants a plugin declares.
+ *
+ * WorkBuddy, Trae and Qoder all pin the build of the vendor client they
+ * imitate (`clientVersion`, `ideVersion`, `pluginVersion`, `cosyVersion`).
+ * When one of those moves, the upstream protocol changed and the new copy is
+ * speaking a different dialect — worth seeing before an update is applied,
+ * because it is exactly what breaks a chat when it is guessed wrong.
+ */
+export const VERSION_CONSTANTS = ["clientVersion", "clientVersionCode", "ideVersion", "ideVersionCode", "pluginVersion", "cosyVersion"];
+
+export function versionConstantsInSource(text) {
+  const out = {};
+  const src = String(text);
+  for (const key of VERSION_CONSTANTS) {
+    const m = src.match(new RegExp(`\\b${key}\\s*:\\s*"([0-9][0-9A-Za-z.\\-]*)"`));
+    if (m) out[key] = m[1];
+  }
+  return out;
+}
+
+/** Lines and bytes, so an upgrade's size is visible even when nothing else is. */
+export function sizeOfSource(text) {
+  const src = String(text);
+  return { bytes: Buffer.byteLength(src), lines: src.split("\n").length };
+}

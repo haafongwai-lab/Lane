@@ -977,6 +977,8 @@ h1 {
 .plugin-diff b { color: var(--ink-soft); }
 .plugin-diff .bad { color: var(--red); }
 .plugin-diff .ok { color: var(--green); }
+/* The release date sits beside the version arrow, quieter than the versions. */
+.plugin-published { color: var(--faint); font-weight: 400; font-size: 10.5px; }
 .plugin-diff-actions { margin-top: 7px; display: flex; gap: 8px; }
 .empty { padding: 54px 20px; color: var(--faint); font-size: 12px; text-align: center; }
 
