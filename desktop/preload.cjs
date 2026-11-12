@@ -33,6 +33,13 @@ contextBridge.exposeInMainWorld("lane", {
   pluginStage: (key) => ipcRenderer.invoke("lane:plugin-stage", { key }),
   pluginApply: (key) => ipcRenderer.invoke("lane:plugin-apply", { key }),
   pluginRollback: (key) => ipcRenderer.invoke("lane:plugin-rollback", { key }),
+  consoleChat: (request) => ipcRenderer.invoke("lane:console-chat", request),
+  consoleCancel: (id) => ipcRenderer.invoke("lane:console-cancel", { id }),
+  onConsoleDelta: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("lane:console-delta", listener);
+    return () => ipcRenderer.removeListener("lane:console-delta", listener);
+  },
   gatewaySettings: () => ipcRenderer.invoke("lane:gateway-settings"),
   hideDsh: (hideDsh) => ipcRenderer.invoke("lane:hide-dsh", { hideDsh }),
   redactSettings: (patch) => ipcRenderer.invoke("lane:redact-settings", patch),

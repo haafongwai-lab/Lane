@@ -14,6 +14,7 @@
 
       <nav>
         <p>工作台</p>
+        <button class="nav" data-view="chat"><span>问答</span></button>
         <button class="nav" data-view="agents"><span>Agent 接入</span></button>
         <button class="nav active" data-view="routing"><span>路由</span></button>
         <button class="nav" data-view="accounts"><span>账号</span></button>
@@ -27,6 +28,29 @@
     </aside>
 
     <main id="main">
+      <section class="view" id="view-chat">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">自带问答</div>
+            <h1>直接问一句</h1>
+            <p class="sub">和客户端走同一个本地网关、同一个账号、同一套请求，上游看到的东西没有区别。</p>
+          </div>
+          <div class="heading-actions">
+            <select id="chat-model" class="chat-model" aria-label="选择模型"></select>
+            <button class="ghost" id="chat-clear">清空</button>
+          </div>
+        </div>
+        <article class="panel chat-panel">
+          <div class="chat-log" id="chat-log"><div class="empty">选好模型，在下面输入问题，回车发送。</div></div>
+          <div class="chat-compose">
+            <textarea id="chat-input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+            <button class="primary" id="chat-send">发送</button>
+            <button class="ghost" id="chat-stop" hidden>停止</button>
+          </div>
+          <p class="chat-note">一次只发一条、失败不自动重试、回答长度有限制；沿用当前账号和模型，不额外增加上游可见的标识。</p>
+        </article>
+      </section>
+
       <section class="view active" id="view-routing">
         <div class="heading-row">
           <div>

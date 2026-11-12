@@ -163,8 +163,13 @@ function hideDshName(text, said = false) {
  * `tool`, or a non-text part such as `tool_result`) is left as it came — that
  * is the client's own data, and rewriting it would change what the agent reads
  * back.
+ *
+ * Exported because the Trae and Qoder paths do not run WorkBuddy's
+ * `prepareChat` (its rewrites are WorkBuddy's), but they still need this one
+ * step: a prompt naming the harness is exactly the signal an upstream reads
+ * back. They call it on the body they are about to send.
  */
-function concealDshName(body) {
+export function concealDshName(body) {
   let changed = false;
   const parts = (content, said = false) => {
     if (typeof content === "string") {

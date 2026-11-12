@@ -9,6 +9,7 @@ import {
 } from "./accounts.js";
 import { WorkBuddyProvider } from "./workbuddy.js";
 import { redactBody, resolveRules, restoreResponse } from "./redact.js";
+import { concealDshName } from "./sanitize.js";
 import { readSettings } from "./settings.js";
 import { pluginEntryUrl } from "./plugin-store.js";
 
@@ -220,6 +221,10 @@ export class QoderProvider extends WorkBuddyProvider {
         custom: settings.redactCustom
       })
       : body;
+    // Qoder skips WorkBuddy's `prepareChat`, but not the one step that matters
+    // for risk control: a prompt naming the harness is a signal the upstream
+    // can read back. Same `hideDsh` setting WorkBuddy uses.
+    const spoken = settings.hideDsh === false ? outgoing : concealDshName(outgoing).body;
     const endpoint = await this.baseURL(session.id);
     const response = await this.withEgress(() => loader.fetch(`${endpoint}/chat/completions`, {
       method: "POST",
@@ -227,7 +232,7 @@ export class QoderProvider extends WorkBuddyProvider {
         "content-type": "application/json",
         accept: body.stream ? "text/event-stream" : "application/json"
       },
-      body: JSON.stringify(outgoing),
+      body: JSON.stringify(spoken),
       signal
     }));
     return restoreResponse(response, this.secrets);

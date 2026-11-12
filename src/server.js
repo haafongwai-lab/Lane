@@ -215,7 +215,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
         const meta = await modelMeta(servingProvider, body.model);
         await proxyChat(res, servingProvider, body, {
           control,
-          agent: isDsh(req) ? "dsh" : isVscode(req) ? "vscode" : "openai",
+          agent: isLaneConsole(req) ? "lane" : isDsh(req) ? "dsh" : isVscode(req) ? "vscode" : "openai",
           requested,
           endpoint: url.pathname,
           model: body.model,
@@ -534,6 +534,14 @@ function messagesClientAgent(req) {
 // generic attribution.
 function isDsh(req) {
   return String(req.headers["x-lane-client"] || "").toLowerCase().trim() === "dsh";
+}
+
+// Lane's own 问答 panel speaks to the local gateway like any other client, but
+// it is not one of the agents: the journal owes it its own source. The main
+// process sets this header on the loopback request; providers build their own
+// outbound headers, so it never reaches an upstream.
+function isLaneConsole(req) {
+  return String(req.headers["x-lane-client"] || "").toLowerCase().trim() === "lane";
 }
 
 // VS Code's built-in Chat reaches a Custom Endpoint through its own fetcher

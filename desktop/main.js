@@ -487,6 +487,107 @@ handleIpc("lane:plugin-rollback", async (_event, { key } = {}) => {
   await startGateway();
   return control.pluginRollback(String(key || ""));
 });
+
+// ---- Lane's own 问答 panel ------------------------------------------------
+//
+// The renderer cannot call the gateway itself: its CSP is default-src 'self',
+// so a fetch to 127.0.0.1 is blocked. The main process makes the call instead -
+// the same loopback request any client would make, with one marker header so
+// the journal owes it its own source ("lane") and no agent's stats absorb it.
+//
+// Risk control is built in here rather than left to the page: one request at a
+// time, no retry, and a token cap. The panel is a convenience over the same
+// account and the same plugin request shape as a coding agent, so the upstream
+// sees nothing new; what it must not see is a burst of tiny probes.
+const consoleControllers = new Map();
+let consoleBusy = false;
+
+// SSE from the gateway: `data: {json}` lines, `[DONE]` to end. Only the text
+// and reasoning deltas matter to the panel.
+async function pumpConsoleStream(body, onDelta, signal) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let said = "";
+  let reasoning = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (signal.aborted) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        let event;
+        try { event = JSON.parse(payload); } catch { continue; }
+        const delta = event?.choices?.[0]?.delta || {};
+        if (typeof delta.content === "string" && delta.content) {
+          said += delta.content;
+          onDelta({ text: delta.content });
+        } else if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+          reasoning += delta.reasoning_content;
+          onDelta({ reasoning: delta.reasoning_content });
+        }
+      }
+    }
+  }
+  return { text: said, reasoning };
+}
+
+handleIpc("lane:console-chat", async (event, { id, model, messages, maxTokens } = {}) => {
+  await startGateway();
+  const sender = event.sender;
+  const requestId = String(id || "");
+  if (!requestId) throw new Error("missing request id");
+  // One at a time. A second concurrent call would be exactly the pattern a
+  // risk model treats as a script rather than a person.
+  if (consoleBusy) return { ok: false, error: "上一条还在回答，请稍候" };
+  consoleBusy = true;
+  const controller = new AbortController();
+  consoleControllers.set(requestId, controller);
+  const emit = (payload) => {
+    if (!sender.isDestroyed()) sender.send("lane:console-delta", { id: requestId, ...payload });
+  };
+  const cap = Math.min(Math.max(Number(maxTokens) || 1024, 64), 4096);
+  try {
+    const response = await fetch(`${GATEWAY}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lane-client": "lane" },
+      body: JSON.stringify({
+        model: model || undefined,
+        messages: Array.isArray(messages) ? messages : [],
+        max_tokens: cap,
+        stream: true
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let message = text;
+      try { message = JSON.parse(text)?.error?.message || text; } catch {}
+      return { ok: false, error: String(message || `HTTP ${response.status}`) };
+    }
+    const out = await pumpConsoleStream(response.body, emit, controller.signal);
+    return { ok: true, text: out.text, reasoning: out.reasoning };
+  } catch (error) {
+    if (controller.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
+    return { ok: false, error: error?.message || String(error) };
+  } finally {
+    consoleControllers.delete(requestId);
+    consoleBusy = false;
+  }
+});
+
+handleIpc("lane:console-cancel", async (_event, { id } = {}) => {
+  const controller = consoleControllers.get(String(id || ""));
+  if (controller) controller.abort();
+  return { ok: true };
+});
 handleIpc("lane:clear-history", async (_event, { ids } = {}) => {
   await startGateway();
   const wanted = Array.isArray(ids) ? ids : null;
