@@ -161,6 +161,10 @@ h1, h2, h3, p { margin: 0; }
   flex-direction: column;
   padding: 27px 15px 20px;
   background: var(--sidebar-bg);
+  /* The same half-pixel edge DSH draws between its sidebar and centre
+     column: the two zones differ by a shade, and a hairline is what makes
+     that a boundary instead of a gradient. */
+  border-right: .5px solid var(--sidebar-line);
 }
 .wordmark {
   color: var(--wordmark);
@@ -202,18 +206,22 @@ nav p {
 .dot.ok { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.12); }
 .dot.bad { background: var(--red); box-shadow: 0 0 0 3px rgba(166,75,60,.11); }
 
-/* The content is a sheet on the window's desk: its left edge is rounded,
-   its right edge is the window's own. No overflow:hidden here — it would
-   turn main into a scroll container and the chat view's sticky bars would
-   stop sticking. Nothing reaches the corners anyway: every view insets its
-   content by 42px, so only main's own background paints there. */
+/* The content is a sheet on the window's desk: both left corners are rounded
+   and the right edge is the window's own. The radius is DSH's
+   `--dsh-windows-content-radius` (16px); DSH rounds only the top-left because
+   its titlebar pushes the sheet down and its bottom sits at the window edge,
+   while here the sheet runs the full height so both left corners show.
+   No overflow:hidden — it would turn main into a scroll container and the
+   chat view's sticky bars would stop sticking. Nothing reaches the corners
+   anyway: every view insets its content by 42px, so only main's own background
+   paints there. */
 main {
   width: calc(100% - 218px);
   min-height: 100vh;
   margin-left: 218px;
   padding-bottom: 56px;
   background: var(--pane-bg);
-  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  border-radius: 16px 0 0 16px;
 }
 .heading-actions, .card-actions { display: flex; align-items: center; gap: 9px; }
 

@@ -5,13 +5,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * The window reads as one surface with a sheet on it.
+ * The window is two zones, the way DeepSeek Harness builds it: a sidebar that
+ * takes the window colour, and a content sheet laid on top with its left
+ * corners rounded.
  *
- * The sidebar used to be a shade darker than the canvas, so the window looked
- * like two panes meeting at a seam. It now takes the window colour exactly, and
- * the content is a raised sheet whose left edge is rounded. Measured in the
- * running app: light body rgb(242,241,237) = sidebar rgb(242,241,237), dark
- * rgb(21,21,23) both, and the pane computes to `20px 0px 0px 20px`.
+ * DSH's own layout (dsh-client-ui-layout) is the reference for the shape:
+ *
+ *   .frame        padding-top: titlebar; background: sidebar fill
+ *   .sidebarCol   background: sidebar fill; border-right: .5px
+ *   .centerCol    background: bg-base; border-radius: 16px 0 0 0
+ *
+ * Lane has no titlebar — it keeps the system one — so the sheet runs the full
+ * height and both left corners show, but the rest is the same: the sidebar is
+ * the window surface, the content is the raised sheet, the seam is a half-pixel
+ * hairline, and the radius is DSH's 16px.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -24,38 +31,32 @@ const rule = (selector) => {
   return CSS.slice(from, CSS.indexOf("}", from) + 1);
 };
 
-const token = (name) => {
-  const matches = [...CSS.matchAll(new RegExp(`${name}:\\s*([^;]+);`, "g"))].map((m) => m[1].trim());
-  return matches;
-};
+const token = (name) => [...CSS.matchAll(new RegExp(`${name}:\\s*([^;]+);`, "g"))].map((m) => m[1].trim());
 
-test("the sidebar is the window's own colour in both themes", () => {
-  // Light: canvas #f2f1ed, sidebar the same. Dark: #151517 both.
+test("the sidebar is the window colour in both themes", () => {
   assert.deepEqual(token("--canvas"), ["#f2f1ed", "#151517"]);
   assert.deepEqual(token("--sidebar-bg"), ["#f2f1ed", "#151517"]);
 });
 
-test("the content pane is its own token, distinct from the window", () => {
+test("the content is a distinct raised sheet", () => {
   assert.deepEqual(token("--pane-bg"), ["#fbfaf7", "#1b1b1c"]);
-});
-
-test("the pane is rounded on the left and flush on the right", () => {
   const main = rule("main {");
   assert.match(main, /background: var\(--pane-bg\)/);
-  assert.match(main, /border-radius: var\(--radius-lg\) 0 0 var\(--radius-lg\)/);
-  // No overflow:hidden — it would make main a scroll container and the chat
-  // view's sticky bars would stop sticking.
-  assert.equal(/overflow/.test(main), false);
 });
 
-test("the seam no longer carries a hairline", () => {
+test("the sheet has DSH's 16px radius on both left corners", () => {
+  const main = rule("main {");
+  // 16px is DSH's --dsh-windows-content-radius.
+  assert.match(main, /border-radius: 16px 0 0 16px/);
+});
+
+test("the seam is a half-pixel hairline, as in DSH", () => {
   const sidebar = rule(".sidebar {");
-  assert.equal(/border-right/.test(sidebar), false);
+  assert.match(sidebar, /border-right: \.5px solid var\(--sidebar-line\)/);
 });
 
-test("the sticky bars fade to the pane, not the window", () => {
-  // Both gradients sit inside main; on --canvas they would paint a band of the
-  // window colour across the sheet.
-  assert.match(CSS, /linear-gradient\(to bottom, var\(--pane-bg\) 60%, transparent\)/);
-  assert.match(CSS, /linear-gradient\(to bottom, transparent, var\(--pane-bg\) 22px\)/);
+test("main is not a scroll container", () => {
+  // overflow:hidden would make the chat view's sticky bars stop sticking.
+  const main = rule("main {");
+  assert.equal(/overflow/.test(main), false);
 });
