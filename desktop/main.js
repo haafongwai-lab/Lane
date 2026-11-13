@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeTheme, screen, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeTheme, shell } from "electron";
 import net from "node:net";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -354,7 +354,12 @@ function createWindow() {
     // overlay for this, but that layer cannot be verified from a screenshot
     // and cannot be styled per element; drawing it ourselves makes the colour
     // exact and the buttons certain.
-    ...(process.platform === "win32" ? { frame: false, thickFrame: true } : {}),
+    ...(process.platform === "win32"
+      ? {
+          titleBarStyle: "hidden",
+          titleBarOverlay: { color: chrome.color, symbolColor: chrome.symbolColor, height: TITLEBAR_HEIGHT }
+        }
+      : {}),
     webPreferences: {
       preload: path.join(DESKTOP_DIR, "preload.cjs"),
       contextIsolation: true,
@@ -363,19 +368,6 @@ function createWindow() {
     }
   });
   Menu.setApplicationMenu(null);
-  // A fresh window starts at a normal size: the state and restore bounds
-  // belong to this window, not to whatever was open before it.
-  winMaximized = false;
-  winRestoreBounds = null;
-  // A frameless window's system maximise overruns the desktop by the invisible
-  // resize border, so that path is closed: the titlebar button and a double-
-  // click both go through maximizeToWorkArea(), and Win+Up / snap-to-top can
-  // no longer land the window eight pixels past every edge.
-  if (process.platform === "win32") window.setMaximizable(false);
-  // Keep the tracked state honest if the window is still maximised by some
-  // other route (a shell shortcut): the glyph follows the window.
-  window.on("maximize", () => { winMaximized = true; });
-  window.on("unmaximize", () => { winMaximized = false; });
   const sameRenderer = (value) => {
     try {
       const parsed = new URL(value);
@@ -1198,48 +1190,18 @@ handleIpc("lane:view", async (_event, view) => {
  * compromised renderer no worse than a compromised page: it can minimise,
  * maximise or close this one window, nothing else.
  */
-// Maximise state is tracked here, not by the OS: the window is resized by
-// hand (see maximizeToWorkArea) so it lands exactly on the work area instead
-// of eight pixels past it.
-let winMaximized = false;
-let winRestoreBounds = null;
-
-/**
- * Grow the window to the display's work area, keeping the size to restore to.
- * @returns true - the window is now maximised.
- */
-function maximizeToWorkArea() {
-  if (!window) return false;
-  const from = window.getBounds();
-  // Only remember a normal size: maximising twice must not make the restore
-  // target the maximised bounds.
-  if (!winMaximized) winRestoreBounds = from;
-  const display = screen.getDisplayMatching(from);
-  window.setBounds(display.workArea);
-  winMaximized = true;
-  return true;
-}
-
-/** Put the window back where it was before the last maximise. */
-function restoreFromMaximize() {
-  if (!window) return false;
-  if (winRestoreBounds) window.setBounds(winRestoreBounds);
-  winMaximized = false;
-  return false;
-}
-
 handleIpc("lane:window-action", async (_event, action) => {
   if (!window) return { ok: false };
   if (action === "minimize") window.minimize();
   else if (action === "toggle-maximize") {
-    if (winMaximized) restoreFromMaximize();
-    else maximizeToWorkArea();
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
   } else if (action === "close") window.close();
   else return { ok: false, error: `unknown action: ${action}` };
-  return { ok: true, maximized: winMaximized };
+  return { ok: true, maximized: window.isMaximized() };
 });
 
-handleIpc("lane:window-state", async () => ({ maximized: winMaximized }));
+handleIpc("lane:window-state", async () => ({ maximized: Boolean(window?.isMaximized()) }));
 
 handleIpc("lane:quit", async () => {
   quitting = true;
@@ -1255,9 +1217,15 @@ app.whenReady().then(async () => {
   // native chrome too; keep the window's own base colour in step.
   nativeTheme.on("updated", () => {
     if (!window) return;
-    // The titlebar is page CSS and follows the theme attribute; only the
-    // window's own backdrop needs telling, so the resize flash matches.
-    window.setBackgroundColor(chromeColors().color);
+    const chrome = chromeColors();
+    window.setBackgroundColor(chrome.color);
+    if (process.platform === "win32") {
+      // A window without an overlay throws here; the repaint is cosmetic, so
+      // a failure must not break the theme switch.
+      try {
+        window.setTitleBarOverlay({ color: chrome.color, symbolColor: chrome.symbolColor, height: TITLEBAR_HEIGHT });
+      } catch {}
+    }
   });
   // The tray exists before the gateway starts: a start that fails leaves a
   // window whose close button hides it, and without a tray the process

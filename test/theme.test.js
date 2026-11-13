@@ -71,10 +71,11 @@ test("the main process mirrors the choice onto native chrome", () => {
   assert.match(MAIN, /nativeTheme\.themeSource = next/);
   assert.match(MAIN, /handleIpc\("lane:set-theme"/);
   assert.match(MAIN, /nativeTheme\.on\("updated"/);
-  // The titlebar is page CSS and follows the theme attribute by itself; only
-  // the window's own backdrop needs telling, through chromeColors().
+  // The backdrop and the titlebar overlay both follow the theme through
+  // chromeColors(), so the strip cannot drift from the window.
   assert.match(MAIN, /function chromeColors\(\)/);
-  assert.match(MAIN, /window\.setBackgroundColor\(chromeColors\(\)\.color\)/);
+  assert.match(MAIN, /window\.setBackgroundColor\(chrome\.color\)/);
+  assert.match(MAIN, /window\.setTitleBarOverlay\(/);
 });
 
 test("the palette defines dark values for every base surface token", () => {
