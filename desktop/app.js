@@ -1751,7 +1751,13 @@ document.addEventListener("dblclick", async (event) => {
 
 // Keep the glyph honest through a maximise done by any route: a drag to the
 // screen edge, a double-click, a keyboard shortcut.
-window.addEventListener("resize", syncWindowState);
+// A drag on the window edge fires resize on every pixel; the glyph does not
+// need to know faster than this.
+let windowStateTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(syncWindowState, 120);
+});
 
 $("#chat-send")?.addEventListener("click", sendChat);
 $("#chat-stop")?.addEventListener("click", () => {

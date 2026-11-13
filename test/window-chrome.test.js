@@ -60,6 +60,17 @@ test("the renderer can drive the window, through a narrow channel", () => {
   assert.match(MAIN, /action === "close"/);
 });
 
+test("maximise is done by hand so it cannot overrun the desktop", () => {
+  // The OS maximises a frameless window eight pixels past every edge (measured
+  // 1552x832 at -7,-7 on a 1536x816 desktop), and a maximised window ignores
+  // setBounds, so it cannot be corrected afterwards.
+  assert.match(MAIN, /function maximizeToWorkArea\(\)/);
+  assert.match(MAIN, /window\.setBounds\(display\.workArea\)/);
+  assert.match(MAIN, /winRestoreBounds = from/);
+  assert.match(MAIN, /window\.setMaximizable\(false\)/);
+  assert.equal(/window\.maximize\(\)/.test(MAIN), false, "no system maximise");
+});
+
 test("the maximise glyph reflects the state", () => {
   assert.match(CSS, /\[data-maximized\] \.titlebar-btn \.icon-restore \{ display: block; \}/);
   assert.match(CSS, /\[data-maximized\] \.titlebar-btn \.icon-max \{ display: none; \}/);

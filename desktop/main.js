@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeTheme, screen, shell } from "electron";
 import net from "node:net";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -363,6 +363,19 @@ function createWindow() {
     }
   });
   Menu.setApplicationMenu(null);
+  // A fresh window starts at a normal size: the state and restore bounds
+  // belong to this window, not to whatever was open before it.
+  winMaximized = false;
+  winRestoreBounds = null;
+  // A frameless window's system maximise overruns the desktop by the invisible
+  // resize border, so that path is closed: the titlebar button and a double-
+  // click both go through maximizeToWorkArea(), and Win+Up / snap-to-top can
+  // no longer land the window eight pixels past every edge.
+  if (process.platform === "win32") window.setMaximizable(false);
+  // Keep the tracked state honest if the window is still maximised by some
+  // other route (a shell shortcut): the glyph follows the window.
+  window.on("maximize", () => { winMaximized = true; });
+  window.on("unmaximize", () => { winMaximized = false; });
   const sameRenderer = (value) => {
     try {
       const parsed = new URL(value);
@@ -1185,20 +1198,48 @@ handleIpc("lane:view", async (_event, view) => {
  * compromised renderer no worse than a compromised page: it can minimise,
  * maximise or close this one window, nothing else.
  */
+// Maximise state is tracked here, not by the OS: the window is resized by
+// hand (see maximizeToWorkArea) so it lands exactly on the work area instead
+// of eight pixels past it.
+let winMaximized = false;
+let winRestoreBounds = null;
+
+/**
+ * Grow the window to the display's work area, keeping the size to restore to.
+ * @returns true - the window is now maximised.
+ */
+function maximizeToWorkArea() {
+  if (!window) return false;
+  const from = window.getBounds();
+  // Only remember a normal size: maximising twice must not make the restore
+  // target the maximised bounds.
+  if (!winMaximized) winRestoreBounds = from;
+  const display = screen.getDisplayMatching(from);
+  window.setBounds(display.workArea);
+  winMaximized = true;
+  return true;
+}
+
+/** Put the window back where it was before the last maximise. */
+function restoreFromMaximize() {
+  if (!window) return false;
+  if (winRestoreBounds) window.setBounds(winRestoreBounds);
+  winMaximized = false;
+  return false;
+}
+
 handleIpc("lane:window-action", async (_event, action) => {
   if (!window) return { ok: false };
   if (action === "minimize") window.minimize();
   else if (action === "toggle-maximize") {
-    if (window.isMaximized()) window.unmaximize();
-    else window.maximize();
+    if (winMaximized) restoreFromMaximize();
+    else maximizeToWorkArea();
   } else if (action === "close") window.close();
   else return { ok: false, error: `unknown action: ${action}` };
-  return { ok: true, maximized: window.isMaximized() };
+  return { ok: true, maximized: winMaximized };
 });
 
-handleIpc("lane:window-state", async () => ({
-  maximized: Boolean(window?.isMaximized())
-}));
+handleIpc("lane:window-state", async () => ({ maximized: winMaximized }));
 
 handleIpc("lane:quit", async () => {
   quitting = true;
