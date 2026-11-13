@@ -683,9 +683,8 @@ function renderChatMcp() {
     } else {
       list.innerHTML = usable.map((server) => {
         const on = chosen.includes(server.name);
-        const kind = server.transport === "http" ? "HTTP" : "STDIO";
         return '<label class="chat-menu-row sub' + (master.checked ? "" : " muted") + '">' +
-          '<span class="chat-menu-row-main"><b>' + esc(server.name) + '</b><small>' + kind + '</small></span>' +
+          '<span class="chat-menu-row-main"><b>' + esc(server.name) + '</b></span>' +
           '<input type="checkbox" class="chat-menu-check" data-mcp-server="' + esc(server.name) + '"' +
           (on ? " checked" : "") + (master.checked ? "" : " disabled") + '>' +
           '<span class="chat-menu-track"><span class="chat-menu-knob"></span></span></label>';

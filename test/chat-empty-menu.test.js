@@ -51,17 +51,23 @@ test("the 工具 sheet is grouped, titled, and uses drawn switches", () => {
   assert.match(HTML, /class="chat-menu-group-title">本地工具/);
   assert.match(HTML, /class="chat-menu-group-title">本地/);
   assert.match(HTML, /class="chat-menu-group-title">/);
+  // No footnote at the bottom of the sheet.
+  assert.equal(/chat-mcp-note/.test(HTML), false);
   // Two real checkboxes with a drawn track beside each.
   assert.equal((HTML.match(/class="chat-menu-check"/g) || []).length >= 2, true);
   assert.equal((HTML.match(/class="chat-menu-track"/g) || []).length >= 2, true);
-  // DSH's switch: a 32x18 track lit with the DeepSeek accent.
+  // DSH's geometry, on Lane's accent: the switch must be the same blue as the
+  // send button, which is the one control it sits near.
   assert.match(CSS, /\.chat-menu-track \{[\s\S]*?width: 32px; height: 18px/);
-  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: var\(--dsh-accent\); \}/);
+  assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \{ background: var\(--chat-accent\); \}/);
+  // And the send button uses that same token, so they cannot drift apart.
+  assert.match(CSS, /\.chat-send \{[\s\S]*?background: var\(--chat-accent\)/);
   assert.match(CSS, /\.chat-menu-check:checked \+ \.chat-menu-track \.chat-menu-knob \{ transform: translateX\(14px\); \}/);
 });
 
-test("server rows show their transport and dim when MCP is off", () => {
-  assert.match(APP, /const kind = server\.transport === "http" \? "HTTP" : "STDIO"/);
+test("server rows are a name and a switch, and dim when MCP is off", () => {
+  // No transport sub-line: the row is one line of text now.
+  assert.equal(/const kind = server\.transport/.test(APP), false);
   assert.match(APP, /chat-menu-row sub' \+ \(master\.checked \? "" : " muted"\)/);
   assert.match(APP, /if \(hint\) hint\.textContent = master\.checked \?/);
   assert.match(CSS, /\.chat-menu-row\.muted \{ opacity: \.5; \}/);
