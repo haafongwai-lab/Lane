@@ -2280,7 +2280,11 @@ const AGENT_ICONS = {
   "claude-desktop": "assets/claude-official.svg",
   zcode: "assets/zcode-official-256.png",
   vscode: "assets/vscode-official.svg",
-  dsh: "assets/dsh-official-256.png"
+  dsh: "assets/dsh-official-256.png",
+  // Lane's own runs appear here too, so the panel should be attributable the
+  // same way the agents that talk through it are. A transparent line drawing,
+  // not a badge: no plate behind it.
+  lane: "assets/lane-96.png"
 };
 
 function agentLabel(agent) {
@@ -2870,7 +2874,7 @@ function renderUsageRecent() {
     return `<div class="recent-row" data-id="${esc(item.id)}">
       <input type="checkbox" class="recent-pick" data-pick="${esc(item.id)}"${running ? " disabled" : ""} aria-label="选择这条记录">
       <span class="recent-time">${esc(when)}</span>
-      <span class="agent-pill">${agentIcon(item.agent) ? `<img class="agent-mark" src="${agentIcon(item.agent)}" alt="">` : ""}${esc(agentLabel(item.agent))}</span>
+      <span class="agent-pill">${agentIcon(item.agent) ? `<img class="agent-mark" src="${agentIcon(item.agent)}" data-agent="${esc(item.agent)}" alt="">` : ""}${esc(agentLabel(item.agent))}</span>
       <span class="recent-model">${esc(item.model)}</span>
       <span class="recent-state ${state.tone}">${esc(state.text)}</span>
       <span class="recent-ctx">${item.contextWindow ? compact(item.contextWindow) : "—"}</span>

@@ -1672,6 +1672,12 @@ h1 {
   border-radius: 3px;
   opacity: .9;
 }
+/* Lane's mark is a dark line drawing on transparency. On the dark theme
+   the ink would disappear into the pill, so it is inverted there - the
+   background stays transparent, only the strokes flip. */
+:root[data-theme="dark"] .agent-pill .agent-mark[data-agent="lane"] {
+  filter: invert(1) brightness(1.15);
+}
 .recent-state { font-size: 11px; white-space: nowrap; }
 .recent-state.ok { color: var(--green); }
 .recent-state.live { color: var(--blue); }
