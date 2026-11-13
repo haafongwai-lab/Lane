@@ -321,7 +321,23 @@ function showWindow() {
   window.focus();
 }
 
+/**
+ * The window chrome palette: the titlebar and the desk are the same colour,
+ * so the window reads as one surface from its top edge down.
+ * @returns {{ color: string, symbolColor: string }} fill and button-ink.
+ */
+function chromeColors() {
+  return nativeTheme.shouldUseDarkColors
+    ? { color: "#151517", symbolColor: "#f9fafb" }
+    : { color: "#f2f1ed", symbolColor: "#0f1115" };
+}
+
+// The titlebar's height in CSS pixels. The stylesheet reserves the same strip
+// at the top of the page (--titlebar-h) so nothing hides under the buttons.
+const TITLEBAR_HEIGHT = 40;
+
 function createWindow() {
+  const chrome = chromeColors();
   window = new BrowserWindow({
     // The size it opens at before maximizing: a sensible restore size for a
     // user who un-maximizes, and the fallback on a display too small to
@@ -330,9 +346,15 @@ function createWindow() {
     height: 920,
     minWidth: 1040,
     minHeight: 680,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151517" : "#f2f1ed",
+    backgroundColor: chrome.color,
     title: "Lane",
     icon: path.join(DESKTOP_DIR, "assets", "lane.ico"),
+    // Frameless: the page draws the window's own titlebar strip and its three
+    // buttons (see .titlebar in styles.css). DSH's Windows build uses the OS
+    // overlay for this, but that layer cannot be verified from a screenshot
+    // and cannot be styled per element; drawing it ourselves makes the colour
+    // exact and the buttons certain.
+    ...(process.platform === "win32" ? { frame: false, thickFrame: true } : {}),
     webPreferences: {
       preload: path.join(DESKTOP_DIR, "preload.cjs"),
       contextIsolation: true,
@@ -361,6 +383,13 @@ function createWindow() {
   window.webContents.on("will-navigate", blockNavigation);
   window.webContents.on("will-redirect", blockNavigation);
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
+  // Tell the renderer which platform it is on before the stylesheet lays out:
+  // the reserved titlebar strip exists only where the OS draws a titlebar.
+  window.webContents.on("dom-ready", () => {
+    window.webContents
+      .executeJavaScript(`document.documentElement.dataset.platform = ${JSON.stringify(process.platform)}`)
+      .catch(() => {});
+  });
   window.loadFile(path.join(DESKTOP_DIR, "index.html"));
   window.on("close", (event) => {
     if (!quitting) {
@@ -1150,6 +1179,27 @@ handleIpc("lane:view", async (_event, view) => {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 });
+/**
+ * The three buttons the frameless titlebar draws. Keeping this a small,
+ * explicit set rather than exposing the whole BrowserWindow is what makes a
+ * compromised renderer no worse than a compromised page: it can minimise,
+ * maximise or close this one window, nothing else.
+ */
+handleIpc("lane:window-action", async (_event, action) => {
+  if (!window) return { ok: false };
+  if (action === "minimize") window.minimize();
+  else if (action === "toggle-maximize") {
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+  } else if (action === "close") window.close();
+  else return { ok: false, error: `unknown action: ${action}` };
+  return { ok: true, maximized: window.isMaximized() };
+});
+
+handleIpc("lane:window-state", async () => ({
+  maximized: Boolean(window?.isMaximized())
+}));
+
 handleIpc("lane:quit", async () => {
   quitting = true;
   // A locked file during shutdown must not leave a windowless process
@@ -1163,7 +1213,10 @@ app.whenReady().then(async () => {
   // The OS switching light/dark while the page follows "system" changes the
   // native chrome too; keep the window's own base colour in step.
   nativeTheme.on("updated", () => {
-    if (window) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#151517" : "#f4f3ef");
+    if (!window) return;
+    // The titlebar is page CSS and follows the theme attribute; only the
+    // window's own backdrop needs telling, so the resize flash matches.
+    window.setBackgroundColor(chromeColors().color);
   });
   // The tray exists before the gateway starts: a start that fails leaves a
   // window whose close button hides it, and without a tray the process

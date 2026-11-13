@@ -27,6 +27,26 @@
       </nav>
     </aside>
 
+    <!-- The window's titlebar. Only on Windows is the OS titlebar gone, so
+         this strip is what the page draws in its place: a drag surface and
+         the three window buttons, in the desk colour. On other platforms
+         the stylesheet hides it. -->
+    <div class="titlebar" id="titlebar" hidden>
+      <div class="titlebar-drag"></div>
+      <div class="titlebar-buttons">
+        <button type="button" class="titlebar-btn" data-win-action="minimize" aria-label="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+        <button type="button" class="titlebar-btn" data-win-action="toggle-maximize" aria-label="最大化">
+          <svg class="icon-max" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="2.5" y="2.5" width="5" height="5" fill="none" stroke="currentColor" stroke-width="1" /></svg>
+          <svg class="icon-restore" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="2" y="3.5" width="4.5" height="4.5" fill="none" stroke="currentColor" stroke-width="1" /><path d="M3.5 3.5V2h4.5v4.5H6.5" fill="none" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+        <button type="button" class="titlebar-btn close" data-win-action="close" aria-label="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1" /></svg>
+        </button>
+      </div>
+    </div>
+
     <main id="main">
       <section class="view" id="view-chat">
         <div class="chat-shell">

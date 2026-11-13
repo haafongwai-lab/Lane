@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld("lane", {
   consoleChat: (request) => ipcRenderer.invoke("lane:console-chat", request),
   consoleCancel: (id) => ipcRenderer.invoke("lane:console-cancel", { id }),
   consolePrefs: (patch) => ipcRenderer.invoke("lane:console-prefs", patch === undefined ? {} : { patch }),
+  // The frameless titlebar's three buttons.
+  windowAction: (action) => ipcRenderer.invoke("lane:window-action", action),
+  windowState: () => ipcRenderer.invoke("lane:window-state"),
   onConsoleDelta: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("lane:console-delta", listener);

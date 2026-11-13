@@ -35,8 +35,10 @@ const token = (name) => [...CSS.matchAll(new RegExp(`${name}:\\s*([^;]+);`, "g")
 
 test("the window is the desk: one colour, no page scroll", () => {
   assert.deepEqual(token("--canvas"), ["#f2f1ed", "#151517"]);
-  // The Electron backdrop must be the same colour or the first paint flashes.
-  assert.match(MAIN, /backgroundColor: nativeTheme\.shouldUseDarkColors \? "#151517" : "#f2f1ed"/);
+  // The Electron backdrop must be the same colour or the first paint flashes;
+  // it comes from chromeColors(), which is also what paints the titlebar.
+  assert.match(MAIN, /backgroundColor: chrome\.color/);
+  assert.match(MAIN, /color: "#151517", symbolColor: "#f9fafb"/);
   assert.match(CSS, /html, body \{ margin: 0; height: 100vh; overflow: hidden; \}/);
 });
 

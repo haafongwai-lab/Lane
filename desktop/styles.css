@@ -3220,3 +3220,80 @@ main::-webkit-scrollbar-thumb {
   border-radius: 8px;
 }
 main::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
+
+/* ------------------------------------------------------------------
+   Windows titlebar
+   ------------------------------------------------------------------
+   The OS draws a titlebar above the page. Left to itself it is a system
+   grey, which met Lane's desk colour at a visible seam right across the top
+   of the window. main.js paints that strip with the desk colour through
+   `titleBarOverlay` and keeps the native buttons; this reserves the same
+   height in the page so nothing hides under them.
+
+   The strip is also the drag handle (`-webkit-app-region: drag`): with a
+   hidden titlebar the OS no longer provides one, and the region under the
+   buttons is where a user expects to be able to move the window. The system
+   buttons are drawn above the page, so they stay clickable.
+   ------------------------------------------------------------------ */
+[data-platform="win32"] { --titlebar-h: 40px; }
+
+[data-platform="win32"] body { padding-top: var(--titlebar-h); }
+
+/* The flex column and the card both measure against the strip now. */
+[data-platform="win32"] .app { min-height: calc(100vh - var(--titlebar-h)); }
+[data-platform="win32"] main { height: calc(100vh - var(--titlebar-h)); }
+
+/* The sidebar starts below the strip: its top padding would otherwise sit
+   under the titlebar and read as if it had been pushed down. */
+[data-platform="win32"] .sidebar { inset: var(--titlebar-h) auto 0 0; }
+
+/* The chat shell fills the card, which is the strip shorter than the window. */
+[data-platform="win32"] body.view-chat .chat-shell {
+  min-height: calc(100vh - var(--titlebar-h) - 16px);
+}
+
+/* The titlebar element below is the drag surface. */
+
+/* ------------------------------------------------------------------
+   The titlebar
+   ------------------------------------------------------------------
+   A frameless window has no OS titlebar, so the page draws one: the same
+   40px strip, filled with the desk colour, holding the drag surface and the
+   three window buttons. Because it is ordinary DOM it takes the theme
+   attribute like everything else - the strip cannot drift from the sidebar,
+   which is exactly what the OS overlay kept doing.
+   ------------------------------------------------------------------ */
+.titlebar {
+  display: none;
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--titlebar-h, 40px);
+  z-index: 50;
+  align-items: stretch;
+  background: var(--canvas);
+  user-select: none;
+  /* The strip is the drag surface; the buttons opt out below. */
+  -webkit-app-region: drag;
+}
+[data-platform="win32"] .titlebar { display: flex; }
+
+/* Everything but the buttons drags the window. */
+.titlebar-buttons { display: flex; -webkit-app-region: no-drag; }
+.titlebar-drag { flex: 1 1 auto; min-width: 0; }
+
+.titlebar-btn {
+  width: 46px;
+  height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; background: transparent;
+  color: var(--ink-soft);
+  cursor: default;
+  transition: background .12s, color .12s;
+}
+.titlebar-btn:hover { background: var(--hover-bg); color: var(--ink); }
+/* The close button is the one control that should read as a warning. */
+.titlebar-btn.close:hover { background: #e81123; color: #fff; }
+/* Max/restore share a slot; the state attribute on <html> picks the glyph. */
+.titlebar-btn .icon-restore { display: none; }
+[data-maximized] .titlebar-btn .icon-max { display: none; }
+[data-maximized] .titlebar-btn .icon-restore { display: block; }
