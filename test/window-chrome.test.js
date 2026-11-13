@@ -39,7 +39,11 @@ test("the page draws the titlebar in the desk colour", () => {
   assert.match(tb, /position: fixed/);
   assert.match(tb, /height: var\(--titlebar-h, 40px\)/);
   assert.match(tb, /background: var\(--canvas\)/);
-  assert.match(tb, /-webkit-app-region: drag/);
+  // The strip is NOT a drag region: only its blank filler is, so a real
+  // press on a button cannot start the window move loop and swallow the click.
+  assert.equal(/-webkit-app-region: drag/.test(tb), false, "the strip is not a drag region");
+  assert.match(CSS, /\.titlebar-drag \{[^}]*-webkit-app-region: drag/);
+  assert.match(CSS, /\.titlebar-btn \{[\s\S]*?-webkit-app-region: no-drag/);
   // Only where the OS titlebar is gone.
   assert.match(CSS, /\[data-platform="win32"\] \.titlebar \{ display: flex; \}/);
 });
