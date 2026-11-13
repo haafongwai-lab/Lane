@@ -1711,6 +1711,54 @@ $("#chat-input")?.addEventListener("paste", async (event) => {
   await addChatFiles(files);
 });
 
+// ---- the frameless window's titlebar --------------------------------------
+//
+// The window has no OS titlebar on Windows, so this strip carries the drag
+// surface and the three buttons. A double-click on the drag area toggles
+// maximise, the way a native titlebar does; the glyph beside the maximise
+// button switches to "restore" while the window is maximised.
+function applyMaximized(maximized) {
+  document.documentElement.toggleAttribute("data-maximized", Boolean(maximized));
+  const btn = document.querySelector('[data-win-action="toggle-maximize"]');
+  if (btn) btn.setAttribute("aria-label", maximized ? "还原" : "最大化");
+}
+
+async function syncWindowState() {
+  try {
+    const state = await window.lane.windowState();
+    applyMaximized(state?.maximized);
+  } catch {}
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-win-action]");
+  if (!button) return;
+  const action = button.dataset.winAction;
+  try {
+    const result = await window.lane.windowAction(action);
+    if (action === "toggle-maximize") applyMaximized(result?.maximized);
+  } catch {}
+});
+
+// Double-clicking the empty part of the strip toggles maximise, as the OS does.
+document.addEventListener("dblclick", async (event) => {
+  if (!event.target.closest(".titlebar-drag")) return;
+  try {
+    const result = await window.lane.windowAction("toggle-maximize");
+    applyMaximized(result?.maximized);
+  } catch {}
+});
+
+// Keep the glyph honest through a maximise done by any route: a drag to the
+// screen edge, a double-click, a keyboard shortcut.
+// A drag on the window edge fires resize on every pixel; the glyph does not
+// need to know faster than this.
+let windowStateTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(syncWindowState, 120);
+});
+
 $("#chat-send")?.addEventListener("click", sendChat);
 $("#chat-stop")?.addEventListener("click", () => {
   if (chatCurrentId) window.lane.consoleCancel(chatCurrentId);
