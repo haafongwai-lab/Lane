@@ -3286,13 +3286,15 @@ main::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip:
   height: 100%;
   display: flex; align-items: center; justify-content: center;
   padding: 0; border: 0; background: transparent;
-  color: var(--ink-soft);
+  /* Windows draws caption glyphs at label contrast, not the softer
+     secondary tone a body control would use. */
+  color: var(--ink);
   cursor: default;
   transition: background .12s, color .12s;
 }
 .titlebar-btn:hover { background: var(--hover-bg); color: var(--ink); }
 /* The close button is the one control that should read as a warning. */
-.titlebar-btn.close:hover { background: #e81123; color: #fff; }
+.titlebar-btn.close:hover { background: #c42b1c; color: #fff; }
 /* Max/restore share a slot; the state attribute on <html> picks the glyph. */
 .titlebar-btn .icon-restore { display: none; }
 [data-maximized] .titlebar-btn .icon-max { display: none; }
