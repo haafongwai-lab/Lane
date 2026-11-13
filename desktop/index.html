@@ -391,7 +391,10 @@
       <section class="view" id="view-models">
         <div class="heading-row">
           <div><div class="eyebrow">模型目录</div><h1>上游可用模型</h1><p class="sub">模型随账号更新，自动读取。</p></div>
-          <button class="ghost" id="refresh-models">↻ 刷新</button>
+          <div class="heading-actions">
+            <button type="button" class="text-button" id="model-mask" aria-pressed="false" data-tip="隐藏来源账号名称">打码</button>
+            <button class="ghost" id="refresh-models">↻ 刷新</button>
+          </div>
         </div>
         <article class="panel models-panel">
           <div class="models-tools">

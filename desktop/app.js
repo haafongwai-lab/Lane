@@ -2119,6 +2119,13 @@ function renderRouteAgent(last, { codexOn, claudeOn, zcodeOn, vscodeOn, dshOn })
 
 function renderModels(models, freeAllowance = null, gate = null) {
   const list = $("#model-list");
+  // Both pages share one mask switch; each keeps its own button in step.
+  const maskButton = $("#model-mask");
+  if (maskButton) {
+    maskButton.textContent = accountMasked ? "显示" : "打码";
+    maskButton.setAttribute("aria-pressed", String(accountMasked));
+    maskButton.classList.toggle("on", accountMasked);
+  }
   // The page shows the FULL upstream catalogue so every model can be added
   // or removed; `models` is the agent-facing subset the gateway serves.
   const rowsData = Array.isArray(models) && models.length ? models : [];
@@ -2151,11 +2158,16 @@ function renderModels(models, freeAllowance = null, gate = null) {
     // The source column names the account that serves the model. With
     // several accounts live one id can come from more than one of them, and
     // that is exactly what the user has to see to choose between them.
+    // Account labels are masked on the same switch the accounts page uses: a
+    // screenshot is a screenshot wherever it is taken, and one column showing
+    // real names while another hides them is the kind of half-measure that
+    // leaks a name anyway. The `+N` count is not a name, so it stays.
+    const ownerName = (value) => (accountMasked ? maskName(value) : value);
     const owner = model.ownerLabel
-      ? `${model.ownerLabel}${model.sharedWith?.length ? ` +${model.sharedWith.length}` : ""}`
+      ? `${ownerName(model.ownerLabel)}${model.sharedWith?.length ? ` +${model.sharedWith.length}` : ""}`
       : (model.owned_by || "upstream");
     const ownerTip = model.sharedWith?.length
-      ? `同一模型还来自：${model.sharedWith.map((item) => item.ownerLabel).join("、")}`
+      ? `同一模型还来自：${model.sharedWith.map((item) => ownerName(item.ownerLabel)).join("、")}`
       : "";
     // The plain name is what the upstream calls the model; the namespaced id
     // is Lane's, and only worth showing when it differs.
@@ -3117,12 +3129,25 @@ $("#account-list").addEventListener("click", async (event) => {
     return accountAction("remove", id);
   }
 });
-$("#account-mask").addEventListener("click", () => {
+// One mask preference, two pages: the accounts list and the models page's
+// source column both read it, so either button flips the same state.
+function toggleAccountMask() {
   accountMasked = !accountMasked;
   try { localStorage.setItem("lane.accountMasked", accountMasked ? "1" : "0"); } catch {}
   renderAccounts();
   renderAccountIdentity();
-});
+  // Only repaint models when a catalogue has been read: an empty snapshot
+  // would replace the list with the "sign in first" placeholder.
+  if (snapshot?.catalogue?.length || snapshot?.models?.length) {
+    renderModels(
+      snapshot.catalogue || snapshot.models || [],
+      snapshot.freeAllowance || null,
+      snapshot.modelGate || null
+    );
+  }
+}
+$("#account-mask").addEventListener("click", toggleAccountMask);
+$("#model-mask")?.addEventListener("click", toggleAccountMask);
 $("#account-list").addEventListener("change", (event) => {
   const routableInput = event.target.closest('input[data-act="routable"]');
   if (!routableInput) return;
