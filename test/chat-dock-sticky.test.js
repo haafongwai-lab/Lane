@@ -21,14 +21,12 @@ const read = (rel) => fs.readFileSync(path.join(HERE, "..", rel), "utf8");
 const APP = read("desktop/app.js");
 const CSS = read("desktop/styles.css");
 
-test("the chat view drops the page's bottom padding while it is open", () => {
-  assert.match(CSS, /body\.view-chat main \{ padding-bottom: 0; \}/);
-  // Top padding is dropped too: the sticky bar owns that space, and leaving the
-  // padding in made the bar slide up by it on the first scroll.
+test("the chat view fills the card edge to edge", () => {
+  // The view drops its padding so the sticky bar and dock sit on the card's
+  // own edges; the card is 16px shorter than the window (8px border top and
+  // bottom), so the shell measures against that, not the viewport.
   assert.match(CSS, /body\.view-chat #view-chat \{ padding-top: 0; padding-bottom: 0; \}/);
-  // With the top padding gone the shell fills the whole viewport, so the dock
-  // lands on the bottom edge.
-  assert.match(CSS, /body\.view-chat \.chat-shell \{ min-height: 100vh; \}/);
+  assert.match(CSS, /body\.view-chat \.chat-shell \{ min-height: calc\(100vh - 16px\); \}/);
 });
 
 test("the body class follows the active view", () => {

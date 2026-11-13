@@ -330,7 +330,7 @@ function createWindow() {
     height: 920,
     minWidth: 1040,
     minHeight: 680,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151517" : "#f4f3ef",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151517" : "#f2f1ed",
     title: "Lane",
     icon: path.join(DESKTOP_DIR, "assets", "lane.ico"),
     webPreferences: {

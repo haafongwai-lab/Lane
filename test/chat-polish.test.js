@@ -28,5 +28,8 @@ test("the fine print under the composer is gone", () => {
 });
 
 test("the scrollbar gutter is reserved so entering 问答 cannot shift the page", () => {
-  assert.match(CSS, /html \{ scrollbar-gutter: stable; \}/);
+  // No gutter to reserve any more: the window itself never scrolls, so there
+  // is no page scrollbar to appear and shift the layout. The card carries its
+  // own scrollbar inside its edge.
+  assert.match(CSS, /html \{ scrollbar-gutter: auto; \}/);
 });

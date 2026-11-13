@@ -131,11 +131,18 @@
   --shadow-strong: 0 0 0 .5px #ffffff29, 0 12px 32px #00000033;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
+/* The window is a fixed frame; the card inside scrolls. Same contract as
+   DSH's shell (frame overflow:hidden, panels scroll themselves), and it is
+   what lets the card keep all four corners instead of losing the right ones
+   to the page scrollbar. */
+html, body { margin: 0; height: 100vh; overflow: hidden; }
 /* The scrollbar's width is reserved even when nothing overflows: the 问答 view
    is exactly one viewport tall, so without this the bar vanished on entry and
    the whole page shifted sideways by its width. */
-html { scrollbar-gutter: stable; }
+/* No gutter reserve now: the page itself never scrolls, so there is no bar
+   to reserve space for. The card carries its own scrollbar inside its
+   rounded edge. */
+html { scrollbar-gutter: auto; }
 body {
   color: var(--ink);
   background:
@@ -153,6 +160,10 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--code); }
 h1, h2, h3, p { margin: 0; }
 .app { display: flex; min-height: 100vh; }
 
+/* No fill of its own: the sidebar sits on the same desk as the card, which is
+   how DSH reads in its window-chrome layout - `sidebarCol` drops its border
+   and the rounded card does the separating. A hairline here competed with the
+   card's corner and made the seam look doubled. */
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -160,11 +171,7 @@ h1, h2, h3, p { margin: 0; }
   display: flex;
   flex-direction: column;
   padding: 27px 15px 20px;
-  background: var(--sidebar-bg);
-  /* The same half-pixel edge DSH draws between its sidebar and centre
-     column: the two zones differ by a shade, and a hairline is what makes
-     that a boundary instead of a gradient. */
-  border-right: .5px solid var(--sidebar-line);
+  background: transparent;
 }
 .wordmark {
   color: var(--wordmark);
@@ -206,22 +213,26 @@ nav p {
 .dot.ok { background: #2d9861; box-shadow: 0 0 0 3px rgba(45,152,97,.12); }
 .dot.bad { background: var(--red); box-shadow: 0 0 0 3px rgba(166,75,60,.11); }
 
-/* The content is a sheet on the window's desk: both left corners are rounded
-   and the right edge is the window's own. The radius is DSH's
-   `--dsh-windows-content-radius` (16px); DSH rounds only the top-left because
-   its titlebar pushes the sheet down and its bottom sits at the window edge,
-   while here the sheet runs the full height so both left corners show.
-   No overflow:hidden — it would turn main into a scroll container and the
-   chat view's sticky bars would stop sticking. Nothing reaches the corners
-   anyway: every view insets its content by 42px, so only main's own background
-   paints there. */
+/* The card. Its 8px canvas-coloured border is the gap that lets all four
+   corners read as corners: DSH gets that strip from its titlebar, Lane has
+   none, so the desk has to surround the card instead. `background-clip:
+   padding-box` keeps the card's fill out of the border, and a 24px outer
+   radius leaves a 16px inner one - DSH's --dsh-windows-content-radius.
+   The card is the scroll container, so its corners stay put while the
+   content moves, and the sticky bars inside stick to the card's own edges. */
 main {
   width: calc(100% - 218px);
-  min-height: 100vh;
+  height: 100vh;
   margin-left: 218px;
-  padding-bottom: 56px;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--pane-bg);
-  border-radius: 16px 0 0 16px;
+  background-clip: padding-box;
+  border: 8px solid var(--canvas);
+  border-radius: 24px;
+  /* The view's own padding supplies the bottom space; 56px here would
+     double it now that main is the scroll box. */
+  overscroll-behavior: contain;
 }
 .heading-actions, .card-actions { display: flex; align-items: center; gap: 9px; }
 
@@ -269,7 +280,9 @@ main {
   display: none;
   max-width: 1320px;
   margin: 0 auto;
-  padding: 42px 42px 0;
+  /* The card scrolls now and carries no padding of its own, so the page's
+     bottom space lives here. */
+  padding: 42px 42px 56px;
 }
 .view.active { display: block; animation: reveal .24s ease both; }
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -2451,7 +2464,7 @@ body.view-chat main { padding-bottom: 0; }
 body.view-chat #view-chat { padding-top: 0; padding-bottom: 0; }
 /* The sticky bar occupies the space the view's top padding used to. */
 body.view-chat .chat-topbar { margin-top: 0; }
-body.view-chat .chat-shell { min-height: 100vh; }
+body.view-chat .chat-shell { min-height: calc(100vh - 16px); }
 .chat-shell {
   display: flex;
   flex-direction: column;
@@ -3195,3 +3208,15 @@ body.view-chat .chat-shell { min-height: 100vh; }
   overflow-wrap: anywhere;
 }
 .plugin-row.failed { border-bottom-color: var(--red-bg); }
+
+/* The card's own scrollbar: a thin thumb that floats inside the rounded
+   edge instead of a full-width native bar cutting the corner. */
+main::-webkit-scrollbar { width: 10px; }
+main::-webkit-scrollbar-track { background: transparent; }
+main::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+main::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
