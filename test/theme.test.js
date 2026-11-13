@@ -80,7 +80,10 @@ test("the palette defines dark values for every base surface token", () => {
     assert.ok(block.includes(`${token}:`), `dark palette carries ${token}`);
   }
   assert.match(block, /--canvas: #151517/);
-  assert.match(block, /--sidebar-bg: #1b1b1c/);
+  // The sidebar is the window's own colour, so it follows --canvas exactly.
+  assert.match(block, /--sidebar-bg: #151517/);
+  // The pane is the raised sheet the rounded corners are cut out of.
+  assert.ok(block.includes("--pane-bg:"), "dark palette carries --pane-bg");
   assert.match(block, /--surface-raised: #353638/);
   assert.match(block, /--ink: #f9fafb/);
   assert.match(block, /--green: #22c55e/);
