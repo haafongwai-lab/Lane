@@ -3409,7 +3409,11 @@ function extError(id, message) {
 let pluginState = { plugins: [], checks: new Map(), previews: new Map() };
 
 function pluginBadge(plugin, check) {
+  // A failed check is a result too: reporting nothing left the user staring
+  // at an unchanged row after pressing 检查更新.
+  if (check?.error) return '<span class="plugin-badge error">检查失败</span>';
   if (check?.updateAvailable) return '<span class="plugin-badge warn">可更新 v' + esc(check.latestVersion) + '</span>';
+  if (check && check.latestVersion && !check.updateAvailable) return '<span class="plugin-badge good">已是最新</span>';
   if (plugin.installed) return '<span class="plugin-badge">已安装</span>';
   return '<span class="plugin-badge">内置</span>';
 }
@@ -3430,7 +3434,12 @@ function renderPlugins() {
       ? renderPluginDiff(diff)
       : "";
     const canUpdate = Boolean(check?.updateAvailable) || Boolean(preview && !preview.upToDate);
-    return `<div class="plugin-row" data-plugin="${esc(plugin.key)}">
+    // A failed check names its cause under the row, so the panel never looks
+    // as though the press did nothing.
+    const checkLine = check?.error
+      ? `<div class="plugin-check-error">检查更新失败：${esc(check.error)}</div>`
+      : "";
+    return `<div class="plugin-row${check?.error ? " failed" : ""}" data-plugin="${esc(plugin.key)}">
       <div>
         <div class="plugin-name"><b>${esc(plugin.title)}</b>${pluginBadge(plugin, check)}</div>
         <p class="plugin-desc">${esc(plugin.description)}</p>
@@ -3441,6 +3450,7 @@ function renderPlugins() {
         <button class="mini" data-plugin-update="${esc(plugin.key)}"${canUpdate ? "" : " disabled"}>更新</button>
         <button class="mini" data-plugin-rollback="${esc(plugin.key)}"${plugin.canRollback ? "" : " disabled"}>回滚</button>
       </div>
+      ${checkLine}
       ${preview && !preview.upToDate ? `<div class="plugin-diff">
         <b>${esc(preview.fromVersion || plugin.version)} → ${esc(preview.toVersion || check?.latestVersion || "新版本")}</b>${previewPublished(preview)}
         ${diffText || "<br>新版没有可读出的域名、路径、接入端或协议变化。"}
@@ -3522,18 +3532,35 @@ $("#plugin-list").addEventListener("click", async (event) => {
   const rollback = event.target.closest("[data-plugin-rollback]");
   if (check) {
     const key = check.dataset.pluginCheck;
+    const label = check.textContent;
     check.disabled = true;
+    check.textContent = "检查中…";
     try {
       const rows = await window.lane.pluginCheck();
       for (const row of rows) pluginState.checks.set(row.key, row);
       renderPlugins();
+      // The rows now show the detail; the toast says the shape of the answer
+      // so a fully failed check cannot pass for a quiet success.
+      const failed = rows.filter((row) => row.error);
+      const behind = rows.filter((row) => row.updateAvailable);
+      if (failed.length === rows.length) {
+        toast(`检查更新失败：${failed[0].error}`, true);
+      } else if (failed.length) {
+        toast(`${rows.length - failed.length} 个插件已查询，${failed.length} 个失败`, true);
+      } else if (behind.length) {
+        toast(`${behind.length} 个插件有新版本`);
+      } else {
+        toast("全部已是最新版本");
+      }
     } catch (error) {
       toast(`检查更新失败：${error.message}`, true);
     } finally {
       check.disabled = false;
+      check.textContent = label;
     }
     return;
   }
+
   if (update) {
     const key = update.dataset.pluginUpdate;
     update.disabled = true;

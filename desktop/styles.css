@@ -3173,3 +3173,20 @@ body.view-chat .chat-shell { min-height: 100vh; }
 .drop-target {
   outline: 2px dashed var(--chat-accent); outline-offset: -4px; border-radius: 10px;
 }
+
+/* Plugin check results. 可更新 already used the attention colour; a failed
+   check needs its own, because "there is an update" and "the registry could
+   not be reached" are different facts and must not look alike. */
+.plugin-badge.good { background: var(--green-bg); color: var(--green); }
+.plugin-badge.error { background: var(--red-bg); color: var(--red); }
+/* The reason sits under the row's buttons, quiet but legible, and wraps
+   rather than truncating: a host name or a timeout is the whole point. */
+.plugin-check-error {
+  grid-column: 1 / -1;
+  margin-top: 8px; padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--red-bg); color: var(--red);
+  font: 11.5px/17px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.plugin-row.failed { border-bottom-color: var(--red-bg); }

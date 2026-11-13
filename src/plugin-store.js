@@ -28,6 +28,14 @@ import {
  */
 const nativeFetch = globalThis.fetch;
 
+// Where the plugin metadata may be read from, in order. The public registry
+// is the canonical source; the mirror is the same packages behind a CDN that
+// answers from inside mainland China, where the canonical host times out.
+const REGISTRIES = [
+  "https://registry.npmjs.org",
+  "https://registry.npmmirror.com"
+];
+
 /**
  * The vendored upstream plugins, and the updater around them.
  *
@@ -156,13 +164,78 @@ export async function listPlugins(env = process.env) {
 const META_TTL_MS = 10 * 60 * 1000;
 const metaCache = new Map();
 
-async function fetchJson(url, timeoutMs = 15000) {
-  const response = await nativeFetch(url, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs)
+// The registry that answered last. A mainland connection cannot reach the
+// canonical host at all, so every check would otherwise pay its connect
+// timeout before falling through to the mirror.
+let preferredRegistry = "";
+
+/**
+ * One registry document.
+ *
+ * The first call races the registries and keeps whichever answers; later calls
+ * go straight to it. A failure used to reach the user as undici's bare "fetch
+ * failed", which says neither what happened nor what to do, so each cause is
+ * named and every registry's outcome is reported when none works.
+ */
+export async function fetchJson(pathname, timeoutMs = 15000) {
+  const order = preferredRegistry
+    ? [preferredRegistry, ...REGISTRIES.filter((base) => base !== preferredRegistry)]
+    : REGISTRIES;
+
+  if (preferredRegistry) {
+    const doc = await readRegistry(preferredRegistry, pathname, timeoutMs);
+    if (doc.ok) return doc.value;
+    // The preferred one went away; forget it and try the rest.
+    preferredRegistry = "";
+  }
+
+  const failures = [];
+  const attempts = REGISTRIES.map(async (base) => {
+    const doc = await readRegistry(base, pathname, timeoutMs);
+    if (!doc.ok) throw Object.assign(new Error(doc.reason), { base });
+    return { base, value: doc.value };
   });
-  if (!response.ok) throw new Error(`registry answered ${response.status}`);
-  return response.json();
+
+  // Racing keeps the slow, unreachable host from delaying the answer: the
+  // mirror replies in a few hundred milliseconds while the canonical host is
+  // still waiting for a connection that will never open.
+  try {
+    const first = await Promise.any(attempts);
+    preferredRegistry = first.base;
+    return first.value;
+  } catch (error) {
+    for (const item of error?.errors || []) failures.push(item?.message || String(item));
+    throw new Error(failures.join("；") || "无法连接 npm registry");
+  }
+}
+
+async function readRegistry(base, pathname, timeoutMs) {
+  const url = `${base}${pathname}`;
+  try {
+    const response = await nativeFetch(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!response.ok) return { ok: false, reason: `${hostOf(base)} 返回 ${response.status}` };
+    return { ok: true, value: await response.json() };
+  } catch (error) {
+    return { ok: false, reason: `${hostOf(base)} ${reasonOf(error)}` };
+  }
+}
+
+function hostOf(base) {
+  return String(base).replace(/^https?:\/\//, "");
+}
+
+/** A cause the user can act on, not undici's "fetch failed". */
+function reasonOf(error) {
+  const code = String(error?.cause?.code || error?.code || "");
+  if (code === "UND_ERR_CONNECT_TIMEOUT" || /timeout/i.test(code)) return "连接超时";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "域名解析失败";
+  if (code === "ECONNREFUSED") return "拒绝连接";
+  if (code === "ECONNRESET" || /socket hang up/i.test(String(error?.message))) return "连接被重置";
+  if (/aborted/i.test(String(error?.message))) return "超时未响应";
+  return String(error?.message || error || "未知错误");
 }
 
 /** The registry's `latest` document for one plugin, cached briefly. */
@@ -173,7 +246,7 @@ export async function latestInfo(key, env = process.env) {
   const hit = metaCache.get(cacheKey);
   if (hit && Date.now() - hit.at < META_TTL_MS) return hit.value;
   const encoded = encodeURIComponent(spec.packageName).replace(/^%40/, "@");
-  const doc = await fetchJson(`https://registry.npmjs.org/${encoded}/latest`);
+  const doc = await fetchJson(`/${encoded}/latest`);
   const value = {
     version: String(doc.version || ""),
     tarball: String(doc.dist?.tarball || ""),
@@ -319,7 +392,7 @@ async function publishedTime(key, version, env = process.env) {
   try {
     const spec = PLUGINS[key];
     const encoded = encodeURIComponent(spec.packageName).replace(/^%40/, "@");
-    const doc = await fetchJson(`https://registry.npmjs.org/${encoded}`, 20000);
+    const doc = await fetchJson(`/${encoded}`, 20000);
     return String(doc?.time?.[version] || "");
   } catch {
     return "";
