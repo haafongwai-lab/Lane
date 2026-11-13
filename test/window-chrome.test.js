@@ -62,6 +62,15 @@ test("the page no longer draws its own window buttons", () => {
   assert.equal(/titlebar-btn/.test(CSS), false, "no drawn-button styles");
 });
 
+test("the drag strip lets the window be moved without a native titlebar", () => {
+  // The overlay owns the buttons but supplies no drag surface. A pseudo-element
+  // did not produce a working app-region here, so it is a real element: a
+  // transparent 40px strip across the top, with no controls on it.
+  assert.match(HTML, /<div class="window-drag" id="window-drag"/);
+  assert.match(CSS, /\[data-platform="win32"\] \.window-drag \{[\s\S]*?-webkit-app-region: drag/);
+  assert.match(CSS, /\[data-platform="win32"\] \.window-drag \{[\s\S]*?height: var\(--titlebar-h\)/);
+});
+
 test("the renderer learns its platform", () => {
   assert.match(MAIN, /document\.documentElement\.dataset\.platform = \$\{JSON\.stringify\(process\.platform\)\}/);
 });

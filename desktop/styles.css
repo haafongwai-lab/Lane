@@ -3245,6 +3245,19 @@ main::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip:
 
 [data-platform="win32"] body { padding-top: var(--titlebar-h); }
 
+/* The overlay supplies the buttons but no drag surface. A frame with a hidden
+   titlebar can only be moved through an explicit app-region, so reserve the
+   same 40px strip at the top as one. There are deliberately no controls on it:
+   it is a transparent drag handle, not another titlebar. */
+[data-platform="win32"] .window-drag {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--titlebar-h);
+  z-index: 100;
+  -webkit-app-region: drag;
+}
+
+
 /* The flex column and the card both measure against the strip now. */
 [data-platform="win32"] .app { min-height: calc(100vh - var(--titlebar-h)); }
 [data-platform="win32"] main { height: calc(100vh - var(--titlebar-h)); }
