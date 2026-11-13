@@ -47,9 +47,11 @@ const syntaxTargets = [
   ...(await jsFiles(path.join(ROOT, "desktop"))),
   ...(await jsFiles(path.join(ROOT, "test"))),
   path.join(ROOT, "scripts", "check.mjs"),
-  // The MCP server is a long-lived stdio process. It is checked for syntax but
-  // never imported: importing it would attach a stdin listener to the checker.
-  path.join(ROOT, "scripts", "npm-registry-mcp.mjs")
+  // The MCP servers are long-lived stdio processes. They are checked for syntax
+  // but never imported: importing one would attach a stdin listener to the
+  // checker, and the process would sit waiting for JSON-RPC.
+  path.join(ROOT, "scripts", "npm-registry-mcp.mjs"),
+  path.join(ROOT, "scripts", "tavily-mcp.mjs")
 ].filter((file) => !file.endsWith(".py"));
 
 for (const file of syntaxTargets) {
