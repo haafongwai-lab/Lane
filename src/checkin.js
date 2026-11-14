@@ -266,7 +266,10 @@ async function claimRound({
   now = new Date(),
   force = false,
   only = null,
-  fetchImpl = fetch
+  // Null, not `fetch`: a default captured in the parameter list would bind
+  // the raw global before the egress window opens. `post` resolves the
+  // global at call time instead, inside the window.
+  fetchImpl = null
 } = {}) {
   const state = await readCheckin(env);
   const settings = state.settings;
@@ -314,7 +317,13 @@ async function claimRound({
         continue;
       }
     }
-    const outcome = await claimFor(provider, account, { env, fetchImpl });
+    // The claim talks to the billing endpoints with the account's tokens, so
+    // it runs under the same outbound guard as a chat. `fetchImpl` — a test
+    // seam — resolves at call time when unset, so it sees the guard instead
+    // of a global captured before the window opened.
+    const outcome = await (typeof provider.withEgress === "function"
+      ? provider.withEgress(() => claimFor(provider, account, { env, fetchImpl: fetchImpl || undefined }))
+      : claimFor(provider, account, { env, fetchImpl: fetchImpl || undefined }));
     // A build with no check-in activity at all: recorded as unavailable and
     // never retried, instead of looking like a failure every half hour.
     if (outcome.skip) {
@@ -468,7 +477,10 @@ export function startCheckinScheduler({
   provider,
   env = process.env,
   intervalMs = 5 * 60 * 1000,
-  fetchImpl = fetch,
+  // Left unset in production: the fetch is resolved at call time inside the
+  // provider's egress window, so the check-in cannot sail past the guard on a
+  // global captured before the window opened. Tests inject their own.
+  fetchImpl = null,
   onError = (error) => console.error("check-in failed:", error?.message || error)
 } = {}) {
   let stopped = false;

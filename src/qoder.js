@@ -186,7 +186,10 @@ export class QoderProvider extends WorkBuddyProvider {
       if (latest?.auth) target.auth = latest.auth;
       const current = Number(target.auth?.expires) || 0;
       if (current && current - Date.now() > REFRESH_EARLY_MS) return target.auth;
-      return super.refreshIfNeeded(target);
+      // Under the egress guard like every other upstream call — the refresh
+      // carries the account's refresh token, so it is exactly the traffic the
+      // guard exists to watch.
+      return this.withEgress(() => super.refreshIfNeeded(target));
     });
   }
 

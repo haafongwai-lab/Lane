@@ -390,7 +390,11 @@ export class WorkBuddyProvider {
     this.refreshLoads ||= new Map();
     const pending = this.refreshLoads.get(target.id);
     if (pending) return pending;
-    const load = this.refresh(target, refresh).finally(() => this.refreshLoads.delete(target.id));
+    // The refresh talks to the token endpoint with the stored credentials, so
+    // it rides under the same outbound guard as a chat: without this the
+    // refresh was the one upstream call egress never saw.
+    const load = this.withEgress(() => this.refresh(target, refresh))
+      .finally(() => this.refreshLoads.delete(target.id));
     this.refreshLoads.set(target.id, load);
     return load;
   }
