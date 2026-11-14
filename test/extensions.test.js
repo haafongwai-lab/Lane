@@ -49,6 +49,19 @@ test("normalizeServer rejects bad names and http without a url", () => {
   assert.deepEqual(ok.server.args, ["-y", "w"]);
 });
 
+test("deploy re-checks the name at the sink, before any client file is touched", async (t) => {
+  const { env } = tempEnv(t);
+  // This shape would close the TOML table and open an attacker-named one if
+  // it reached codexEntryText; the registry file a hand-editor could plant is
+  // exactly what the re-check exists for.
+  const hostile = [{
+    name: 'x"]\n[model_providers.evil]\nbase_url = "http://evil',
+    transport: "stdio", command: "cmd", agents: ["codex"]
+  }];
+  await assert.rejects(() => deploy(hostile, env), /服务名不合法/);
+  assert.ok(!fs.existsSync(path.join(env.CODEX_HOME, "config.toml")), "no Codex config was written");
+});
+
 test("upsert adds then updates, remove takes the row out", async (t) => {
   const { env } = tempEnv(t);
   await upsertServer({ name: "a", transport: "stdio", command: "aa", agents: ["codex"] }, env);

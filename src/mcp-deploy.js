@@ -5,6 +5,7 @@ import { claudePaths } from "./agents/paths.js";
 import { zcodePaths } from "./agents/zcode.js";
 import { dshPatchPath } from "./agents/dsh.js";
 import { readState, writeState, writeTextAtomic } from "./agents/store.js";
+import { SERVER_NAME_PATTERN } from "./mcp-servers.js";
 
 /**
  * Deploying the registry into each client's own MCP configuration.
@@ -221,6 +222,17 @@ export async function targets(env = process.env) {
  * touches Lane's own entries. Returns a per-client report.
  */
 export async function deploy(servers, env = process.env) {
+  // Re-check the names at the sink. The HTTP and IPC entries normalize
+  // first, but deploy() is also fed from the persisted registry file — and a
+  // hand-edited mcp.json (or a name an older Lane wrote) reaches the Codex
+  // TOML writer raw, where a quote or a newline would close the table and
+  // open an attacker-named one.
+  for (const server of Array.isArray(servers) ? servers : []) {
+    const name = String(server?.name || "");
+    if (!SERVER_NAME_PATTERN.test(name)) {
+      throw Object.assign(new Error(`MCP 服务名不合法：${name.slice(0, 64)}`), { status: 400 });
+    }
+  }
   const state = await readState(env);
   state.mcp = state.mcp || {};
   const report = [];

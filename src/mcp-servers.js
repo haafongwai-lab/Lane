@@ -21,9 +21,15 @@ export const TRANSPORTS = ["stdio", "http"];
 // through its MCP plugin, so Lane has nothing to write into it.
 export const AGENTS = ["claude-desktop", "codex", "zcode"];
 
+// One rule for every name that becomes an identifier downstream — a JSON key
+// in Claude Desktop's and ZCode's configs, and a TOML table header in Codex's
+// config.toml, where a quote or a newline would close the table and open
+// another. deploy() re-checks against this at the sink, not just normalize.
+export const SERVER_NAME_PATTERN = /^[\w][\w.-]*$/;
+
 export function normalizeServer(raw = {}) {
   const name = String(raw.name || "").trim();
-  if (!name || !/^[\w][\w.-]*$/.test(name)) return { error: "名称需为字母、数字、点、连字符或下划线" };
+  if (!name || !SERVER_NAME_PATTERN.test(name)) return { error: "名称需为字母、数字、点、连字符或下划线" };
   const transport = raw.transport === "http" ? "http" : "stdio";
   const out = { name, transport, agents: [], off: Boolean(raw.off) };
 
