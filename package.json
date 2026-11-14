@@ -36,6 +36,12 @@
     "appId": "local.lane.desktop",
     "productName": "Lane",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableCookieEncryption": true
+    },
     "files": [
       "desktop/**/*",
       "!desktop/**/.mimosa/**",

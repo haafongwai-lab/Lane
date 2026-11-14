@@ -3791,8 +3791,8 @@ function renderMcp() {
       var tip = blocked
         ? AGENT_SHORT[target.agent] + " 不支持远程 MCP"
         : (on ? "已写入 " : "未写入 ") + AGENT_SHORT[target.agent];
-      return '<span class="' + cls + '" data-lamp="' + esc(server.name) + '" data-agent="' + target.agent +
-        '" data-tip="' + esc(tip) + '"><i></i>' + AGENT_SHORT[target.agent] + "</span>";
+      return '<span class="' + cls + '" data-lamp="' + esc(server.name) + '" data-agent="' + esc(target.agent) +
+        '" data-tip="' + esc(tip) + '"><i></i>' + esc(AGENT_SHORT[target.agent]) + "</span>";
     }).join("");
 
     var testState = extData.mcpTest && extData.mcpTest[server.name];
