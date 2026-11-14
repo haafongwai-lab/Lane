@@ -1,6 +1,8 @@
 import { createServer } from "./server.js";
-import { DEFAULT_HOST, DEFAULT_PORT, assertLoopbackHost, gatewayBase, parseAddress } from "./config.js";
+import { DEFAULT_HOST, DEFAULT_PORT, assertLoopbackHost, dataDir, gatewayBase, parseAddress } from "./config.js";
 import { claimOwnership, releaseOwnership } from "./owner.js";
+import { crossProcessLock } from "./accounts.js";
+import path from "node:path";
 import { connectClaudeDesktop, disconnectClaudeDesktop } from "./agents/claude-desktop.js";
 import { connectCodex, disconnectCodex } from "./agents/codex.js";
 import { ProviderRouter } from "./provider-router.js";
@@ -254,6 +256,15 @@ async function checkin(args) {
   }, null, 2));
 }
 
+// A CLI connect edits the same wiring.json and client configs the gateway's
+// own connect does; the lock is the one the control center holds, so the two
+// cannot drop each other's read-modify-write.
+const withWiringLock = (work) => crossProcessLock(
+  path.join(dataDir(), "agents-wiring"),
+  work,
+  { waitMs: 30_000 }
+);
+
 async function main() {
   const args = process.argv.slice(2);
   const [command, target] = args;
@@ -261,29 +272,35 @@ async function main() {
   if (command === "serve") return serve(args.slice(1));
   if (command === "doctor") return doctor();
   if (command === "connect" && target === "claude-desktop") {
-    return connectClaudeDesktop({ gateway: gatewayBase(gateway.host, gateway.port) });
+    return withWiringLock(() => connectClaudeDesktop({ gateway: gatewayBase(gateway.host, gateway.port) }));
   }
-  if (command === "disconnect" && target === "claude-desktop") return disconnectClaudeDesktop();
+  if (command === "disconnect" && target === "claude-desktop") {
+    return withWiringLock(() => disconnectClaudeDesktop());
+  }
   if (command === "connect" && target === "codex") {
-    const provider = await new ProviderRouter().init();
-    const result = await connectCodex({
-      gateway: gatewayBase(gateway.host, gateway.port),
-      providerModels: () => provider.listModels()
+    return withWiringLock(async () => {
+      const provider = await new ProviderRouter().init();
+      const result = await connectCodex({
+        gateway: gatewayBase(gateway.host, gateway.port),
+        providerModels: () => provider.listModels()
+      });
+      console.log(JSON.stringify(result, null, 2));
+      return result;
     });
-    console.log(JSON.stringify(result, null, 2));
-    return result;
   }
-  if (command === "disconnect" && target === "codex") return disconnectCodex();
+  if (command === "disconnect" && target === "codex") return withWiringLock(() => disconnectCodex());
   if (command === "connect" && target === "zcode") {
-    const provider = await new ProviderRouter().init();
-    const result = await connectZcode({
-      gateway: gatewayBase(gateway.host, gateway.port),
-      providerModels: () => provider.listModels()
+    return withWiringLock(async () => {
+      const provider = await new ProviderRouter().init();
+      const result = await connectZcode({
+        gateway: gatewayBase(gateway.host, gateway.port),
+        providerModels: () => provider.listModels()
+      });
+      console.log(JSON.stringify(result, null, 2));
+      return result;
     });
-    console.log(JSON.stringify(result, null, 2));
-    return result;
   }
-  if (command === "disconnect" && target === "zcode") return disconnectZcode();
+  if (command === "disconnect" && target === "zcode") return withWiringLock(() => disconnectZcode());
   if (command === "autostart" && target === "install") {
     return installWindowsTask({ port: gateway.port });
   }

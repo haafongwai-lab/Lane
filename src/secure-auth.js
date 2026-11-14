@@ -70,9 +70,12 @@ export async function protectText(text) {
   if (process.platform !== "win32") return text;
   try {
     return `${PREFIX}${await runPowerShell(PROTECT_SCRIPT, text)}`;
-  } catch {
+  } catch (error) {
     // DPAPI is unavailable (unusual Windows build, policy or PowerShell
     // blocked): keep the app usable; restrictToOwner still limits the file.
+    // The degradation is announced, not silent — a user auditing "is my
+    // token encrypted?" has to be able to see the answer in the log.
+    console.error("DPAPI 不可用，凭据将以明文保存（仍限制为当前用户可读）:", error?.message || error);
     return text;
   }
 }

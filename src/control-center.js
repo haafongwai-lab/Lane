@@ -21,6 +21,7 @@ import * as mcpDeploy from "./mcp-deploy.js";
 import * as skills from "./skills.js";
 import { freeAllowance } from "./free-window.js";
 import { testMcpServer } from "./mcp-test.js";
+import { crossProcessLock } from "./accounts.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -317,10 +318,16 @@ export function createControlCenter({
   // Every wiring change reads, edits and rewrites the one wiring.json; two
   // changes at once (each agent's toggle clicked in quick succession) would
   // have the second read the state before the first wrote it, and the file
-  // would remember only one of them.
+  // would remember only one of them. The in-process queue covers the gateway;
+  // the cross-process lock covers `lane connect` in another terminal doing
+  // the same read-edit-write against the same file.
   let wiringQueue = Promise.resolve();
   const serializeWiring = (task) => {
-    const next = wiringQueue.then(task, task);
+    const next = wiringQueue.then(() => crossProcessLock(
+      path.join(dataDir(env), "agents-wiring"),
+      task,
+      { waitMs: 30_000 }
+    ), task);
     wiringQueue = next.catch(() => {});
     return next;
   };

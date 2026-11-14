@@ -171,6 +171,73 @@ async function writeJson(file, value) {
   await writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+/**
+ * Rewrites one top-level string key in a JSONC document in place, leaving
+ * every comment the user wrote where it is. The scanner walks the raw text
+ * (strings, line and block comments, brace depth) and only touches the span
+ * between the key's colon and its old value. Returns null whenever the edit
+ * cannot be done safely — key absent, or the old value not a string — and
+ * the caller falls back to the parse-and-rewrite, which loses comments.
+ */
+function patchJsoncStringKey(text, key, value) {
+  const src = String(text ?? "");
+  const encoded = JSON.stringify(key);
+  let depth = 0;
+  let quote = "";
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (quote) {
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === quote) quote = "";
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; i += 1; continue; }
+    if (ch === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n") i += 1; continue; }
+    if (ch === "/" && src[i + 1] === "*") {
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    if (ch === "{" || ch === "[") { depth += 1; i += 1; continue; }
+    if (ch === "}" || ch === "]") { depth -= 1; i += 1; continue; }
+    if (depth === 1 && ch === '"' && src.startsWith(encoded, i)) {
+      let j = i + encoded.length;
+      while (j < src.length && /\s/.test(src[j])) j += 1;
+      if (src[j] !== ":") { i += 1; continue; }
+      j += 1;
+      while (j < src.length && /\s/.test(src[j])) j += 1;
+      if (src[j] !== '"') return null;
+      let end = j + 1;
+      while (end < src.length) {
+        if (src[end] === "\\") { end += 2; continue; }
+        if (src[end] === '"') { end += 1; break; }
+        end += 1;
+      }
+      if (end > src.length) return null;
+      return src.slice(0, j) + JSON.stringify(value) + src.slice(end);
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/**
+ * Sets one top-level string setting, preferring the comment-preserving patch.
+ * Returns false when the caller must fall back to rewriting the document.
+ */
+async function writeStringSetting(file, current, key, value) {
+  if (current.hadFile) {
+    const patched = patchJsoncStringKey(current.text, key, value);
+    if (patched == null) return false;
+    if (patched !== current.text) await writeTextAtomic(file, patched);
+    return true;
+  }
+  return false;
+}
+
 export async function connectVscode({
   env = process.env,
   gateway = gatewayBase(),
@@ -183,15 +250,24 @@ export async function connectVscode({
     ? settings.value
     : {};
   const groups = parseJsonc((await readJsonc(paths.models)).text || "[]", paths.models);
+  // A models file that parses but is not an array is the user's own shape;
+  // silently replacing it with an array would eat their configuration.
+  if (groups != null && !Array.isArray(groups)) {
+    throw new Error(`${paths.models} is not a JSON array; refusing to edit it`);
+  }
   const list = Array.isArray(groups) ? groups : [];
   const models = await readModels(providerModels);
   const first = models[0] || { id: "auto", name: "Auto" };
   const previousDefault = document["chat.defaultModel"];
   const next = list.filter((group) => !isLaneGroup(group));
   next.unshift(laneGroup(models.length ? models : [first], gateway));
-  document["chat.defaultModel"] = modelId(first);
   await writeJson(paths.models, next);
-  await writeJson(paths.settings, document);
+  // The settings file is the user's, comments included; patch it in place
+  // when the shape allows, and only rewrite — dropping comments — otherwise.
+  if (!(await writeStringSetting(paths.settings, settings, "chat.defaultModel", modelId(first)))) {
+    document["chat.defaultModel"] = modelId(first);
+    await writeJson(paths.settings, document);
+  }
   state.vscode = {
     connected: true,
     gateway: String(gateway),
@@ -220,15 +296,20 @@ export async function syncVscodeCatalog({ env = process.env, models = [] } = {})
     ? settings.value
     : {};
   const groups = parseJsonc((await readJsonc(paths.models)).text || "[]", paths.models);
+  if (groups != null && !Array.isArray(groups)) {
+    throw new Error(`${paths.models} is not a JSON array; refusing to edit it`);
+  }
   const list = Array.isArray(groups) ? groups : [];
   const first = models[0] || { id: "auto", name: "Auto" };
   const next = list.filter((group) => !isLaneGroup(group));
   next.unshift(laneGroup(models.length ? models : [first], saved.gateway));
-  if (String(document["chat.defaultModel"] || "").startsWith(TOKEN_PREFIX)) {
-    document["chat.defaultModel"] = modelId(first);
-  }
   await writeJson(paths.models, next);
-  await writeJson(paths.settings, document);
+  if (String(document["chat.defaultModel"] || "").startsWith(TOKEN_PREFIX)) {
+    if (!(await writeStringSetting(paths.settings, settings, "chat.defaultModel", modelId(first)))) {
+      document["chat.defaultModel"] = modelId(first);
+      await writeJson(paths.settings, document);
+    }
+  }
   saved.modelIds = models.map((model) => model.id);
   await writeState(state, env);
   return { changed: true };
@@ -244,13 +325,18 @@ export async function disconnectVscode({ env = process.env } = {}) {
     const document = settings.value && typeof settings.value === "object" && !Array.isArray(settings.value)
       ? settings.value
       : {};
-    if (String(document["chat.defaultModel"] || "").startsWith(TOKEN_PREFIX)) {
-      if (saved.previousDefault === undefined) delete document["chat.defaultModel"];
-      else document["chat.defaultModel"] = saved.previousDefault;
-    }
+    const restoreDefault = String(document["chat.defaultModel"] || "").startsWith(TOKEN_PREFIX);
     const groups = parseJsonc((await readJsonc(paths.models)).text || "[]", paths.models);
     if (Array.isArray(groups)) await writeJson(paths.models, groups.filter((group) => !isLaneGroup(group)));
-    await writeJson(paths.settings, document);
+    if (restoreDefault) {
+      if (saved.previousDefault === undefined) {
+        delete document["chat.defaultModel"];
+        await writeJson(paths.settings, document);
+      } else if (!(await writeStringSetting(paths.settings, settings, "chat.defaultModel", saved.previousDefault))) {
+        document["chat.defaultModel"] = saved.previousDefault;
+        await writeJson(paths.settings, document);
+      }
+    }
   } catch {
     // A file the user has since made invalid is theirs to fix; the state
     // entry still goes away so Lane stops claiming the connection.

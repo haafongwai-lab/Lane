@@ -1,3 +1,6 @@
+import os from "node:os";
+import { dataDir } from "./config.js";
+
 export function json(res, status, value, headers = {}) {
   const body = JSON.stringify(value);
   res.writeHead(status, {
@@ -9,8 +12,29 @@ export function json(res, status, value, headers = {}) {
   res.end(body);
 }
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Strips local filesystem roots from a message before it goes on the wire.
+ * Error text reaches loopback clients only, but a message that names the
+ * data directory or the user's home tells any caller more than it needs;
+ * the wire has no other reason to carry absolute paths.
+ */
+export function publicMessage(message) {
+  let text = String(message ?? "");
+  const roots = [
+    [dataDir(), "<lane-data>"],
+    [os.homedir?.() || "", "<home>"]
+  ];
+  for (const [root, label] of roots) {
+    if (!root) continue;
+    text = text.replace(new RegExp(escapeRegExp(root), "gi"), label);
+  }
+  return text;
+}
+
 export function errorJSON(res, status, message, type = "invalid_request_error") {
-  json(res, status, { error: { message, type } });
+  json(res, status, { error: { message: publicMessage(message), type } });
 }
 
 // 64 MB: ZCode's Anthropic protocol resends the whole conversation every

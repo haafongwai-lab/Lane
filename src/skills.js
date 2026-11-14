@@ -81,6 +81,13 @@ export function checkSkillName(name) {
   if (/[/\\]/.test(value) || value === "." || value === "..") {
     throw Object.assign(new Error("技能名不合法"), { status: 400 });
   }
+  // Windows strips trailing dots (a folder created as "demo." *is* "demo"),
+  // so a trailing dot would alias Lane's own library entries; a trailing
+  // `~<digit>` would alias the 8.3 short name of an earlier entry. Both are
+  // refused as malformed rather than survived by luck.
+  if (/\.$/.test(value) || /~\d$/.test(value) || value.length > 255) {
+    throw Object.assign(new Error("技能名不合法"), { status: 400 });
+  }
   if (/[\x00-\x1f]/.test(value) || WINDOWS_RESERVED.test(value) || WINDOWS_FORBIDDEN.test(value)) {
     throw Object.assign(new Error("技能名不合法"), { status: 400 });
   }
@@ -379,8 +386,11 @@ async function ensureDir(p) {
   await fs.mkdir(p, { recursive: true });
 }
 
-/** True when the folder is inside Lane's own data directory. */
+/** True when the folder is inside Lane's own skill library. */
 export function inLibrary(p, env = process.env) {
+  // A relative-path check, not a prefix compare: `startsWith` reads a
+  // sibling folder (`…\skills-evil`) as inside `…\skills`.
   const root = path.resolve(libraryRoot(env));
-  return path.resolve(p).startsWith(root);
+  const rel = path.relative(root, path.resolve(p));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }

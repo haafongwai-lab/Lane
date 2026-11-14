@@ -51,10 +51,15 @@ export function dshPatchPath(env = process.env) {
 // can carry. A model with no declared effort is the one that broke.
 const EFFORT_NAMES = { off: "Off", none: "None", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" };
 
+// YAML 1.1 reads these plain scalars as booleans, null or numbers. A model id
+// that happens to spell one (`off`, `123`, `3.5`) would come back out of the
+// patch file as the wrong type and misroute the request, so it gets quoted.
+const YAML_AMBIGUOUS = /^(?:true|false|yes|no|on|off|null|~|\.nan|\.inf|-?0x[0-9a-fA-F]+|-?\d+(?:\.\d+)?(?::\d{1,3})*)$/i;
+
 function yamlScalar(value) {
   const text = String(value ?? "");
   if (text === "") return '""';
-  if (/^[\w][\w.\-/@ ]*$/.test(text) && !/[:#]/.test(text)) return text;
+  if (/^[\w][\w.\-/@ ]*$/.test(text) && !/[:#]/.test(text) && !YAML_AMBIGUOUS.test(text)) return text;
   return JSON.stringify(text);
 }
 

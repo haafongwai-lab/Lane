@@ -63,39 +63,65 @@ export async function claimOwnership(env = process.env) {
   const root = dataDir(env);
   const file = path.join(root, "lane.pid");
   await fs.mkdir(root, { recursive: true });
-  try {
-    const handle = await fs.open(file, "wx", 0o600);
-    await handle.write(`${process.pid} ${Date.now()}`);
-    await handle.close();
-    startHeartbeat(file);
-    return { claimed: true, owner: 0 };
-  } catch (error) {
-    // Any other failure — a locked directory, a full disk — is not ours to
-    // paper over; only "someone else got there first" falls through to the
-    // liveness check below.
-    if (error?.code !== "EEXIST") throw error;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const handle = await fs.open(file, "wx", 0o600);
+      await handle.write(`${process.pid} ${Date.now()}`);
+      await handle.close();
+      startHeartbeat(file);
+      return { claimed: true, owner: 0 };
+    } catch (error) {
+      // Any other failure — a locked directory, a full disk — is not ours to
+      // paper over; only "someone else got there first" falls through to the
+      // liveness check below.
+      if (error?.code !== "EEXIST") throw error;
+    }
+    let current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+    // A winner creates the file with `wx` and only then writes the pid. A
+    // simultaneous loser can observe that tiny empty window; give the winner
+    // one beat to finish instead of renaming its seat out from under it.
+    if (Number.isNaN(current) && await seatAgeMs(file) < 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+    }
+    const held = !Number.isNaN(current)
+      && current !== process.pid
+      && processAlive(current)
+      && await seatAgeMs(file) < SEAT_STALE_MS;
+    if (held) return { claimed: false, owner: current };
+    // A dead owner, a seat gone quiet, or a file naming no owner is taken
+    // over. The takeover is the lock-breaker's shape, not a blind rename:
+    // moving the seat aside is exclusive, so two processes that both judged
+    // the seat stale cannot both walk away claiming it — the second rename
+    // finds nothing to move and comes back around to re-read. The first
+    // claimer after that wins the `wx` create above; the loser reads a live
+    // pid and stands down.
+    const aside = `${file}.${process.pid}.tmp`;
+    const moved = await fs.rename(file, aside).then(() => true, () => false);
+    if (moved) {
+      // The content may have changed between the read above and this rename:
+      // what got moved could be a claim a parallel starter created in that
+      // gap. Rename preserves mtime, so the aside file answers the same
+      // freshness question. A genuinely live seat goes back where it was —
+      // costing this process a retry, not the other process its claim.
+      const stolen = parsePid(await fs.readFile(aside, "utf8").catch(() => ""));
+      const stolenHeld = !Number.isNaN(stolen)
+        && stolen !== process.pid
+        && processAlive(stolen)
+        && await seatAgeMs(aside) < SEAT_STALE_MS;
+      if (stolenHeld) {
+        const back = await fs.rename(aside, file).then(() => true, () => false);
+        if (!back) await fs.rm(aside, { force: true }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        continue;
+      }
+      await fs.rm(aside, { force: true }).catch(() => {});
+    }
   }
-  let current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
-  // A winner creates the file with `wx` and only then writes the pid. A
-  // simultaneous loser can observe that tiny empty window; give the winner
-  // one beat to finish instead of renaming its seat out from under it.
-  if (Number.isNaN(current) && await seatAgeMs(file) < 2000) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
-  }
-  const held = !Number.isNaN(current)
-    && current !== process.pid
-    && processAlive(current)
-    && await seatAgeMs(file) < SEAT_STALE_MS;
-  if (held) return { claimed: false, owner: current };
-  // A dead owner, a seat gone quiet, or a file naming no owner is taken
-  // over — by rename, so a parallel reader sees whole content, never a
-  // truncated pid.
-  const temp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(temp, `${process.pid} ${Date.now()}`, "utf8");
-  await fs.rename(temp, file);
-  startHeartbeat(file);
-  return { claimed: true, owner: Number.isNaN(current) ? 0 : current };
+  // Four rounds without a stable answer: someone is actively contending for
+  // the seat, and refusing to double-write is the whole point of the file.
+  const current = parsePid(await fs.readFile(file, "utf8").catch(() => ""));
+  return { claimed: false, owner: Number.isNaN(current) ? 0 : current };
 }
 
 /** Hands the seat back — only if it is still ours to give. */

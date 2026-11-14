@@ -83,7 +83,12 @@ export async function installWindowsTask({
     // deleted by the follower's exit while the owner still runs.
     ""
   );
-  await fs.writeFile(runner, runnerLines.join("\r\n"));
+  // Temp-then-rename like every other generated file: the shortcut points at
+  // this runner by path, so a crash mid-write must not leave a truncated
+  // script there for the next logon.
+  const runnerTemp = `${runner}.${process.pid}.tmp`;
+  await fs.writeFile(runnerTemp, runnerLines.join("\r\n"));
+  await fs.rename(runnerTemp, runner);
   // Exactly one startup entry: a desktop build launches directly, a node
   // checkout through the runner. Two shortcuts would start Lane twice per
   // logon and race for the single-instance lock, so the unused one is
