@@ -11,7 +11,9 @@ import {
   pluginEntryUrl,
   pluginInfo,
   pluginRoot,
-  untar
+  rollbackPlugin,
+  untar,
+  writeStaged
 } from "../src/plugin-store.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -71,4 +73,39 @@ test("an unknown plugin key is refused", async (t) => {
   const env = await tempEnv(t);
   await assert.rejects(() => pluginInfo("not-a-plugin", env), /unknown plugin/);
   await assert.rejects(() => pluginEntryUrl("not-a-plugin", env), /unknown plugin/);
+});
+
+test("staging parses the new entry but never executes it", async (t) => {
+  const env = await tempEnv(t);
+  globalThis.__laneStageProbe = false;
+  try {
+    const dir = await writeStaged("trae-auth", env, new Map([
+      ["package/index.mjs", Buffer.from("globalThis.__laneStageProbe = true;\nexport default 1;\n")]
+    ]));
+    assert.equal(globalThis.__laneStageProbe, false,
+      "top-level code of the staged module must not run before the diff is approved");
+    const staged = await fs.readFile(path.join(dir, "index.mjs"), "utf8");
+    assert.match(staged, /__laneStageProbe/);
+  } finally {
+    delete globalThis.__laneStageProbe;
+  }
+});
+
+test("staging refuses an entry that cannot even parse", async (t) => {
+  const env = await tempEnv(t);
+  await assert.rejects(
+    () => writeStaged("trae-auth", env, new Map([
+      ["package/index.mjs", Buffer.from("this is not javascript {{{")]
+    ])),
+    /语法/
+  );
+});
+
+test("rollback with a traversal key refuses before deleting anything", async (t) => {
+  const env = await tempEnv(t);
+  const victim = path.join(path.dirname(pluginRoot(env)), "victim");
+  await fs.mkdir(victim, { recursive: true });
+  await fs.writeFile(path.join(victim, "keep.txt"), "still here", "utf8");
+  await assert.rejects(() => rollbackPlugin("../victim", env), /unknown plugin/);
+  assert.equal(await fs.readFile(path.join(victim, "keep.txt"), "utf8"), "still here");
 });

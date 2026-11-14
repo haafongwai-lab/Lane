@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import zlib from "node:zlib";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataDir } from "./config.js";
@@ -318,7 +319,35 @@ async function currentSource(key, env) {
   return fs.readFile(file, "utf8");
 }
 
-async function writeStaged(key, env, files) {
+/**
+ * A parse-only smoke test of the staged entry.
+ *
+ * `node --check` reads the file as an ES module and reports syntax errors
+ * without executing a line of it. The old check imported the staged module
+ * outright — which ran its top-level code in the gateway process *before*
+ * the user had seen the diff they were asked to approve, so the review the
+ * updater advertises was not a boundary at all. A corrupted download still
+ * fails here, which is all the original check was for; a malicious one gets
+ * nothing until applyUpdate() has run and the user has said yes.
+ *
+ * Best-effort on purpose: when no node can be spawned (a packaged desktop
+ * build without node on PATH), the check is skipped rather than failing the
+ * update — applyUpdate keeps a rollback, and nothing has executed yet.
+ */
+function syntaxCheck(file) {
+  return new Promise((resolve) => {
+    const args = ["--check", file];
+    const command = process.versions?.electron ? "node" : process.execPath;
+    const child = spawn(command, args, { windowsHide: true, stdio: "ignore" });
+    child.once("error", () => resolve(null));
+    child.once("exit", (code) => resolve(code === 0));
+  });
+}
+
+// Exported for the test suite, in the same spirit as `untar`: staging is the
+// security-sensitive boundary, and the tests pin that it parses but never
+// executes what it writes.
+export async function writeStaged(key, env, files) {
   const dir = stagingDir(key, env);
   await fs.rm(dir, { recursive: true, force: true });
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -329,9 +358,11 @@ async function writeStaged(key, env, files) {
   }
   const entry = path.join(dir, "index.mjs");
   if (!(await exists(entry))) throw new Error("插件包中没有 index.mjs");
-  // Import before it can replace anything: a module that cannot even load
-  // must fail here, while the installed copy is still untouched.
-  await import(pathToFileURL(entry).href);
+  // Parse, never run: a module that cannot even load must fail here, while
+  // the installed copy is still untouched — without executing its top-level
+  // code ahead of the review the diff is supposed to be.
+  const parsed = await syntaxCheck(entry);
+  if (parsed === false) throw new Error("插件包语法检查未通过，已拒绝安装");
   return dir;
 }
 
@@ -424,6 +455,9 @@ async function backupCurrent(key, env) {
 
 /** Apply the staged copy, keeping the previous external copy for rollback. */
 export async function applyUpdate(key, env = process.env) {
+  // Validate the key before anything else: the staging and external paths are
+  // joined from it, and a hostile key must not reach a rename or a rm.
+  if (!PLUGINS[key]) throw new Error(`unknown plugin: ${key}`);
   const stage = stagingDir(key, env);
   if (!(await exists(path.join(stage, "index.mjs")))) {
     throw new Error("没有待安装的插件，请先检查更新");
@@ -477,6 +511,10 @@ async function dirVersion(dir) {
  * at all — the release the user had found stayed invisible.
  */
 export async function rollbackPlugin(key, env = process.env) {
+  // Validate the key before the rm: `externalDir` joins it raw, and the
+  // "unknown plugin" check at the bottom ran *after* the directory was
+  // already gone — a hostile key could name any folder on the machine.
+  if (!PLUGINS[key]) throw new Error(`unknown plugin: ${key}`);
   const backup = backupDir(key, env);
   const external = externalDir(key, env);
   const currentVersion = await dirVersion(external);
@@ -508,12 +546,14 @@ export async function stagedPreview(key, env = process.env) {
 }
 
 /**
- * The opt-in automatic path. It only installs a release whose host and path
- * sets are unchanged: a new endpoint is exactly what a user must review, and
- * applying it silently would defeat the point of the updater.
+ * The opt-in automatic path. It downloads and stages a new release, and
+ * always leaves the decision to the user: the diff is a static-text
+ * heuristic, so "no new hosts or paths" says nothing about what else the
+ * code might do, and a silent apply would put the updater's one human gate
+ * on an honor system.
  *
- * A release with additions is downloaded and staged, then left as "pending" —
- * the plugin page shows it with the diff and waits for a click.
+ * The staged copy is applied from the plugin page, with the diff and one
+ * click — the same flow an update found by hand takes.
  */
 export async function autoUpdate(env = process.env) {
   const settings = await readSettings(env).catch(() => ({}));
@@ -526,13 +566,7 @@ export async function autoUpdate(env = process.env) {
         results.push({ key, action: "current" });
         continue;
       }
-      const additions = (preview.diff?.hosts?.added?.length || 0) + (preview.diff?.paths?.added?.length || 0);
-      if (additions > 0) {
-        results.push({ key, action: "needs-review", preview });
-        continue;
-      }
-      const info = await applyUpdate(key, env);
-      results.push({ key, action: "updated", version: info.version });
+      results.push({ key, action: "needs-review", preview });
     } catch (error) {
       results.push({ key, action: "error", error: error?.message || "update failed" });
     }
