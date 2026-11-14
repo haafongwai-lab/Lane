@@ -5,10 +5,11 @@ export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 3426;
 
 /**
- * Lane is a loopback-only gateway: the control API has no separate auth
- * token, so binding it to a LAN interface would expose account and MCP
- * operations to the network. Keep the check here so every caller of the
- * address parser gets the same answer.
+ * Lane is a loopback-only gateway. The control API additionally requires a
+ * local token (see control-token.js) because a loopback bind alone does not
+ * separate Windows user sessions; binding it to a LAN interface would expose
+ * account and MCP operations to the network all the same. Keep the check
+ * here so every caller of the address parser gets the same answer.
  */
 export function isLoopbackHost(value) {
   const host = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");

@@ -2,9 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "../src/server.js";
+import { ensureControlToken } from "../src/control-token.js";
+
+// The control routes require the local token, read from the data directory
+// exactly as in production. This file's own sandbox keeps that off the real
+// profile; the token is read once and attached by `auth()` below. node:test
+// runs each file in its own process, so the env override stays contained.
+const CONTROL_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "lane-server-control-"));
+process.env.LANE_DATA_DIR = CONTROL_DIR;
+const CONTROL_TOKEN = await ensureControlToken();
+const auth = (extra = {}) => ({ "x-lane-token": CONTROL_TOKEN, ...extra });
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -638,11 +649,11 @@ test("account routes switch, switch off, remove and check in", async () => {
   const base = await listen(server);
   const post = (pathname, body) => fetch(`${base}${pathname}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: auth({ "content-type": "application/json" }),
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   try {
-    const listed = await fetch(`${base}/lane/accounts`);
+    const listed = await fetch(`${base}/lane/accounts`, { headers: auth() });
     assert.equal(listed.status, 200);
     assert.equal((await listed.json()).activeId, "uid-1");
 
@@ -680,7 +691,7 @@ test("the usage route answers the overview and passes the range through", async 
   const server = createServer({ control });
   const base = await listen(server);
   try {
-    const today = await fetch(`${base}/lane/usage`);
+    const today = await fetch(`${base}/lane/usage`, { headers: auth() });
     assert.equal(today.status, 200);
     assert.deepEqual(await today.json(), {
       range: "today",
@@ -688,7 +699,7 @@ test("the usage route answers the overview and passes the range through", async 
       series: []
     });
 
-    const week = await fetch(`${base}/lane/usage?range=7d`);
+    const week = await fetch(`${base}/lane/usage?range=7d`, { headers: auth() });
     assert.equal((await week.json()).range, "7d");
     assert.deepEqual(calls, ["today", "7d"]);
   } finally {
@@ -707,7 +718,7 @@ test("switching an account needs an explicit boolean", async () => {
   try {
     const response = await fetch(`${base}/lane/accounts/uid-1/enabled`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: auth({ "content-type": "application/json" }),
       body: JSON.stringify({ enabled: "yes" })
     });
     assert.equal(response.status, 400);
@@ -1260,11 +1271,12 @@ test("a request from a foreign Origin cannot drive the gateway", async () => {
   const port = new URL(base).port;
   try {
     // A page at another origin: no preflight is needed for a text/plain POST,
-    // so the gateway itself must refuse it.
+    // so the gateway itself must refuse it. The requests carry the control
+    // token, so the 403 is the Origin gate's doing, not the token gate's.
     for (const path of ["/lane/checkin/settings", "/v1/chat/completions"]) {
       const response = await fetch(base + path, {
         method: "POST",
-        headers: { "content-type": "text/plain", origin: "https://evil.example" },
+        headers: auth({ "content-type": "text/plain", origin: "https://evil.example" }),
         body: JSON.stringify(path === "/v1/chat/completions"
           ? { model: "auto", messages: [{ role: "user", content: "hi" }] }
           : { hour: 3 })
@@ -1272,7 +1284,7 @@ test("a request from a foreign Origin cannot drive the gateway", async () => {
       assert.equal(response.status, 403, path);
     }
     const fetchSite = await fetch(`${base}/lane/status`, {
-      headers: { "sec-fetch-site": "cross-site" }
+      headers: auth({ "sec-fetch-site": "cross-site" })
     });
     assert.equal(fetchSite.status, 403);
 
@@ -1286,7 +1298,7 @@ test("a request from a foreign Origin cannot drive the gateway", async () => {
     // A same-origin browser request names the gateway itself: allowed.
     const own = await fetch(`${base}/lane/checkin/settings`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: `http://127.0.0.1:${port}` },
+      headers: auth({ "content-type": "application/json", origin: `http://127.0.0.1:${port}` }),
       body: "{}"
     });
     assert.equal(own.status, 200);
@@ -1401,7 +1413,7 @@ test("a control path with malformed percent-encoding answers 400", async () => {
   const server = createServer({ control });
   const base = await listen(server);
   try {
-    const response = await fetch(`${base}/lane/accounts/%E0%A4%A/activate`, { method: "POST" });
+    const response = await fetch(`${base}/lane/accounts/%E0%A4%A/activate`, { method: "POST", headers: auth() });
     assert.equal(response.status, 400);
   } finally {
     await new Promise((resolve) => server.close(resolve));

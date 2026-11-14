@@ -6,6 +6,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { createServer } from "../src/server.js";
 import { createControlCenter } from "../src/control-center.js";
+import { ensureControlToken } from "../src/control-token.js";
 import { readServers } from "../src/mcp-servers.js";
 
 /**
@@ -56,12 +57,15 @@ test("every control-center shared-guard write has a matching forward route", () 
   }
 });
 
-function liftWriters(base, ownsGateway, fetchImpl) {
+function liftWriters(base, ownsGateway, fetchImpl, headers) {
   const from = MAIN.indexOf("async function ownerWrite(");
   const to = MAIN.indexOf("function showWindow(", from);
   assert.ok(from >= 0 && to > from, "ownerWrite is still in main.js");
-  return new Function("GATEWAY", "ownsGateway", "fetch",
-    MAIN.slice(from, to) + "\nreturn { ownerWrite, controlWrite };")(base, ownsGateway, fetchImpl);
+  // The fourth argument stands in for main.js's own controlHeaders(), which
+  // lives above ownerWrite in the source and reads the token file lazily;
+  // the test supplies the sandbox's real token directly.
+  return new Function("GATEWAY", "ownsGateway", "fetch", "controlHeaders",
+    MAIN.slice(from, to) + "\nreturn { ownerWrite, controlWrite };")(base, ownsGateway, fetchImpl, headers);
 }
 
 test("a forwarded MCP write lands in the owner's registry", async (t) => {
@@ -78,12 +82,13 @@ test("a forwarded MCP write lands in the owner's registry", async (t) => {
   };
   const control = createControlCenter({ env, checkins: false, port: 0, host: "127.0.0.1" });
   t.after(() => control.stop?.().catch(() => {}));
-  const server = createServer({ provider: { async listModels() { return []; } }, control });
+  const server = createServer({ provider: { async listModels() { return []; } }, control, env });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
+  const token = await ensureControlToken(env);
 
-  const { controlWrite } = liftWriters(base, false, globalThis.fetch);
+  const { controlWrite } = liftWriters(base, false, globalThis.fetch, (extra) => ({ "x-lane-token": token, ...extra }));
   const entry = { name: "forwarded", transport: "stdio", command: "npx", args: ["-y", "x"], agents: ["codex"] };
   const result = await controlWrite("/lane/mcp", entry, () => {
     throw new Error("a follower must not call its local control");
@@ -104,11 +109,12 @@ test("a forwarded error keeps the owner's message", async (t) => {
   };
   const control = createControlCenter({ env, checkins: false, port: 0, host: "127.0.0.1" });
   t.after(() => control.stop?.().catch(() => {}));
-  const server = createServer({ provider: { async listModels() { return []; } }, control });
+  const server = createServer({ provider: { async listModels() { return []; } }, control, env });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const { controlWrite } = liftWriters(base, false, globalThis.fetch);
+  const token = await ensureControlToken(env);
+  const { controlWrite } = liftWriters(base, false, globalThis.fetch, (extra) => ({ "x-lane-token": token, ...extra }));
   await assert.rejects(
     () => controlWrite("/lane/mcp", { name: "bad name!", transport: "stdio", command: "x" }, () => {}),
     /名称需为字母|name/i,
@@ -120,7 +126,7 @@ test("an owned window still writes locally", async () => {
   const calls = [];
   const { controlWrite } = liftWriters("http://127.0.0.1:1", true, async () => {
     throw new Error("an owned window must not use loopback");
-  });
+  }, () => ({}));
   const value = await controlWrite("/lane/mcp", {}, () => { calls.push("local"); return { ok: true }; });
   assert.deepEqual(value, { ok: true });
   assert.deepEqual(calls, ["local"]);

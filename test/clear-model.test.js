@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { RequestJournal } from "../src/request-journal.js";
 import { createControlCenter } from "../src/control-center.js";
 import { createServer } from "../src/server.js";
+import { ensureControlToken } from "../src/control-token.js";
 import { summary, rangeStart, rangeEnd } from "../src/usage.js";
 
 /**
@@ -128,14 +129,16 @@ test("the owner route deletes the model's rows end to end", async (t) => {
   const env = envFor(dir);
   const control = createControlCenter({ env, checkins: false, port: 0, host: "127.0.0.1" });
   t.after(() => control.stop().catch(() => {}));
-  const server = createServer({ provider: { async listModels() { return []; } }, control });
+  const server = createServer({ provider: { async listModels() { return []; } }, control, env });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
+  const token = await ensureControlToken(env);
+  const auth = (extra = {}) => ({ "x-lane-token": token, ...extra });
 
   const response = await fetch(`${base}/lane/activity/clear-model`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: auth({ "content-type": "application/json" }),
     body: JSON.stringify({ model: "hy3", range: "today" })
   });
   assert.equal(response.status, 200);
@@ -143,7 +146,7 @@ test("the owner route deletes the model's rows end to end", async (t) => {
   assert.equal(result.removed, 1, "the completed hy3 row goes, the running one stays");
   assert.equal(result.model, "hy3");
 
-  const list = await (await fetch(`${base}/lane/activity`)).json();
+  const list = await (await fetch(`${base}/lane/activity`, { headers: auth() })).json();
   assert.deepEqual(list.data.map((r) => r.id).sort(), ["b", "c", "d"],
     "the running row and a row dated beyond the range both survive");
 });

@@ -23,6 +23,7 @@ import { projectOf } from "./project.js";
 import { proxyChat, proxyProtocol, projectFields } from "./relay.js";
 import { redactForLog } from "./redact.js";
 import { isLoopbackHost } from "./config.js";
+import { CONTROL_TOKEN_HEADER, ensureControlToken, tokenMatches } from "./control-token.js";
 
 const require = createRequire(import.meta.url);
 
@@ -90,7 +91,7 @@ function requestFromElsewhere(req) {
   return host && !localHosts(req).includes(host);
 }
 
-export function createApp({ provider = new FallbackProvider(), control = null } = {}) {
+export function createApp({ provider = new FallbackProvider(), control = null, env = process.env } = {}) {
   return async function handler(req, res) {
     if (!hostIsLocal(req)) {
       errorJSON(res, 403, "Lane serves the local host only: the Host header must name this gateway", "forbidden");
@@ -111,7 +112,7 @@ export function createApp({ provider = new FallbackProvider(), control = null } 
     }
     try {
       if (url.pathname.startsWith("/lane/")) {
-        await controlRoute(req, res, url, control);
+        await controlRoute(req, res, url, control, env);
         return;
       }
       if (
@@ -585,9 +586,21 @@ function estimateTokens(body) {
   return Math.round(cjk + (text.length - cjk) / 4);
 }
 
-async function controlRoute(req, res, url, control) {
+async function controlRoute(req, res, url, control, env = process.env) {
   if (!control) {
     errorJSON(res, 404, "control API is not enabled", "not_found");
+    return;
+  }
+  // The control plane carries account operations, agent wiring, MCP
+  // registration and the plugin updater, so a loopback address alone is not
+  // enough: 127.0.0.1 is machine-wide, and a process running as another
+  // Windows user could otherwise reach all of it. A per-data-directory
+  // token, read from an owner-only file, is what separates the sessions.
+  // The data plane (/v1/*, /healthz) stays open to the local agents that
+  // were wired with the public placeholder key.
+  const expected = await ensureControlToken(env).catch(() => null);
+  if (!expected || !tokenMatches(req.headers[CONTROL_TOKEN_HEADER], expected)) {
+    errorJSON(res, 403, "control API requires the local token (x-lane-token); read it from the data directory", "forbidden");
     return;
   }
   try {

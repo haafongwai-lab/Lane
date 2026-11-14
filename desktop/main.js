@@ -15,6 +15,8 @@ import { openMcpSession } from "../src/mcp-session.js";
 import { readServers } from "../src/mcp-servers.js";
 import { readConsolePrefs, writeConsolePrefs } from "../src/console-prefs.js";
 import { createLocalTools } from "../src/console-tools.js";
+import { CONTROL_TOKEN_HEADER, ensureControlToken } from "../src/control-token.js";
+import { redactForLog } from "../src/redact.js";
 
 const HOST = "127.0.0.1";
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -89,6 +91,9 @@ async function startGateway() {
     PORT = settings.port;
     portSource = settings.source || "default";
     GATEWAY = `http://${HOST}:${PORT}`;
+    // Warm the control-plane token cache so the first status poll carries it
+    // instead of being refused once before the read lands.
+    ensureControlToken().then((token) => { controlTokenCache = token; }).catch(() => {});
     let alreadyRunning = false;
     try {
       alreadyRunning = await healthy();
@@ -148,12 +153,15 @@ async function startGateway() {
         const written = logStream?.write(line);
         if (written) written.catch(() => {});
       };
+      // The file outlives any one call site, so the one-way mask runs here at
+      // the sink: a future console.error that carries credentials cannot put
+      // them on disk no matter which module printed them.
       console.log = (...args) => {
-        writeLine(`${new Date().toISOString()} ${args.join(" ")}\n`);
+        writeLine(`${new Date().toISOString()} ${redactForLog(args.join(" "))}\n`);
         originalLog(...args);
       };
       console.error = (...args) => {
-        writeLine(`${new Date().toISOString()} ERROR ${args.join(" ")}\n`);
+        writeLine(`${new Date().toISOString()} ERROR ${redactForLog(args.join(" "))}\n`);
         originalError(...args);
       };
     }
@@ -238,7 +246,10 @@ async function healthy() {
 
 async function fetchExternalStatus() {
   try {
-    const response = await fetch(`${GATEWAY}/lane/status`, { signal: AbortSignal.timeout(4000) });
+    const response = await fetch(`${GATEWAY}/lane/status`, {
+      headers: controlHeaders(),
+      signal: AbortSignal.timeout(4000)
+    });
     if (response.ok) {
       const status = await response.json();
       // A follower can attach to an older `lane serve` whose status predates
@@ -292,10 +303,32 @@ async function fetchExternalStatus() {
  * follows the owner's file. The comment in control-center.js has always said
  * this is how a follower's clear request works; the forwarding was missing.
  */
+// The control plane's local credential, read from the shared data directory.
+// The gateway requires it on every /lane/* route; the file is owner-only, so
+// another Windows session can read neither it nor this window's meaning.
+function controlHeaders(extra = {}) {
+  return { [CONTROL_TOKEN_HEADER]: readControlTokenSync(), ...extra };
+}
+
+// A cached read: the token file only changes when it is re-created, and the
+// status poll runs every few seconds — the sync read keeps the callers
+// synchronous-shaped without a token fetch on every tick.
+let controlTokenCache;
+function readControlTokenSync() {
+  if (controlTokenCache === undefined) {
+    // The async read lands on the next tick; the first poll may go out
+    // without a token and be refused, which the caller already treats as
+    // "gateway not ready".
+    ensureControlToken().then((token) => { controlTokenCache = token; }).catch(() => { controlTokenCache = null; });
+    controlTokenCache = null;
+  }
+  return controlTokenCache;
+}
+
 async function ownerWrite(pathname, body, { timeoutMs = 15_000 } = {}) {
   const response = await fetch(`${GATEWAY}${pathname}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: controlHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(body || {}),
     signal: AbortSignal.timeout(timeoutMs)
   });
@@ -931,9 +964,18 @@ handleIpc("lane:skills", async () => {
   // that imported successfully still render as an empty library.
   return { skills: await control.skillsList() };
 });
+// The folder the picker most recently returned. The import IPC accepts only
+// that path: without the check, a compromised renderer could hand any local
+// folder straight to skillsImport and junction it into the agents' skill
+// folders, bypassing the dialog the user is meant to have answered.
+let lastPickedSkillFolder = null;
+
 handleIpc("lane:skills-import", async (_event, { dir } = {}) => {
   await startGateway();
   const wanted = String(dir || "");
+  if (!lastPickedSkillFolder || wanted !== lastPickedSkillFolder) {
+    throw new Error("请先在文件夹选择对话框中选择要导入的技能文件夹");
+  }
   return controlWrite("/lane/skills/import", { dir: wanted }, () => control.skillsImport(wanted));
 });
 handleIpc("lane:skills-pick-folder", async () => {
@@ -942,7 +984,8 @@ handleIpc("lane:skills-pick-folder", async () => {
     title: "选择技能文件夹"
   });
   if (result.canceled || !result.filePaths.length) return null;
-  return result.filePaths[0];
+  lastPickedSkillFolder = result.filePaths[0];
+  return lastPickedSkillFolder;
 });
 handleIpc("lane:skills-remove", async (_event, { name } = {}) => {
   await startGateway();

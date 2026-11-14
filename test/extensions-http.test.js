@@ -6,6 +6,7 @@ import path from "node:path";
 import http from "node:http";
 import { createServer } from "../src/server.js";
 import { createControlCenter } from "../src/control-center.js";
+import { ensureControlToken } from "../src/control-token.js";
 
 /**
  * End-to-end over HTTP: the /lane/mcp and /lane/skills routes through the
@@ -46,19 +47,28 @@ const provider = {
   async chat() { throw new Error("not used"); }
 };
 
+// The control plane now requires the local token; the sandbox's own token is
+// read once per test and attached by the helpers below.
+let controlToken = "";
+
 async function start(t) {
   const { dir, env } = sandbox(t);
   const control = createControlCenter({ env, checkins: false, port: 0, host: "127.0.0.1" });
   t.after(() => control.stop?.().catch(() => {}));
-  const server = createServer({ provider, control });
+  const server = createServer({ provider, control, env });
   const base = await listen(server);
   t.after(() => new Promise((resolve) => server.close(resolve)));
-  return { base, env, dir };
+  controlToken = await ensureControlToken(env);
+  return { base, env, dir, token: controlToken };
 }
+
+const authHeaders = (extra = {}) => ({ "x-lane-token": controlToken, ...extra });
+
+const get = (base, pathname) => fetch(`${base}${pathname}`, { headers: authHeaders() });
 
 const post = (base, pathname, body) => fetch(`${base}${pathname}`, {
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: authHeaders({ "content-type": "application/json" }),
   body: body === undefined ? undefined : JSON.stringify(body)
 });
 
@@ -66,7 +76,7 @@ test("MCP routes: add, list with targets, toggle, set agents, remove", async (t)
   const { base, env } = await start(t);
 
   // Empty at first, and the client list is there for the lamps.
-  const empty = await (await fetch(`${base}/lane/mcp`)).json();
+  const empty = await (await get(base, "/lane/mcp")).json();
   assert.deepEqual(empty.servers, []);
   // Claude Desktop, Codex, ZCode. DeepSeek Harness is not a target: it
   // manages its own MCP servers through its MCP plugin.
@@ -112,7 +122,7 @@ test("MCP routes: add, list with targets, toggle, set agents, remove", async (t)
   assert.equal(removed.removed, true);
   const zcodeAfter = JSON.parse(fs.readFileSync(path.join(env.ZCODE_HOME, "cli", "config.json"), "utf8"));
   assert.ok(!zcodeAfter.mcp?.servers?.filesystem);
-  const listed = await (await fetch(`${base}/lane/mcp`)).json();
+  const listed = await (await get(base, "/lane/mcp")).json();
   assert.deepEqual(listed.servers, []);
 });
 
@@ -136,7 +146,7 @@ test("skills routes: import from a folder, install, list, uninstall, remove", as
   const imported = await (await post(base, "/lane/skills/import", { dir: source })).json();
   assert.equal(imported.name, "pdf-tools");
 
-  let list = await (await fetch(`${base}/lane/skills`)).json();
+  let list = await (await get(base, "/lane/skills")).json();
   // The built-in skill is always there, marked; user skills follow.
   assert.ok(list.skills.some((s) => s.name === "find-skills" && s.builtin), "built-in find-skills");
   const mine = () => list.skills.filter((s) => !s.builtin);
@@ -149,7 +159,7 @@ test("skills routes: import from a folder, install, list, uninstall, remove", as
   await post(base, "/lane/skills/install", { name: "pdf-tools", agent: "codex" });
   const link = path.join(env.CODEX_HOME, "skills", "pdf-tools");
   assert.ok(fs.lstatSync(link).isSymbolicLink());
-  list = await (await fetch(`${base}/lane/skills`)).json();
+  list = await (await get(base, "/lane/skills")).json();
   assert.ok(mine()[0].installs.some((i) => i.agent === "codex" && i.linked));
 
   // Uninstall leaves the library copy.
@@ -159,7 +169,7 @@ test("skills routes: import from a folder, install, list, uninstall, remove", as
 
   // Remove clears the library too, leaving only the built-in skill.
   await post(base, "/lane/skills/remove", { name: "pdf-tools" });
-  list = await (await fetch(`${base}/lane/skills`)).json();
+  list = await (await get(base, "/lane/skills")).json();
   assert.deepEqual(list.skills.map((s) => s.name), ["find-skills"]);
   assert.equal(list.skills[0].builtin, true);
 });
@@ -194,7 +204,7 @@ test("a skills remove of a traversal name answers 400 and deletes nothing", asyn
 
   assert.ok(fs.existsSync(path.join(dir, "keep-me.txt")), "the data directory survived");
   assert.ok(fs.existsSync(path.join(dir, "skills", "weather", "SKILL.md")), "the library survived");
-  const list = await (await fetch(`${base}/lane/skills`)).json();
+  const list = await (await get(base, "/lane/skills")).json();
   assert.equal(list.skills.filter((s) => !s.builtin).length, 1, "the library listing still works");
 });
 
